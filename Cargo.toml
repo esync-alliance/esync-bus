@@ -4,3 +4,8 @@ version = "0.1.0"
 authors = ["vps"]
 
 [dependencies]
+
+secstr = "0.2.x"
+regex = "0.2.x"
+lazy_static = "0.2.x"
+base64 = "0.5.x"
