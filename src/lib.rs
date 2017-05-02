@@ -8,8 +8,17 @@ extern crate lazy_static;
 
 #[cfg(test)]
 mod tests {
+
+    use std::fs::File;
+    use lib_xl4_bus::low_level::load_pem;
+
     #[test]
-    fn it_works() {
+    fn test_load_pem() {
+
+        let pem_file = File::open("test_data/cert.pem").unwrap();
+        let obj = load_pem(pem_file).unwrap();
+        println!("loaded {:?}", obj);
+
     }
 }
 

@@ -7,8 +7,7 @@ pub use self::secstr::SecStr;
 pub use std::io::{self,Read,BufReader,BufRead};
 pub use std::fmt::Debug;
 use self::regex::{Regex,Match};
-use std::fmt::format;
-use self::base64::{decode,encode};
+use self::base64::{decode};
 
 pub type IdentityCallback<A,B> = fn(A) -> B;
 
@@ -28,7 +27,7 @@ pub struct X509V3Identity {
 #[derive(Debug)]
 pub enum X509V3Object {
     Certificate { val : Vec<u8> },
-    PrivateKey { val : Vec<u8> },
+    PrivateKey { val : SecStr },
     EncryptedPrivateKey { val : Vec<u8> },
     CertificateChain { val : Vec<Vec<u8>> }
 }
@@ -68,8 +67,8 @@ impl From<base64::DecodeError> for Xl4Error {
 }
 
 lazy_static! {
-    static ref begin : Regex = Regex::new("").unwrap();
-    static ref end : Regex = Regex::new("").unwrap();
+    static ref PEM_BEGIN : Regex = Regex::new("-----BEGIN ([^-]*)-----").unwrap();
+    static ref PEM_END : Regex = Regex::new("-----END ([^-]*)-----").unwrap();
 }
 
 fn pem_type_for_obj(o : &X509V3Object) -> PemType {
@@ -98,25 +97,30 @@ fn get_pem_type(m : Option<Match>) -> Result<PemType, Xl4Error> {
 
 }
 
+fn clear_vec(m : Vec<u8>) -> Vec<u8> {
+    SecStr::new(m).zero_out();
+    return Vec::new();
+}
+
 pub fn load_pem<T: Read>(input : T) -> Result<X509V3Object, Xl4Error> {
 
     let mut rdr = BufReader::new(input);
-    let mut line = String::new();
     // $TODO: really, there is no streaming base64 decoding library for Rust?
-    let mut base64_buf = String::new();
+    // $TODO: we can't use a string, because they are bitch to clean out later.
+    let mut base64_buf = Vec::new();
     let mut what : Option<X509V3Object> = None;
     let mut processing = None;
 
     loop {
+        let mut line = String::new();
         let sz = rdr.read_line(&mut line)?;
         if sz == 0 { break; }
 
         if processing.is_none() {
 
-            match begin.captures(&line) {
+            match PEM_BEGIN.captures(&line) {
                 Some(x) => {
 
-                    let mut care = true;
                     let which = || -> Result<PemType, Xl4Error> { get_pem_type(x.get(1)) };
 
                     // if we have a what, and it's not a certificate or chain,
@@ -126,7 +130,7 @@ pub fn load_pem<T: Read>(input : T) -> Result<X509V3Object, Xl4Error> {
                         None => {
                             processing = match which()? {
                                 PemType::Certificate => Some(X509V3Object::Certificate {val:Vec::new()}),
-                                PemType::PrivateKey => Some(X509V3Object::PrivateKey {val:Vec::new()}),
+                                PemType::PrivateKey => Some(X509V3Object::PrivateKey {val:SecStr::new(Vec::new())}),
                                 PemType::RsaPrivateKey => Some(X509V3Object::EncryptedPrivateKey {val:Vec::new()})
                             }
                         },
@@ -135,7 +139,7 @@ pub fn load_pem<T: Read>(input : T) -> Result<X509V3Object, Xl4Error> {
                                 processing = Some(X509V3Object::Certificate {val: Vec::new()});
                             }
                         },
-                        _ => care = false
+                        _ => {}
                     }
 
                 }
@@ -144,7 +148,7 @@ pub fn load_pem<T: Read>(input : T) -> Result<X509V3Object, Xl4Error> {
 
         } else {
 
-            match end.captures(&line) {
+            match PEM_END.captures(&line) {
                 Some(x) => {
 
                     let x = get_pem_type(x.get(1))?;
@@ -156,10 +160,10 @@ pub fn load_pem<T: Read>(input : T) -> Result<X509V3Object, Xl4Error> {
                         return Result::Err(Xl4Error::PemFormatError);
                     }
 
-                    let bin = decode(base64_buf.as_bytes())?;
+                    let bin = decode(&base64_buf)?.clone();
 
                     match cur {
-                        X509V3Object::PrivateKey {val:_} => what = Some(X509V3Object::PrivateKey { val : bin }),
+                        X509V3Object::PrivateKey {val:_} => what = Some(X509V3Object::PrivateKey { val : SecStr::new(bin) }),
                         X509V3Object::EncryptedPrivateKey {val:_} => what = Some(X509V3Object::EncryptedPrivateKey {val:bin}),
                         X509V3Object::Certificate {val:_} => {
                             match what {
@@ -172,23 +176,26 @@ pub fn load_pem<T: Read>(input : T) -> Result<X509V3Object, Xl4Error> {
                         _=>return Result::Err(Xl4Error::InternalError(Option::Some(String::from("Can't be processing anything else"))))
                     }
 
-                    // give value back to processing. How else can we do that?
-                    processing = Some(cur);
+                    processing = None;
+                    base64_buf = clear_vec(base64_buf);
 
                 }
                 _ => {}
             }
 
+            if processing.is_some() {
+                base64_buf.append(&mut line.into_bytes());
+            }
+
         }
 
-        line.clear();
     }
 
-    match what {
+    if processing.is_some() { clear_vec(base64_buf); }
 
+    match what {
         None => Result::Err(Xl4Error::PemFormatError),
         Some(t) => Result::Ok(t)
-
     }
 
 }
