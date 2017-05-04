@@ -4,6 +4,7 @@ project(libxl4bus)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_VERBOSE_MAKEFILE on)
+set(CMAKE_C_VISIBILITY_PRESET hidden)
 
 set(PORT $ENV{LIBXL4BUS_PORT})
 
@@ -72,6 +73,29 @@ endif()
 
 include(${LOAD_CFG})
 
+set(LOAD_CFG ${PORT}/config.cmk)
+if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
+    set(LOAD_CFG ${PORT}/config.cmk.default)
+    if ((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
+        message(FATAL_ERROR "${PORT} must contain config.cmk or config.cmk.default file")
+    endif()
+endif()
+
+include(${LOAD_CFG})
+
+set(LOAD_CFG ${PORT}/config.h)
+if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
+    set(LOAD_CFG ${PORT}/config.h.default)
+    if ((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
+        message(FATAL_ERROR "${PORT} must contain config.h or config.h.default file")
+    endif()
+    # can't use COPY because it only copies to dirs.
+    # file(COPY ${PORT}/config.h.default ${PORT}/config.h)
+    # so the input file better not have any makefile macros.
+    file(GENERATE OUTPUT ${PORT}/config.h INPUT ${PORT}/config.h.default)
+endif()
+
+
 set(LOAD_CFG ${PORT}/run.cmk)
 if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
     set(LOAD_CFG ${PORT}/run.cmk.default)
@@ -84,11 +108,18 @@ set_empty(BUILD_SHARED TRUE)
 set_empty(BUILD_STATIC TRUE)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
+include_directories(${CMAKE_SOURCE_DIR}/src)
+include_directories(${PORT})
 
 set(LIB_SOURCE ${LIB_SOURCE}
     src/identity.c
-        src/include/libxl4bus/low_level.h
-    )
+    src/misc.c
+    src/net.c
+    src/internal.h
+    src/porting.h
+    src/include/libxl4bus/low_level.h
+    src/include/libxl4bus/types.h
+)
 
 if (BUILD_SHARED)
     add_library(xl4bus-shared SHARED ${LIB_SOURCE})
