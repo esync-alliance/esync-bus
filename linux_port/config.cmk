@@ -1,0 +1,3 @@
+
+# set_property(GLOBAL APPEND PROPERTY CMAKE_APPBUNDLE_PATH "/opt/soft/cjose")
+set(ENV{CMAKE_APPBUNDLE_PATH} "/opt/soft/cjose")

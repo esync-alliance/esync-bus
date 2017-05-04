@@ -1,2 +1,4 @@
 
+# if your CJose is not in default location:
+# set(ENV{CMAKE_APPBUNDLE_PATH} "/opt/soft/cjose")
 
