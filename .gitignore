@@ -5,4 +5,5 @@ config.cmk
 run.cmk
 .idea/workspace.xml
 .idea/tasks.xml
+config.h
 

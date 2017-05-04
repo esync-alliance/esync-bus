@@ -44,6 +44,7 @@ struct xl4bus_connection;
 #define E_XL4BUS_MEMORY     (-1) // malloc failed
 #define E_XL4BUS_SYS        (-2) // syscall failed, check errno
 #define E_XL4BUS_INTERNAL   (-3) // internal error
+#define E_XL4BUS_EOF        (-4) // unexpected EOF from channel
 
 typedef void (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_message_t *);
 
