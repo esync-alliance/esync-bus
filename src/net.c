@@ -69,11 +69,15 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
 
         if (flags & XL4BUS_POLL_READ) {
 
-#define RDP(when, where, len) {\
-    if ((when)) {\
-        size_t _len = (len); \
+#define RDP(pos, where, len) {\
+    size_t _len = len; \
+    size_t _lim = pos + _len; \
+    ssize_t delta = _lim - frm->total_read; \
+    if ((delta > 0)) {\
+        _len = _len - delta; \
+        void * ptr = where + delta; \
         while (_len) { \
-            ssize_t res = pf_recv(conn->fd, where, _len); \
+            ssize_t res = pf_recv(conn->fd, ptr, _len); \
             if (res < 0) { \
                 int x_err = pf_get_errno(); \
                 if (x_err == EINTR) { continue; } \
@@ -89,6 +93,7 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
             /* res > 0 here */ \
             i_conn->current_frame.total_read += res; \
             _len -= res; \
+            ptr += res; \
         } \
         if (err != E_XL4BUS_OK) { break; } \
     } \
@@ -96,11 +101,45 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
 do {} while(0)
 
             while (1) {
-                RDP(!i_conn->current_frame.total_read, &i_conn->current_frame.byte0, 1);
+
+                frame_t * frm = &i_conn->current_frame;
+
+                RDP(0, &frm->byte0, 1);
+                RDP(1, &frm->frame_len, 3);
+                if (!frm->len_converted) {
+                    frm->len_converted = 1;
+                    frm->frame_len = ((uint32_t)frm->len_bytes[0] << 16) |
+                            ((uint32_t)frm->len_bytes[1] << 8) |
+                            ((uint32_t)frm->len_bytes[2]);
+                }
+
+                if (i_conn->frame_data.cap < frm->frame_len) {
+                    void * t = cfg.realloc(i_conn->frame_data.data, frm->frame_len);
+                    if (!t) {
+                        err = E_XL4BUS_MEMORY;
+                        break;
+                    }
+                    i_conn->frame_data.data = t;
+                }
+                RDP(4, i_conn->frame_data.data, frm->frame_len);
+                i_conn->frame_data.len = frm->total_read - 4;
+
+                switch (frm->byte0 & FRAME_TYPE_MASK) {
+
+                    case FRAME_TYPE_NORMAL: {
+
+                        stream_t * stream;
+                        HASH_FIND()
+
+                    }
+
+                }
 
             }
 
         }
+
+        if (err != E_XL4BUS_OK) { break; }
 
         err = check_conn_io(conn);
 

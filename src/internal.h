@@ -4,9 +4,15 @@
 #include <libxl4bus/low_level.h>
 #include "config.h"
 
+#define uthash_malloc(c) cfg.malloc(c)
+#define uthash_free(c) cfg.free(c)
+
+#include "uthash.h"
+
 #define FRAME_TYPE_MASK 0x7
-#define FRAME_TYPE_NORMAL 0x1
-#define FRAME_TYPE_
+#define FRAME_TYPE_NORMAL 0x0
+#define FRAME_TYPE_CTEST 0x1
+#define FRAME_TYPE_SABORT 0x2
 
 typedef struct dbuf {
     uint8_t * data;
@@ -22,31 +28,26 @@ typedef struct chunk {
 
 typedef struct frame {
 
-    uint16_t total_read;
+    size_t total_read;
     uint8_t byte0;
     union {
-        // connectivity test
-        uint8_t ct_value[32];
-        // normal frame
-#pragma pack(push)
-#pragma pack(1)
-        union {
-            struct {
-                uint16_t n_stream_id;
-                uint16_t n_seq;
-                uint16_t n_len;
-            };
-            uint8_t n_body[6];
-        };
-#pragma pack(pop)
-        // cancellation frame
         struct {
-            uint16_t c_stream_id;
-            uint16_t c_len;
+            uint8_t len_converted;
+            uint8_t len_bytes[3];
         };
+        uint32_t frame_len;
     };
 
 } frame_t;
+
+typedef struct stream {
+
+    UT_hash_handle hh;
+    uint16_t stream_id;
+    dbuf_t incoming_message;
+    uint16_t next_msg_id;
+
+} stream_t;
 
 typedef struct connection_internal {
     chunk_t * out_queue;
@@ -58,5 +59,9 @@ extern xl4bus_ll_cfg_t cfg;
 
 /* net.c */
 int check_conn_io(xl4bus_connection_t*);
+
+/* misc.c */
+int consume_dbuf(dbuf_t * into, dbuf_t * from, int do_free);
+
 
 #endif

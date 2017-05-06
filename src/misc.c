@@ -39,3 +39,39 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
     return err;
 
 }
+
+int consume_dbuf(dbuf_t * into, dbuf_t * from, int do_free) {
+
+    // quick paths
+    if (do_free) {
+
+        int do_copy = 0;
+
+        if (!into->len) {
+            free(into->data);
+            do_copy = 1;
+        } else if (!into->data) {
+            do_copy = 1;
+        }
+
+        if (do_copy) {
+            // data is not allocated, we don't have to care about anything else.
+            memcpy(into, from, sizeof(dbuf_t));
+            free(from->data);
+            memset(from, 0, sizeof(dbuf_t));
+            return 0;
+        }
+    }
+
+    size_t need_len = from->len + into->len;
+    ssize_t delta = need_len - into->cap;
+    if (delta > 0) {
+        void * x = cfg.realloc(into->data, need_len);
+        if (!x) { return 1; }
+        into->data = x;
+        into->cap = need_len;
+    }
+    memcpy(into->data + into->len, from->data, from->len);
+    return 0;
+
+}

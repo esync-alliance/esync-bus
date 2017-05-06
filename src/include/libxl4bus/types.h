@@ -65,15 +65,14 @@ typedef struct xl4bus_X509v3_Identity {
 typedef struct xl4bus_connection {
 
     int fd;
+    int is_client;
 
     xl4bus_set_poll set_poll;
     xl4bus_handle_ll_message ll_message;
     xl4bus_notify_close notify_close;
 
     void * custom;
-
     void * _private;
-
 
 } xl4bus_connection_t;
 
