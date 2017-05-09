@@ -73,8 +73,8 @@ extern xl4bus_ll_cfg_t cfg;
 int check_conn_io(xl4bus_connection_t*);
 
 /* misc.c */
-int consume_dbuf(dbuf_t * into, dbuf_t * from, int do_free);
-int add_to_dbuf(dbuf_t * into, void * from, size_t from_len);
-
+int consume_dbuf(dbuf_t * , dbuf_t * , int);
+int add_to_dbuf(dbuf_t * , void * , size_t );
+void free_dbuf(dbuf_t *, int);
 
 #endif

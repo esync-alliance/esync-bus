@@ -175,39 +175,46 @@ do {} while(0)
                             stream->stream_id = stream_id;
                             HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
 
-                            // Does this frame start a message?
-                            if (!stream->message_started) {
+                        }
 
-                                // the message must contain CT code.
-                                offset++;
-                                if (frm.data.len < offset) {
-                                    err = E_XL4BUS_DATA;
-                                    break;
-                                }
+                        // Does this frame start a message?
+                        if (!stream->message_started) {
 
-                                stream->message_started = 1;
-                                stream->incoming_message_ct = *(frm.data.data+4);
-
-                            }
-
-                            // does frame sequence match our expectations?
-                            if (stream->frame_seq_in++ != ntohs(*(uint16_t*)(frm.data.data+2))) {
+                            // the message must contain CT code.
+                            offset++;
+                            if (frm.data.len < offset) {
                                 err = E_XL4BUS_DATA;
                                 break;
                             }
 
-                            // OK, we are ready to consume the frame's contents.
-                            add_to_dbuf(&stream->incoming_message, &frm.data + offset, frm.data.len - offset);
-
-                            // $TODO: must check if the message size is too big!!!
+                            stream->message_started = 1;
+                            stream->incoming_message_ct = *(frm.data.data+4);
 
                         }
+
+                        // does frame sequence match our expectations?
+                        if (stream->frame_seq_in++ != ntohs(*(uint16_t*)(frm.data.data+2))) {
+                            err = E_XL4BUS_DATA;
+                            break;
+                        }
+
+                        // OK, we are ready to consume the frame's contents.
+                        if (add_to_dbuf(&stream->incoming_message, &frm.data.data + offset, frm.data.len - offset)) {
+                            err = E_XL4BUS_DATA;
+                            break;
+                        }
+
+                        // $TODO: must check if the message size is too big!!!
 
                     }
 
                 }
 
                 if (err != E_XL4BUS_OK) { break; }
+
+                // we dealt with the frame
+                free_dbuf(&frm.data, 0);
+                memset(&frm, 0, sizeof(frm));
 
             }
 

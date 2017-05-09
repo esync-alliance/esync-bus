@@ -90,3 +90,14 @@ int add_to_dbuf(dbuf_t * into, void * from, size_t from_len) {
     return 0;
 
 }
+
+void free_dbuf(dbuf_t * dbuf, int and_self) {
+
+    cfg.free(dbuf->data);
+    if (and_self) {
+        cfg.free(dbuf);
+    } else {
+        memset(dbuf, 0, sizeof(dbuf_t));
+    }
+
+}
