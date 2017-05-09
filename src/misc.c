@@ -75,3 +75,18 @@ int consume_dbuf(dbuf_t * into, dbuf_t * from, int do_free) {
     return 0;
 
 }
+
+int add_to_dbuf(dbuf_t * into, void * from, size_t from_len) {
+
+    size_t need = from_len + into->len;
+    if (need > into->cap) {
+        void * aux = cfg.realloc(into->data, need);
+        if (!aux) { return 1; }
+        into->data = aux;
+        into->cap = need;
+    }
+    memcpy(into->data + into->len, from, from_len);
+    into->len += from_len;
+    return 0;
+
+}

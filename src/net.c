@@ -1,6 +1,7 @@
 
 #include "internal.h"
 #include "porting.h"
+#include "misc.h"
 
 int check_conn_io(xl4bus_connection_t * conn) {
 
@@ -72,7 +73,7 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
 #define RDP(pos, where, len) {\
     size_t _len = len; \
     size_t _lim = pos + _len; \
-    ssize_t delta = _lim - frm->total_read; \
+    ssize_t delta = _lim - i_conn->current_frame.total_read; \
     if ((delta > 0)) {\
         _len = _len - delta; \
         void * ptr = where + delta; \
@@ -102,40 +103,115 @@ do {} while(0)
 
             while (1) {
 
-                frame_t * frm = &i_conn->current_frame;
+#define frm (i_conn->current_frame)
 
-                RDP(0, &frm->byte0, 1);
-                RDP(1, &frm->frame_len, 3);
-                if (!frm->len_converted) {
-                    frm->len_converted = 1;
-                    frm->frame_len = ((uint32_t)frm->len_bytes[0] << 16) |
-                            ((uint32_t)frm->len_bytes[1] << 8) |
-                            ((uint32_t)frm->len_bytes[2]);
+                RDP(0, &frm.byte0, 1);
+                RDP(1, &frm.len_bytes, 3);
+                if (!frm.len_converted) {
+                    crcFast(&frm.byte0, 1, &frm.crc);
+                    crcFast(&frm.len_bytes, 3, &frm.crc);
+                    frm.len_converted = 1;
+                    frm.frame_len = ((uint32_t)frm.len_bytes[0] << 16) |
+                            ((uint32_t)frm.len_bytes[1] << 8) |
+                            ((uint32_t)frm.len_bytes[2]);
                 }
 
-                if (i_conn->frame_data.cap < frm->frame_len) {
-                    void * t = cfg.realloc(i_conn->frame_data.data, frm->frame_len);
+                if (frm.data.cap < frm.frame_len) {
+                    void * t = cfg.realloc(frm.data.data, frm.frame_len);
                     if (!t) {
                         err = E_XL4BUS_MEMORY;
                         break;
                     }
-                    i_conn->frame_data.data = t;
+                    frm.data.data= t;
                 }
-                RDP(4, i_conn->frame_data.data, frm->frame_len);
-                i_conn->frame_data.len = frm->total_read - 4;
 
-                switch (frm->byte0 & FRAME_TYPE_MASK) {
+                RDP(4, frm.data.data, frm.frame_len);
+                i_conn->frm.len = frm.total_read - 4;
+
+                if (frm.data.len < 4) {
+                    // not even enough for CRC
+                    err = E_XL4BUS_DATA;
+                    break;
+                }
+
+                // calculate and validate CRC
+                crcFast(frm.data.data, frm.data.len -= 4, &frm.crc);
+                if (htonl(frm.crc) != *(uint32_t*)(frm.data.data + frm.data.len)) {
+                    // crc-32 mismatch
+                    err = E_XL4BUS_DATA;
+                    break;
+                }
+
+                switch (frm.byte0 & FRAME_TYPE_MASK) {
 
                     case FRAME_TYPE_NORMAL: {
 
+                        // we must have at least 4 bytes.
+                        size_t offset = 4;
+                        if (frm.data.len < offset) {
+                            err = E_XL4BUS_DATA;
+                            break;
+                        }
+
                         stream_t * stream;
-                        HASH_FIND()
+                        uint16_t stream_id = ntohs(*(uint16_t*)frm.data.data);
+                        HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+                        if (!stream) {
+
+                            // there is no stream. We can only create a stream for
+                            // first message, and if stream ID is not ours.
+
+                            if ((frm.byte0 && FRAME_MSG_FIRST_MASK) ||
+                                    (stream_id&0x1) != conn->is_client ? 1 : 0) {
+                                err = E_XL4BUS_DATA;
+                                break;
+                            }
+
+                            if (!(stream = f_malloc(sizeof stream_t))) {
+                                err = E_XL4BUS_MEMORY;
+                                break;
+                            }
+
+                            stream->stream_id = stream_id;
+                            HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
+
+                            // Does this frame start a message?
+                            if (!stream->message_started) {
+
+                                // the message must contain CT code.
+                                offset++;
+                                if (frm.data.len < offset) {
+                                    err = E_XL4BUS_DATA;
+                                    break;
+                                }
+
+                                stream->message_started = 1;
+                                stream->incoming_message_ct = *(frm.data.data+4);
+
+                            }
+
+                            // does frame sequence match our expectations?
+                            if (stream->frame_seq_in++ != ntohs(*(uint16_t*)(frm.data.data+2))) {
+                                err = E_XL4BUS_DATA;
+                                break;
+                            }
+
+                            // OK, we are ready to consume the frame's contents.
+                            add_to_dbuf(&stream->incoming_message, &frm.data + offset, frm.data.len - offset);
+
+                            // $TODO: must check if the message size is too big!!!
+
+                        }
 
                     }
 
                 }
 
+                if (err != E_XL4BUS_OK) { break; }
+
             }
+
+#undef frm
 
         }
 
