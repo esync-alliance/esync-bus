@@ -3,6 +3,8 @@
 #include "porting.h"
 #include "misc.h"
 
+static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes);
+
 int check_conn_io(xl4bus_connection_t * conn) {
 
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
@@ -207,6 +209,43 @@ do {} while(0)
                         // $TODO: must check if the message size is too big!!!
 
                     }
+                    break;
+
+                    case FRAME_TYPE_CTEST: {
+
+                        if (frm.frame_len != 32) {
+                            err = E_XL4BUS_DATA;
+                            break;
+                        }
+
+                        if (frm.byte0 & FRAME_MSG_FIRST_MASK) {
+                            // it's a response
+                            if (i_conn->pending_connection_test &&
+                                    !memcmp(frm.data.data, i_conn->connection_test_request, 32)) {
+                                i_conn->pending_connection_test = 0;
+                                i_conn->connectivity_test_ts = pf_msvalue();
+                            }
+                        } else {
+                            // we have been requested a connectivity test.
+                            i_conn->connectivity_test_ts = pf_msvalue();
+                            err = send_connectivity_test(conn, 1, frm.data.data);
+                        }
+                    }
+                    break;
+
+                    case FRAME_TYPE_SABORT: {
+
+                        // must at least be 1 byte that indicates the content type.
+                        if (frm.frame_len) {
+
+                        }
+
+                    }
+                    break;
+
+                    default:
+                        // we shall just ignore the frames we don't understand (right?)
+                        break;
 
                 }
 

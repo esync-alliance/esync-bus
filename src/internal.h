@@ -65,12 +65,20 @@ typedef struct connection_internal {
 
     stream_t * streams;
 
+    int pending_connection_test;
+    uint8_t connection_test_request[32];
+    uint64_t connectivity_test_ts;
+
 } connection_internal_t;
 
 extern xl4bus_ll_cfg_t cfg;
 
 /* net.c */
 int check_conn_io(xl4bus_connection_t*);
+
+/* secure.c */
+// $TODO: validate incoming JWS message
+int validate_jws(uint16_t * stream_id);
 
 /* misc.c */
 int consume_dbuf(dbuf_t * , dbuf_t * , int);

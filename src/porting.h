@@ -23,5 +23,10 @@ void pf_set_errno(int);
 // get errno.
 int pf_get_errno(void);
 
+// millisecond timer. Get the number of
+// milliseconds that passed since beginning of some local timer.
+// The value doesn't need to represent any actual time, just
+// consistently grow at an approximately millisecond rate.
+uint64_t pf_msvalue();
 
 #endif
