@@ -51,7 +51,10 @@ typedef void (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_messa
 
 typedef char * (*xl4bus_password_callback_t) (struct xl4bus_X509v3_Identity *);
 typedef int (*xl4bus_set_poll) (struct xl4bus_connection*, int);
-typedef void (*xl4bus_notify_close) (struct xl4bus_connection*);
+// No need to support close - as long as valued returned from
+// xl4bus_process_connection() is ERR, the caller can assume connection is
+// closed.
+// typedef void (*xl4bus_notify_close) (struct xl4bus_connection*);
 
 typedef struct xl4bus_X509v3_Identity {
 
@@ -70,7 +73,7 @@ typedef struct xl4bus_connection {
 
     xl4bus_set_poll set_poll;
     xl4bus_handle_ll_message ll_message;
-    xl4bus_notify_close notify_close;
+    // xl4bus_notify_close notify_close;
 
     void * custom;
     void * _private;

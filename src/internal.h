@@ -1,11 +1,11 @@
 #ifndef _XL4BUS_INTERNAL_H_
 #define _XL4BUS_INTERNAL_H_
 
-#include <libxl4bus/low_level.h>
 #include "config.h"
+#include <libxl4bus/low_level.h>
 
 #define uthash_malloc(c) cfg.malloc(c)
-#define uthash_free(c) cfg.free(c)
+#define uthash_free(c,d) cfg.free(c)
 
 #include "uthash.h"
 
@@ -84,5 +84,6 @@ int validate_jws(uint16_t * stream_id);
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
 void free_dbuf(dbuf_t *, int);
+void cleanup_stream(connection_internal_t *, stream_t *);
 
 #endif

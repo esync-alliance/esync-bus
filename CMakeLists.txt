@@ -106,6 +106,8 @@ endif()
 
 set_empty(BUILD_SHARED TRUE)
 set_empty(BUILD_STATIC TRUE)
+set_empty(BUILD_BINS TRUE)
+set_empty(USE_THREADS TRUE)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(${CMAKE_SOURCE_DIR}/src)
@@ -122,14 +124,37 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/include/libxl4bus/types.h
 )
 
+if (USE_THREADS)
+    set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+    find_package(Threads MODULE REQUIRED)
+endif()
+
 if (BUILD_SHARED)
     add_library(xl4bus-shared SHARED ${LIB_SOURCE})
-    SET_TARGET_PROPERTIES(xl4bus-shared PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
+    set_target_properties(xl4bus-shared PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
+    set(USE_LIB xl4bus-shared)
+    if (USE_THREADS)
+        target_link_libraries(xl4bus-shared Threads::Threads)
+    endif()
 endif()
 
 if (BUILD_STATIC)
     add_library(xl4bus-static STATIC ${LIB_SOURCE})
-    SET_TARGET_PROPERTIES(xl4bus-static PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
+    set_target_properties(xl4bus-static PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
+    set(USE_LIB xl4bus-static)
+    if (USE_THREADS)
+        target_link_libraries(xl4bus-static Threads::Threads)
+    endif()
+endif()
+
+if (BUILD_BINS)
+    add_executable(ll-server src/ll-server.c)
+    target_link_libraries(ll-server ${USE_LIB})
+    if (USE_THREADS)
+        target_link_libraries(ll-server Threads::Threads)
+    else()
+        message(FATAL_ERROR "Binaries require threading support that is not enabled. You probably want to disable binaries being built as well.")
+    endif()
 endif()
 
 include(${LOAD_CFG})

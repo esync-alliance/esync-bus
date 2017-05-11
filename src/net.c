@@ -4,6 +4,8 @@
 #include "misc.h"
 
 static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes);
+static void set_frame_size(void * frame_body, uint32_t size);
+static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc);
 
 int check_conn_io(xl4bus_connection_t * conn) {
 
@@ -128,7 +130,7 @@ do {} while(0)
                 }
 
                 RDP(4, frm.data.data, frm.frame_len);
-                i_conn->frm.len = frm.total_read - 4;
+                frm.data.len = frm.total_read - 4;
 
                 if (frm.data.len < 4) {
                     // not even enough for CRC
@@ -169,7 +171,7 @@ do {} while(0)
                                 break;
                             }
 
-                            if (!(stream = f_malloc(sizeof stream_t))) {
+                            if (!(stream = f_malloc(sizeof(stream_t)))) {
                                 err = E_XL4BUS_MEMORY;
                                 break;
                             }
@@ -236,8 +238,18 @@ do {} while(0)
                     case FRAME_TYPE_SABORT: {
 
                         // must at least be 1 byte that indicates the content type.
-                        if (frm.frame_len) {
+                        if (!frm.frame_len) {
+                            err = E_XL4BUS_DATA;
+                            break;
+                        }
 
+                        uint16_t stream_id;
+                        if (validate_jws(&stream_id) == E_XL4BUS_OK) {
+                            stream_t * stream;
+                            HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+                            if (stream) {
+                                cleanup_stream(i_conn, stream);
+                            }
                         }
 
                     }
@@ -275,5 +287,29 @@ do {} while(0)
     }
 
     return err;
+
+}
+
+int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes) {
+
+    uint8_t * frame = cfg.malloc(4 + 32 + 4); // minimal header, code, crc
+
+}
+
+void set_frame_size(void * frame, uint32_t size) {
+
+    *(((uint8_t*)frame)+1) = (uint8_t)((size << 16)&0xff);
+    *(((uint8_t*)frame)+2) = (uint8_t)((size <<  8)&0xff);
+    *(((uint8_t*)frame)+3) = (uint8_t)((size      )&0xff);
+
+}
+
+static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc) {
+
+    uint32_t crc = 0;
+
+    crcFast(frame_body, size_with_crc - 4, &crc);
+
+    *(((uint32_t*)frame_body)-1) = htonl(crc);
 
 }

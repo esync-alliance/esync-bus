@@ -3,10 +3,10 @@
 
 #include "internal.h"
 
-extern uint8_t crcTable[];
+extern uint32_t crcTable[];
 
 // Credit : https://barrgroup.com/Embedded-Systems/How-To/CRC-Calculation-C-Code
-inline void crcFast(void * data, size_t len, uint32_t * crc) {
+static inline void crcFast(void * data, size_t len, uint32_t * crc) {
 
     uint8_t one_byte;
     uint32_t remainder = *crc;
@@ -26,7 +26,7 @@ inline void crcFast(void * data, size_t len, uint32_t * crc) {
 
 }
 
-inline void * f_malloc(size_t size) {
+static inline void * f_malloc(size_t size) {
 
     if (!size) { return 0; }
     void * r = cfg.malloc(size);
