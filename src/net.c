@@ -6,6 +6,7 @@
 static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes);
 static void set_frame_size(void * frame_body, uint32_t size);
 static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc);
+static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t len);
 
 int check_conn_io(xl4bus_connection_t * conn) {
 
@@ -41,7 +42,9 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
 
             while (i_conn->out_queue) {
 
-                ssize_t res = pf_send(conn->fd, i_conn->out_queue->data, i_conn->out_queue->len);
+                chunk_t * top = i_conn->out_queue;
+
+                ssize_t res = pf_send(conn->fd, top->data, top->len);
                 if (res < 0) {
                     int s_err = pf_get_errno();
                     if (s_err == EINTR) { continue; }
@@ -52,15 +55,16 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
                     break;
                 }
 
-                if (res == i_conn->out_queue->len) {
-                    cfg.free(i_conn->out_queue->data);
-                    chunk_t * next = i_conn->out_queue->next;
-                    cfg.free(i_conn->out_queue);
-                    i_conn->out_queue = next;
+                if (res == top->len) {
+
+                    DL_DELETE(i_conn->out_queue, top);
+
+                    cfg.free(top->data);
+                    cfg.free(top);
+
                 } else {
                     // res can only be less than what we attempted to write.
-                    memmove(i_conn->out_queue->data, i_conn->out_queue->data + res,
-                            i_conn->out_queue->len -= res);
+                    memmove(top->data, top->data + res, top->len -= res);
                     // $TODO: should we shrink data memory block? reallocing
                     // is generally expensive, and we probably
                     // are not hoarding too much memory here, so let's not.
@@ -293,6 +297,33 @@ do {} while(0)
 int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes) {
 
     uint8_t * frame = cfg.malloc(4 + 32 + 4); // minimal header, code, crc
+    if (!frame) {
+        return E_XL4BUS_MEMORY;
+    }
+    set_frame_size(frame, 32 + 4); // without the minimal header
+
+    uint8_t byte0 = FRAME_TYPE_CTEST | FRAME_LAST_MASK;
+    if (is_reply) {
+        byte0 |= FRAME_MSG_FIRST_MASK;
+    }
+    *frame = byte0;
+
+    connection_internal_t * i_conn = conn->_private;
+
+    if (!is_reply) {
+        // we are requested to generate a connectivity test.
+        pf_random(value_32_bytes = i_conn->connection_test_request, 32);
+        i_conn->pending_connection_test = 1;
+    }
+
+    memcpy(frame + 4, value_32_bytes, 32);
+    calculate_frame_crc(frame, 4 + 32 + 4); // size with crc
+
+    int err = post_frame(i_conn, frame, 4 + 32 + 4);
+    if (err != E_XL4BUS_OK) {
+        free(frame);
+    }
+    return err;
 
 }
 
@@ -311,5 +342,21 @@ static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc) {
     crcFast(frame_body, size_with_crc - 4, &crc);
 
     *(((uint32_t*)frame_body)-1) = htonl(crc);
+
+}
+
+static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t len) {
+
+    chunk_t * chunk = f_malloc(sizeof(chunk_t));
+    if (!chunk) {
+        return E_XL4BUS_MEMORY;
+    }
+
+    chunk->data = frame_data;
+    chunk->len = len;
+
+    DL_APPEND(i_conn->out_queue, chunk);
+
+    return E_XL4BUS_OK;
 
 }

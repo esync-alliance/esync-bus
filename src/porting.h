@@ -29,4 +29,8 @@ int pf_get_errno(void);
 // consistently grow at an approximately millisecond rate.
 uint64_t pf_msvalue();
 
+// generate specified number of random bytes into
+// the specified address.
+void pf_random(void *, size_t);
+
 #endif

@@ -120,6 +120,8 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/internal.h
     src/porting.h
     src/misc.h
+    src/uthash.h
+    src/utlist.h
     src/include/libxl4bus/low_level.h
     src/include/libxl4bus/types.h
 )

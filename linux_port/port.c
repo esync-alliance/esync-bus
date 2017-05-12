@@ -2,12 +2,14 @@
 #include "config.h"
 #include "porting.h"
 
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <stdio.h>
 
 ssize_t pf_send(int sockfd, const void *buf, size_t len) {
     return send(sockfd, buf, len, 0);
@@ -52,6 +54,38 @@ uint64_t pf_msvalue() {
     return ((unsigned long long) tp.tv_sec) * 1000L +
             tp.tv_nsec / 1000000L;
 
+}
+
+void pf_random(void * to, size_t where) {
+
+    do {
+
+        int fd = open("/dev/random", O_RDONLY);
+        if (fd < 0) { break; }
+        while (where) {
+            ssize_t rc = read(fd, to, where);
+            if (rc < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ERESTART) {
+                    continue;
+                }
+                perror("read /dev/random");
+                break;
+            } else if (rc == 0) {
+                // EOF before where is expended?
+                break;
+            }
+            // rc is >0 here
+            where -= rc;
+            to += rc;
+        }
+
+        close(fd);
+
+        if (!where) { return; }
+
+    } while (0);
+
+    abort();
 
 }
 

@@ -8,6 +8,7 @@
 #define uthash_free(c,d) cfg.free(c)
 
 #include "uthash.h"
+#include "utlist.h"
 
 #define FRAME_TYPE_MASK 0x7
 #define FRAME_TYPE_NORMAL 0x0
@@ -15,6 +16,7 @@
 #define FRAME_TYPE_SABORT 0x2
 #define FRAME_LAST_MASK (1<<5)
 #define FRAME_MSG_FIRST_MASK (1<<3)
+
 
 typedef struct dbuf {
     uint8_t * data;
@@ -26,6 +28,7 @@ typedef struct chunk {
     uint8_t * data;
     size_t len;
     struct chunk * next;
+    struct chunk * prev;
 } chunk_t;
 
 typedef struct stream {
