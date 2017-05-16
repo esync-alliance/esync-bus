@@ -82,7 +82,9 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
     size_t _len = len; \
     size_t _lim = pos + _len; \
     ssize_t delta = _lim - i_conn->current_frame.total_read; \
+    /* printf("From %d, read %d to %d, missing %d\n", pos, len, _lim, delta); */ \
     if ((delta > 0)) {\
+        delta = i_conn->current_frame.total_read - pos; \
         _len = _len - delta; \
         void * ptr = where + delta; \
         while (_len) { \
@@ -130,6 +132,7 @@ do {} while(0)
                         err = E_XL4BUS_MEMORY;
                         break;
                     }
+                    frm.data.cap = frm.frame_len;
                     frm.data.data= t;
                 }
 

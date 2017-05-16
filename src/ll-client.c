@@ -106,7 +106,8 @@ int main(int argc, char ** argv) {
                     flags |= XL4BUS_POLL_ERR;
                 }
 
-                if (xl4bus_process_connection(conn, flags) != E_XL4BUS_OK) {
+                if ((err = xl4bus_process_connection(conn, flags)) != E_XL4BUS_OK) {
+                    printf("failed to maintain the connection : %s\n", xl4bus_strerr(err));
                     break;
                 }
 

@@ -119,6 +119,7 @@ set_empty(BUILD_SHARED TRUE)
 set_empty(BUILD_STATIC TRUE)
 set_empty(BUILD_BINS TRUE)
 set_empty(USE_THREADS TRUE)
+set_empty(LIB_DEBUG TRUE)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/json-c)
