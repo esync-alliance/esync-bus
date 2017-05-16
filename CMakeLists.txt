@@ -33,21 +33,11 @@ endfunction(set_empty)
 function(influence_pkg_spec TGT PREFIX)
 
     if (TARGET ${TGT})
-
         target_compile_options(${TGT} PUBLIC ${${PREFIX}_CFLAGS})
         target_compile_options(${TGT} PUBLIC ${${PREFIX}_CFLAGS_OTHER})
 
         target_link_libraries(${TGT} ${${PREFIX}_LDFLAGS})
         target_link_libraries(${TGT} ${${PREFIX}_LDFLAGS_OTHER})
-
-        #join(TMP " " ${${PREFIX}_CFLAGS})
-        #target_compile_options(${TGT} PUBLIC ${TMP})
-        #join(TMP " " ${${PREFIX}_CFLAGS_OTHER})
-        #target_compile_options(${TGT} PUBLIC ${TMP})
-        #join(TMP " " ${${PREFIX}_LDFLAGS})
-        #set_property(TARGET ${TGT} APPEND_STRING PROPERTY LINK_FLAGS " ${TMP} ")
-        #join(TMP " " ${${PREFIX}_LDFLAGS_OTHER})
-        #set_property(TARGET ${TGT} APPEND_STRING PROPERTY LINK_FLAGS " ${TMP} ")
     endif()
 
 endfunction(influence_pkg_spec)
@@ -56,12 +46,8 @@ function(influence_pkg PREFIX)
     if (${PREFIX}_FOUND)
         influence_pkg_spec(xl4bus-shared ${PREFIX})
         influence_pkg_spec(xl4bus-static ${PREFIX}_STATIC)
-        set(TMP ${PREFIX})
-        if ("${USE_LIB}" STREQUAL "xl4bus-static")
-            set(TMP ${PREFIX}_STATIC)
-        endif()
-        influence_pkg_spec(ll-server ${TMP})
-        influence_pkg_spec(ll-client ${TMP})
+        influence_pkg_spec(ll-server ${PREFIX})
+        influence_pkg_spec(ll-client ${PREFIX})
     endif()
 endfunction(influence_pkg)
 
@@ -108,6 +94,18 @@ if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
     file(GENERATE OUTPUT ${PORT}/config.h INPUT ${PORT}/config.h.default)
 endif()
 
+set(LOAD_CFG ${PORT}/types_base.h)
+if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
+    set(LOAD_CFG ${PORT}/types_base.h.default)
+    if ((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
+        message(FATAL_ERROR "${PORT} must contain types_base.h or types_base.h.default file")
+    endif()
+    # can't use COPY because it only copies to dirs.
+    # file(COPY ${PORT}/config.h.default ${PORT}/config.h)
+    # so the input file better not have any makefile macros.
+    file(GENERATE OUTPUT ${PORT}/types_base.h INPUT ${PORT}/types_base.h.default)
+endif()
+
 
 set(LOAD_CFG ${PORT}/run.cmk)
 if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
@@ -123,6 +121,7 @@ set_empty(BUILD_BINS TRUE)
 set_empty(USE_THREADS TRUE)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
+include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/json-c)
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${PORT})
 
@@ -140,6 +139,11 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/include/libxl4bus/types.h
 )
 
+set(JSON_C_LIB ${CMAKE_SOURCE_DIR}/json-c/.libs/libjson-c.a)
+if (NOT EXISTS ${JSON_C_LIB})
+    message(FATAL_ERROR You must build json-c sources first!)
+endif()
+
 if (USE_THREADS)
     set(THREADS_PREFER_PTHREAD_FLAG TRUE)
     find_package(Threads MODULE REQUIRED)
@@ -148,24 +152,37 @@ endif()
 if (BUILD_SHARED)
     add_library(xl4bus-shared SHARED ${LIB_SOURCE})
     set_target_properties(xl4bus-shared PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
-    set(USE_LIB xl4bus-shared)
     if (USE_THREADS)
         target_link_libraries(xl4bus-shared Threads::Threads)
     endif()
+    set(USE_LIB xl4bus-shared)
+    target_link_libraries(xl4bus-shared ${JSON_C_LIB})
 endif()
 
 if (BUILD_STATIC)
     add_library(xl4bus-static STATIC ${LIB_SOURCE})
     set_target_properties(xl4bus-static PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
-    set(USE_LIB xl4bus-static)
     if (USE_THREADS)
         target_link_libraries(xl4bus-static Threads::Threads)
     endif()
+    if (NOT USE_LIB)
+        set(USE_LIB xl4bus-static)
+    endif()
+    target_link_libraries(xl4bus-static ${JSON_C_LIB})
 endif()
 
 if (BUILD_BINS)
     add_executable(ll-server src/ll-server.c)
     add_executable(ll-client src/ll-client.c)
+
+    include(FindPkgConfig)
+
+    pkg_check_modules(JANSSON REQUIRED jansson)
+    influence_pkg("JANSSON")
+
+    influence_pkg_spec(ll-server JANSSON)
+    influence_pkg_spec(ll-client JANSSON)
+
     target_link_libraries("ll-server" ${USE_LIB})
     target_link_libraries("ll-client" ${USE_LIB})
     if (USE_THREADS)

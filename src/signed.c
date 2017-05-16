@@ -17,6 +17,8 @@ int validate_jws(void * bin, size_t jws_len, int ct, uint16_t * stream_id) {
     json_object * hdr = 0;
     int err;
 
+    c_err.code = CJOSE_ERR_NONE;
+
     do {
 
         jws = cjose_jws_import(bin, jws_len, &c_err);
@@ -73,13 +75,37 @@ int sign_jws(const void * data, size_t data_len, int pad, int offset, char ** jw
 
     cjose_err err;
     cjose_jws_t * jws = 0;
+    cjose_jwk_t * jwk = 0;
+    cjose_header_t * j_hdr = 0;
     int res; // = E_XL4BUS_OK;
+
+    err.code = CJOSE_ERR_NONE;
+
+#define CJOSE_ERR() { \
+if ((res = cjose_to_err(&err)) != E_XL4BUS_OK) { \
+     break; \
+    }\
+} do {} while(0)
+
     do {
 
-        jws = cjose_jws_sign(0, 0, data, data_len, &err);
-        if ((res = cjose_to_err(&err)) != E_XL4BUS_OK) {
-            break;
-        }
+        uint8_t pex[] = {1,0,1};
+
+        j_hdr = cjose_header_new(&err);
+        CJOSE_ERR();
+
+        cjose_header_set(j_hdr, CJOSE_HDR_ALG, "RS256", &err);
+        CJOSE_ERR();
+
+        cjose_header_set(j_hdr, CJOSE_HDR_CTY, "application/vnd.xl4.busmessage+json", &err);
+        CJOSE_ERR();
+
+        // $TODO: use proper key
+        jwk = cjose_jwk_create_RSA_random(2048, pex, 3, &err);
+        CJOSE_ERR();
+
+        jws = cjose_jws_sign(jwk, j_hdr, data, data_len, &err);
+        CJOSE_ERR();
 
         const char * jws_export;
 
@@ -100,6 +126,8 @@ int sign_jws(const void * data, size_t data_len, int pad, int offset, char ** jw
     } while (0);
 
     cjose_jws_release(jws);
+    cjose_jwk_release(jwk);
+    cjose_header_release(j_hdr);
 
     return res;
 

@@ -1,7 +1,7 @@
 #ifndef _XL4BUS_TYPES_H_
 #define _XL4BUS_TYPES_H_
 
-#include <json-c/json.h>
+#include "types_base.h"
 
 typedef struct xl4bus_buf {
     uint8_t * data;
@@ -28,7 +28,7 @@ typedef struct xl4bus_message_t {
 
     xl4bus_payload_form_t form;
     union {
-        json_object * json;
+        char * json;
     };
 
     uint16_t stream_id;

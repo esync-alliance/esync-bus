@@ -16,7 +16,7 @@ int check_conn_io(xl4bus_connection_t * conn) {
     int flags = XL4BUS_POLL_READ;
 
     if (i_conn->out_queue) {
-        flags += XL4BUS_POLL_WRITE;
+        flags |= XL4BUS_POLL_WRITE;
     }
 
     return conn->set_poll(conn, flags);
@@ -343,7 +343,7 @@ static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc) {
 
     crcFast(frame_body, size_with_crc - 4, &crc);
 
-    *(((uint32_t*)frame_body)-1) = htonl(crc);
+    *(((uint32_t*)(frame_body+size_with_crc))-1) = htonl(crc);
 
 }
 
@@ -365,13 +365,21 @@ static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t 
 
 int xl4bus_send_message(xl4bus_connection_t * conn, xl4bus_message_t * msg, void * ref) {
 
-    if (!msg || msg->form != XL4BPF_JSON || !msg->json || !json_object_is_type(msg->json, json_type_object)) {
+    if (!msg || msg->form != XL4BPF_JSON || !msg->json) {
         return E_XL4BUS_ARG;
     }
 
-    char * ser = 0;
+    json_object * j_obj = json_tokener_parse(msg->json);
+
+    if (!j_obj || !json_object_is_type(j_obj, json_type_object)) {
+        json_object_put(j_obj);
+        return E_XL4BUS_ARG;
+    }
+
     uint8_t * frame = 0;
     int err;
+
+    const char * j_str = 0;
 
     do {
 
@@ -398,10 +406,10 @@ int xl4bus_send_message(xl4bus_connection_t * conn, xl4bus_message_t * msg, void
 
         }
 
+        j_str = json_object_get_string(j_obj);
+
         if ((err = sign_jws(
-                json_object_get_string(msg->json),
-                (size_t)json_object_get_string_len(msg->json),
-                12, 8, &ser, &ser_len)) != E_XL4BUS_OK) {
+                j_str, (size_t)strlen(j_str), 12, 8, (char **) &frame, &ser_len)) != E_XL4BUS_OK) {
             break;
         }
 
@@ -428,8 +436,8 @@ int xl4bus_send_message(xl4bus_connection_t * conn, xl4bus_message_t * msg, void
 
     } while(0);
 
-    cfg.free(ser);
     free(frame);
+    json_object_put(j_obj);
 
     if (err == E_XL4BUS_OK) {
         err = check_conn_io(conn);

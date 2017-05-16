@@ -9,6 +9,8 @@
 #include <pthread.h>
 #include <poll.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <jansson.h>
 
 static void in_message(xl4bus_connection_t *, xl4bus_message_t *);
 static void * run_conn(void *);
@@ -65,27 +67,29 @@ int main(int argc, char ** argv) {
 
         int err;
 
+        memset(&pfd, 0, sizeof(pfd));
+        pfd.fd = conn->fd;
+
         if ((err = xl4bus_init_connection(conn)) == E_XL4BUS_OK) {
 
             xl4bus_message_t msg;
             memset(&msg, 0, sizeof(xl4bus_message_t));
 
-            json_object * j = json_object_new_object();
-            json_object_object_add(j, "playing", json_object_new_string("hooky"));
+            json_t * j = json_object();
+            json_object_set_new(j, "playing", json_string("hooky"));
 
             msg.form = XL4BPF_JSON;
-            msg.json = j;
+            msg.json = json_dumps(j, JSON_COMPACT);
             // msg.json = (char*)json_object_get_string(j);
 
             if ((err = xl4bus_send_message(conn, &msg, 0)) != E_XL4BUS_OK) {
                 printf("failed to send a message : %s\n", xl4bus_strerr(err));
             }
-            json_object_put(j);
+
+            json_decref(j);
+            free(msg.json);
 
             while (1) {
-
-                memset(&pfd, 0, sizeof(pfd));
-                pfd.fd = conn->fd;
 
                 int rc = poll(&pfd, 1, -1);
                 if (rc < 0) {

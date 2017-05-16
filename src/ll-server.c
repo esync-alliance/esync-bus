@@ -1,5 +1,6 @@
 
 #include <libxl4bus/low_level.h>
+
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -9,6 +10,7 @@
 #include <pthread.h>
 #include <poll.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 static void in_message(xl4bus_connection_t *, xl4bus_message_t *);
 static void * run_conn(void *);

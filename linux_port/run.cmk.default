@@ -1,8 +1,5 @@
 
 include(FindPkgConfig)
 
-pkg_check_modules(JSONC REQUIRED json-c)
 pkg_check_modules(CJOSE REQUIRED cjose)
-
-influence_pkg("JSONC")
 influence_pkg("CJOSE")
