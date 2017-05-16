@@ -8,7 +8,10 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <cjose/cjose.h>
+#include <stdio.h>
 
 #define HAVE_STD_MALLOC 1
+#define XL4BUS_PROVIDE_DEBUG 1
+#define HAVE_GETTIMEOFDAY 1
 
 #endif

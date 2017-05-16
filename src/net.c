@@ -2,6 +2,7 @@
 #include "internal.h"
 #include "porting.h"
 #include "misc.h"
+#include "debug.h"
 
 static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes);
 static void set_frame_size(void * frame_body, uint32_t size);
@@ -78,12 +79,13 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
 
         if (flags & XL4BUS_POLL_READ) {
 
-#define RDP(pos, where, len) {\
+#define RDP(pos, where, len, why) {\
     size_t _len = len; \
     size_t _lim = pos + _len; \
     ssize_t delta = _lim - i_conn->current_frame.total_read; \
     /* printf("From %d, read %d to %d, missing %d\n", pos, len, _lim, delta); */ \
     if ((delta > 0)) {\
+        int _stop = 0; \
         delta = i_conn->current_frame.total_read - pos; \
         _len = _len - delta; \
         void * ptr = where + delta; \
@@ -92,12 +94,12 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
             if (res < 0) { \
                 int x_err = pf_get_errno(); \
                 if (x_err == EINTR) { continue; } \
-                if (x_err == EWOULDBLOCK) { break; } \
-                err = E_XL4BUS_SYS; \
-                break; \
+                if (x_err == EWOULDBLOCK) { _stop = 1; break; } \
+                BOLT_SYS(1, "Reading %s, %d more bytes (requested %d at %d)", why, _len, len, pos); \
             } \
             if (!res) { \
                 /* EOF is never expected */ \
+                DBG("EOF when reading %s, %d more bytes (requested %d at %d)", why, _len, len, pos); \
                 err = E_XL4BUS_EOF; \
                 break; \
             } \
@@ -107,6 +109,7 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
             ptr += res; \
         } \
         if (err != E_XL4BUS_OK) { break; } \
+        if (_stop) { DBG("Read of %s blocks, breaking until poll", why); break; } \
     } \
 } \
 do {} while(0)
@@ -115,8 +118,8 @@ do {} while(0)
 
 #define frm (i_conn->current_frame)
 
-                RDP(0, &frm.byte0, 1);
-                RDP(1, &frm.len_bytes, 3);
+                RDP(0, &frm.byte0, 1, "byte 0");
+                RDP(1, &frm.len_bytes, 3, "length");
                 if (!frm.len_converted) {
                     crcFast(&frm.byte0, 1, &frm.crc);
                     crcFast(&frm.len_bytes, 3, &frm.crc);
@@ -136,7 +139,7 @@ do {} while(0)
                     frm.data.data= t;
                 }
 
-                RDP(4, frm.data.data, frm.frame_len);
+                RDP(4, frm.data.data, frm.frame_len, "frame body");
                 frm.data.len = frm.total_read - 4;
 
                 if (frm.data.len < 4) {
@@ -147,10 +150,10 @@ do {} while(0)
 
                 // calculate and validate CRC
                 crcFast(frm.data.data, frm.data.len -= 4, &frm.crc);
-                if (htonl(frm.crc) != *(uint32_t*)(frm.data.data + frm.data.len)) {
+                if (frm.crc != ntohl(*(uint32_t*)(frm.data.data + frm.data.len))) {
                     // crc-32 mismatch
-                    err = E_XL4BUS_DATA;
-                    break;
+                    BOLT_SAY(E_XL4BUS_DATA, "CRC mismatch, recv %08x, calc %08x",
+                            ntohl(*(uint32_t*)(frm.data.data + frm.data.len)), frm.crc);
                 }
 
                 switch (frm.byte0 & FRAME_TYPE_MASK) {
@@ -172,16 +175,13 @@ do {} while(0)
                             // there is no stream. We can only create a stream for
                             // first message, and if stream ID is not ours.
 
-                            if ((frm.byte0 && FRAME_MSG_FIRST_MASK) ||
-                                    (stream_id&0x1) != conn->is_client ? 1 : 0) {
-                                err = E_XL4BUS_DATA;
-                                break;
+                            if ((frm.byte0 & FRAME_MSG_FIRST_MASK) ||
+                                    (stream_id&0x1) != (conn->is_client ? 1 : 0)) {
+                                BOLT_SAY(E_XL4BUS_DATA, "Stream ID %d has incorrect parity (byte0 is %x, exp parity %d)",
+                                        stream_id, frm.byte0, (conn->is_client?1:0));
                             }
 
-                            if (!(stream = f_malloc(sizeof(stream_t)))) {
-                                err = E_XL4BUS_MEMORY;
-                                break;
-                            }
+                            BOLT_MEM(stream = f_malloc(sizeof(stream_t)));
 
                             stream->stream_id = stream_id;
                             // $TODO: HASH mem check!
@@ -194,10 +194,8 @@ do {} while(0)
 
                             // the message must contain CT code.
                             offset++;
-                            if (frm.data.len < offset) {
-                                err = E_XL4BUS_DATA;
-                                break;
-                            }
+
+                            BOLT_IF(frm.data.len < offset, E_XL4BUS_DATA, "Not enough bytes for message content type");
 
                             stream->message_started = 1;
                             stream->incoming_message_ct = *(frm.data.data+4);
@@ -205,16 +203,13 @@ do {} while(0)
                         }
 
                         // does frame sequence match our expectations?
-                        if (stream->frame_seq_in++ != ntohs(*(uint16_t*)(frm.data.data+2))) {
-                            err = E_XL4BUS_DATA;
-                            break;
-                        }
+                        BOLT_IF(stream->frame_seq_in++ != ntohs(*(uint16_t*)(frm.data.data+2)),
+                                E_XL4BUS_DATA, "Expected frame sequence %d, got %d", stream->frame_seq_in-1,
+                                ntohs(*(uint16_t*)(frm.data.data+2)));
 
                         // OK, we are ready to consume the frame's contents.
-                        if (add_to_dbuf(&stream->incoming_message, &frm.data.data + offset, frm.data.len - offset)) {
-                            err = E_XL4BUS_DATA;
-                            break;
-                        }
+                        BOLT_IF(add_to_dbuf(&stream->incoming_message, &frm.data.data + offset, frm.data.len - offset),
+                                E_XL4BUS_MEMORY, "Not enough memory to expand message buffer");
 
                         // $TODO: must check if the message size is too big!!!
 
@@ -334,8 +329,8 @@ int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * va
 
 void set_frame_size(void * frame, uint32_t size) {
 
-    *(((uint8_t*)frame)+1) = (uint8_t)((size << 16)&0xff);
-    *(((uint8_t*)frame)+2) = (uint8_t)((size <<  8)&0xff);
+    *(((uint8_t*)frame)+1) = (uint8_t)((size >> 16)&0xff);
+    *(((uint8_t*)frame)+2) = (uint8_t)((size >>  8)&0xff);
     *(((uint8_t*)frame)+3) = (uint8_t)((size      )&0xff);
 
 }
@@ -432,7 +427,7 @@ int xl4bus_send_message(xl4bus_connection_t * conn, xl4bus_message_t * msg, void
 
         calculate_frame_crc(frame, (uint32_t)(ser_len + 12)); // size with crc
 
-        err = post_frame(i_conn, frame, 4 + 32 + 4);
+        err = post_frame(i_conn, frame, ser_len + 12);
         if (err == E_XL4BUS_OK) {
             frame = 0; // consumed.
         }

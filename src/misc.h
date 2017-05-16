@@ -2,6 +2,7 @@
 #define _XL4BUS_MISC_H_
 
 #include "internal.h"
+#include "debug.h"
 
 extern uint32_t crcTable[];
 
@@ -15,8 +16,17 @@ static inline void crcFast(void * data, size_t len, uint32_t * crc) {
      * Divide the message by the polynomial, a byte at a time.
      */
     for (int i = 0; i < len; i++) {
+#if DEBUG_CRC
+#if XL4BUS_PROVIDE_DEBUG
+        uint32_t old_crc = remainder;
+#endif
+#endif
         one_byte = ((uint8_t*)data)[i] ^ (uint8_t)(remainder >> 24);
         remainder = crcTable[one_byte] ^ (remainder << 8);
+
+#if DEBUG_CRC
+        DBG("CRC32 %08x %02x -> %08x", old_crc, ((uint8_t*)data)[i], remainder);
+#endif
     }
 
     /*

@@ -15,6 +15,7 @@
 static void in_message(xl4bus_connection_t *, xl4bus_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int);
+static void print_out(const char *);
 
 int main(int argc, char ** argv) {
 
@@ -26,10 +27,10 @@ int main(int argc, char ** argv) {
     ll_cfg.free = free;
 #else
     memset(&ll_cfg, 0, sizeof(xl4bus_ll_cfg_t));
+    ll_cfg.debug_f = print_out;
 #endif
 
     xl4bus_init_ll(&ll_cfg);
-
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -144,5 +145,11 @@ int set_poll(xl4bus_connection_t * conn, int flg) {
 void in_message(xl4bus_connection_t * conn, xl4bus_message_t * msg) {
 
     printf("hooray, a message!\n");
+
+}
+
+void print_out(const char * msg) {
+
+    printf("%s\n", msg);
 
 }

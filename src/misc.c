@@ -292,3 +292,20 @@ char const * xl4bus_strerr(int e) {
     }
 
 }
+
+char * f_asprintf(char * fmt, ...) {
+
+    char * ret;
+    va_list ap;
+
+    va_start(ap, fmt);
+    int rc = vasprintf(&ret, fmt, ap);
+    va_end(ap);
+
+    if (rc < 0) {
+        return 0;
+    }
+
+    return ret;
+
+}

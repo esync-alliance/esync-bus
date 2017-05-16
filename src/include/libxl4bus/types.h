@@ -11,12 +11,14 @@ typedef struct xl4bus_buf {
 typedef void * (*xl4bus_malloc)(size_t);
 typedef void * (*xl4bus_realloc)(void *, size_t);
 typedef void (*xl4bus_free)(void*);
+typedef void (*xl4bus_debug)(const char *);
 
 typedef struct xl4bus_ll_cfg {
 
     xl4bus_malloc malloc;
     xl4bus_realloc realloc;
     xl4bus_free free;
+    xl4bus_debug debug_f;
 
 } xl4bus_ll_cfg_t;
 

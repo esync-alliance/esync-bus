@@ -33,4 +33,22 @@ uint64_t pf_msvalue();
 // the specified address.
 void pf_random(void *, size_t);
 
+#ifndef HAVE_STD_MALLOC
+#define HAVE_STD_MALLOC 0
+#endif
+
+#ifndef HAVE_GETTIMEOFDAY
+#define HAVE_GETTIMEOFDAY 0
+#endif
+
+#ifndef XL4BUS_PROVIDE_DEBUG
+#define XL4BUS_PROVIDE_DEBUG 0
+#endif
+
+#ifndef NEED_PRINTF
+// if NEED_PRINTF is 0, then please add
+// a header definition of vasprintf
+#define NEED_PRINTF 0
+#endif
+
 #endif

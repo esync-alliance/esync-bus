@@ -136,6 +136,9 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/misc.h
     src/uthash.h
     src/utlist.h
+    src/debug.h
+    src/printf.h
+    src/printf.c
     src/include/libxl4bus/low_level.h
     src/include/libxl4bus/types.h
 )

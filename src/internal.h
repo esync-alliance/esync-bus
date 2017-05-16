@@ -4,6 +4,11 @@
 #include "config.h"
 #include <libxl4bus/low_level.h>
 
+#if NEED_PRINTF
+#define vasprintf tft_vasprintf
+#include "printf.h"
+#endif
+
 #define uthash_malloc(c) cfg.malloc(c)
 #define uthash_free(c,d) cfg.free(c)
 
@@ -96,5 +101,6 @@ int add_to_dbuf(dbuf_t * , void * , size_t );
 void free_dbuf(dbuf_t *, int);
 void cleanup_stream(connection_internal_t *, stream_t *);
 int cjose_to_err(cjose_err * err);
+char * f_asprintf(char * fmt, ...);
 
 #endif
