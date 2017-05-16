@@ -1,4 +1,5 @@
 
+#include <config.h>
 #include "internal.h"
 #include "porting.h"
 
@@ -126,6 +127,8 @@ int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
     if (!cfg.free) {
         cfg.free = free;
     }
+
+    cjose_set_alloc_funcs(cfg.malloc, cfg.realloc, cfg.free);
 
 #endif
 
@@ -255,3 +258,37 @@ void cleanup_stream(connection_internal_t * i_conn, stream_t * stream) {
 
 }
 
+int cjose_to_err(cjose_err * err) {
+
+    switch (err->code) {
+
+        case CJOSE_ERR_NONE:
+            return E_XL4BUS_OK;
+        case CJOSE_ERR_NO_MEMORY:
+            return E_XL4BUS_MEMORY;
+        // case CJOSE_ERR_CRYPTO:
+        // case CJOSE_ERR_INVALID_ARG:
+        // case CJOSE_ERR_INVALID_STATE:
+        default:
+            return E_XL4BUS_INTERNAL;
+    }
+
+}
+
+char const * xl4bus_strerr(int e) {
+
+    switch (e) {
+
+        case E_XL4BUS_OK: return "ok";
+        case E_XL4BUS_ARG: return "invalid argument";
+        case E_XL4BUS_MEMORY: return "out of memory";
+        case E_XL4BUS_INTERNAL: return "internal error";
+        case E_XL4BUS_DATA: return "invalid data received";
+        case E_XL4BUS_SYS: return "system error";
+        case E_XL4BUS_EOF: return "end-of-file received";
+        default:
+            return "unknown error";
+
+    }
+
+}

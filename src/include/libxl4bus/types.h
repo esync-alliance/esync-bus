@@ -21,7 +21,7 @@ typedef struct xl4bus_ll_cfg {
 } xl4bus_ll_cfg_t;
 
 typedef enum xl4bus_payload_form {
-    JSON
+    XL4BPF_JSON
 } xl4bus_payload_form_t;
 
 typedef struct xl4bus_message_t {
@@ -30,6 +30,10 @@ typedef struct xl4bus_message_t {
     union {
         json_object * json;
     };
+
+    uint16_t stream_id;
+    int is_final;
+    int is_reply;
 
 } xl4bus_message_t;
 
@@ -46,8 +50,10 @@ struct xl4bus_connection;
 #define E_XL4BUS_INTERNAL   (-3) // internal error
 #define E_XL4BUS_EOF        (-4) // unexpected EOF from channel
 #define E_XL4BUS_DATA       (-5) // communication channel received unrecognized data.
+#define E_XL4BUS_ARG        (-6) // invalid argument provided to the function
 
 typedef void (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_message_t *);
+typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, void *);
 
 typedef char * (*xl4bus_password_callback_t) (struct xl4bus_X509v3_Identity *);
 typedef int (*xl4bus_set_poll) (struct xl4bus_connection*, int);
@@ -73,6 +79,7 @@ typedef struct xl4bus_connection {
 
     xl4bus_set_poll set_poll;
     xl4bus_handle_ll_message ll_message;
+    xl4bus_ll_send_callback ll_send_callback;
     // xl4bus_notify_close notify_close;
 
     void * custom;

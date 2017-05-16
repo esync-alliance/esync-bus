@@ -16,7 +16,10 @@
 #define FRAME_TYPE_SABORT 0x2
 #define FRAME_LAST_MASK (1<<5)
 #define FRAME_MSG_FIRST_MASK (1<<3)
+#define FRAME_MSG_FINAL_MASK (1<<4)
 
+#define CT_JOSE_COMPACT 0
+#define CT_JOSE_JSON    1
 
 typedef struct dbuf {
     uint8_t * data;
@@ -71,6 +74,7 @@ typedef struct connection_internal {
     int pending_connection_test;
     uint8_t connection_test_request[32];
     uint64_t connectivity_test_ts;
+    uint16_t stream_seq_out;
 
 } connection_internal_t;
 
@@ -81,12 +85,14 @@ int check_conn_io(xl4bus_connection_t*);
 
 /* secure.c */
 // $TODO: validate incoming JWS message
-int validate_jws(uint16_t * stream_id);
+int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id);
+int sign_jws(const void * data, size_t data_len, int pad, int offset, char ** jws_data, size_t * jws_len);
 
 /* misc.c */
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
 void free_dbuf(dbuf_t *, int);
 void cleanup_stream(connection_internal_t *, stream_t *);
+int cjose_to_err(cjose_err * err);
 
 #endif

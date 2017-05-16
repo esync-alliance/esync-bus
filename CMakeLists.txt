@@ -33,14 +33,21 @@ endfunction(set_empty)
 function(influence_pkg_spec TGT PREFIX)
 
     if (TARGET ${TGT})
-        join(TMP " " ${${PREFIX}_CFLAGS})
-        target_compile_options(${TGT} PUBLIC ${TMP})
-        join(TMP " " ${${PREFIX}_CFLAGS_OTHER})
-        target_compile_options(${TGT} PUBLIC ${TMP})
-        join(TMP " " ${${PREFIX}_LDFLAGS})
-        set_property(TARGET ${TGT} APPEND_STRING PROPERTY LINK_FLAGS " ${TMP} ")
-        join(TMP " " ${${PREFIX}_LDFLAGS_OTHER})
-        set_property(TARGET ${TGT} APPEND_STRING PROPERTY LINK_FLAGS " ${TMP} ")
+
+        target_compile_options(${TGT} PUBLIC ${${PREFIX}_CFLAGS})
+        target_compile_options(${TGT} PUBLIC ${${PREFIX}_CFLAGS_OTHER})
+
+        target_link_libraries(${TGT} ${${PREFIX}_LDFLAGS})
+        target_link_libraries(${TGT} ${${PREFIX}_LDFLAGS_OTHER})
+
+        #join(TMP " " ${${PREFIX}_CFLAGS})
+        #target_compile_options(${TGT} PUBLIC ${TMP})
+        #join(TMP " " ${${PREFIX}_CFLAGS_OTHER})
+        #target_compile_options(${TGT} PUBLIC ${TMP})
+        #join(TMP " " ${${PREFIX}_LDFLAGS})
+        #set_property(TARGET ${TGT} APPEND_STRING PROPERTY LINK_FLAGS " ${TMP} ")
+        #join(TMP " " ${${PREFIX}_LDFLAGS_OTHER})
+        #set_property(TARGET ${TGT} APPEND_STRING PROPERTY LINK_FLAGS " ${TMP} ")
     endif()
 
 endfunction(influence_pkg_spec)
@@ -49,6 +56,12 @@ function(influence_pkg PREFIX)
     if (${PREFIX}_FOUND)
         influence_pkg_spec(xl4bus-shared ${PREFIX})
         influence_pkg_spec(xl4bus-static ${PREFIX}_STATIC)
+        set(TMP ${PREFIX})
+        if ("${USE_LIB}" STREQUAL "xl4bus-static")
+            set(TMP ${PREFIX}_STATIC)
+        endif()
+        influence_pkg_spec(ll-server ${TMP})
+        influence_pkg_spec(ll-client ${TMP})
     endif()
 endfunction(influence_pkg)
 
@@ -117,6 +130,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/identity.c
     src/misc.c
     src/net.c
+    src/signed.c
     src/internal.h
     src/porting.h
     src/misc.h
@@ -151,7 +165,9 @@ endif()
 
 if (BUILD_BINS)
     add_executable(ll-server src/ll-server.c)
-    target_link_libraries(ll-server ${USE_LIB})
+    add_executable(ll-client src/ll-client.c)
+    target_link_libraries("ll-server" ${USE_LIB})
+    target_link_libraries("ll-client" ${USE_LIB})
     if (USE_THREADS)
         target_link_libraries(ll-server Threads::Threads)
     else()

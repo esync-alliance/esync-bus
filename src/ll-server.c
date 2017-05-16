@@ -28,7 +28,6 @@ int main(int argc, char ** argv) {
 
     xl4bus_init_ll(&ll_cfg);
 
-
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         perror("socket");
@@ -40,6 +39,16 @@ int main(int argc, char ** argv) {
     b_addr.sin_family = AF_INET;
     b_addr.sin_port = htons(9133);
     b_addr.sin_addr.s_addr = INADDR_ANY;
+
+    int reuse = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0) {
+        perror("setsockopt(SO_REUSEADDR) failed");
+    }
+#ifdef SO_REUSEPORT
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (const char*)&reuse, sizeof(reuse)) < 0) {
+        perror("setsockopt(SO_REUSEPORT) failed");
+    }
+#endif
 
     if (bind(fd, (struct sockaddr*)&b_addr, sizeof(b_addr))) {
         perror("bind");
@@ -98,7 +107,7 @@ void * run_conn(void * _arg) {
 
         while (1) {
 
-            int rc = poll(&pfd, 1, 0);
+            int rc = poll(&pfd, 1, -1);
             if (rc < 0) {
                 perror("poll");
                 break;

@@ -181,6 +181,7 @@ do {} while(0)
                             }
 
                             stream->stream_id = stream_id;
+                            // $TODO: HASH mem check!
                             HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
 
                         }
@@ -219,7 +220,7 @@ do {} while(0)
 
                     case FRAME_TYPE_CTEST: {
 
-                        if (frm.frame_len != 32) {
+                        if (frm.data.len != 32) {
                             err = E_XL4BUS_DATA;
                             break;
                         }
@@ -242,13 +243,14 @@ do {} while(0)
                     case FRAME_TYPE_SABORT: {
 
                         // must at least be 1 byte that indicates the content type.
-                        if (!frm.frame_len) {
+                        if (!frm.data.len) {
                             err = E_XL4BUS_DATA;
                             break;
                         }
 
                         uint16_t stream_id;
-                        if (validate_jws(&stream_id) == E_XL4BUS_OK) {
+                        if (validate_jws(frm.data.data + 1, frm.data.len - 1,
+                                (int)frm.data.data[0], &stream_id) == E_XL4BUS_OK) {
                             stream_t * stream;
                             HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
                             if (stream) {
@@ -358,5 +360,81 @@ static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t 
     DL_APPEND(i_conn->out_queue, chunk);
 
     return E_XL4BUS_OK;
+
+}
+
+int xl4bus_send_message(xl4bus_connection_t * conn, xl4bus_message_t * msg, void * ref) {
+
+    if (!msg || msg->form != XL4BPF_JSON || !msg->json || !json_object_is_type(msg->json, json_type_object)) {
+        return E_XL4BUS_ARG;
+    }
+
+    char * ser = 0;
+    uint8_t * frame = 0;
+    int err;
+
+    do {
+
+        size_t ser_len;
+
+        stream_t * stream = 0;
+
+        connection_internal_t * i_conn = conn->_private;
+
+        if (!msg->is_reply) {
+            stream = f_malloc(sizeof(stream_t));
+            if (!stream) { err = E_XL4BUS_MEMORY; break; }
+            stream->stream_id = msg->stream_id = i_conn->stream_seq_out;
+            i_conn->stream_seq_out += 2;
+        } else {
+
+            HASH_FIND(hh, i_conn->streams, &msg->stream_id, 2, stream);
+            if (!stream) {
+                err = E_XL4BUS_ARG;
+                break;
+            }
+            // $TODO: HASH mem check!
+            HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
+
+        }
+
+        if ((err = sign_jws(
+                json_object_get_string(msg->json),
+                (size_t)json_object_get_string_len(msg->json),
+                12, 8, &ser, &ser_len)) != E_XL4BUS_OK) {
+            break;
+        }
+
+        // $TODO: support large messages!
+        if (ser_len > 65000) { break; }
+
+        set_frame_size(frame, (uint32_t)ser_len + 8);
+
+        uint8_t byte0 = (uint8_t)(FRAME_TYPE_NORMAL | (msg->is_final ? FRAME_MSG_FINAL_MASK : 0) | FRAME_LAST_MASK);
+        if (msg->is_reply) {
+            byte0 |= FRAME_MSG_FIRST_MASK;
+        }
+        *frame = byte0;
+
+        *((uint16_t*)(frame+4)) = htons(stream->stream_id);
+        *((uint16_t*)(frame+6)) = htons(stream->frame_seq_out++);
+
+        calculate_frame_crc(frame, (uint32_t)(ser_len + 12)); // size with crc
+
+        err = post_frame(i_conn, frame, 4 + 32 + 4);
+        if (err == E_XL4BUS_OK) {
+            frame = 0; // consumed.
+        }
+
+    } while(0);
+
+    cfg.free(ser);
+    free(frame);
+
+    if (err == E_XL4BUS_OK) {
+        err = check_conn_io(conn);
+    }
+
+    return err;
 
 }

@@ -4,5 +4,6 @@
 #include <errno.h>
 #include <stdint.h>
 #include <arpa/inet.h>
+#include <cjose/cjose.h>
 
 #define HAVE_STD_MALLOC 1
