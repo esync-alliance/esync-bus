@@ -2,6 +2,7 @@
 #include <config.h>
 #include "internal.h"
 #include "porting.h"
+#include "misc.h"
 
 xl4bus_ll_cfg_t cfg;
 
@@ -142,7 +143,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
     do {
 
         connection_internal_t * i_conn =
-                cfg.malloc(sizeof(connection_internal_t));
+                f_malloc(sizeof(connection_internal_t));
         if (!i_conn) {
             err = E_XL4BUS_MEMORY;
             break;

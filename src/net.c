@@ -222,7 +222,7 @@ do {} while(0)
                                 ntohs(*(uint16_t*)(frm.data.data+2)));
 
                         // OK, we are ready to consume the frame's contents.
-                        BOLT_IF(add_to_dbuf(&stream->incoming_message_data, &frm.data.data + offset, frm.data.len - offset),
+                        BOLT_IF(add_to_dbuf(&stream->incoming_message_data, frm.data.data + offset, frm.data.len - offset),
                                 E_XL4BUS_MEMORY, "Not enough memory to expand message buffer");
 
                         // $TODO: must check if the message size is too big!!!
@@ -467,14 +467,14 @@ int xl4bus_send_message(xl4bus_connection_t * conn, xl4bus_message_t * msg, void
         j_str = json_object_get_string(j_obj);
 
         if ((err = sign_jws(
-                j_str, (size_t)strlen(j_str), 12, 8, (char **) &frame, &ser_len)) != E_XL4BUS_OK) {
+                j_str, (size_t)strlen(j_str), 13, 9, (char **) &frame, &ser_len)) != E_XL4BUS_OK) {
             break;
         }
 
         // $TODO: support large messages!
         if (ser_len > 65000) { break; }
 
-        set_frame_size(frame, (uint32_t)ser_len + 8);
+        set_frame_size(frame, (uint32_t)ser_len + 9);
 
         uint8_t byte0 = (uint8_t)(FRAME_TYPE_NORMAL | (msg->is_final ? FRAME_MSG_FINAL_MASK : 0) | FRAME_LAST_MASK);
         if (msg->is_reply) {
@@ -484,10 +484,11 @@ int xl4bus_send_message(xl4bus_connection_t * conn, xl4bus_message_t * msg, void
 
         *((uint16_t*)(frame+4)) = htons(stream->stream_id);
         *((uint16_t*)(frame+6)) = htons(stream->frame_seq_out++);
+        *(frame+8) = CT_JOSE_COMPACT;
 
-        calculate_frame_crc(frame, (uint32_t)(ser_len + 12)); // size with crc
+        calculate_frame_crc(frame, (uint32_t)(ser_len + 13)); // size with crc
 
-        err = post_frame(i_conn, frame, ser_len + 12);
+        err = post_frame(i_conn, frame, ser_len + 13);
         if (err == E_XL4BUS_OK) {
             frame = 0; // consumed.
         }

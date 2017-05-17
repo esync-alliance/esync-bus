@@ -184,10 +184,11 @@ int validate_jws(void *bin, size_t jws_len, int ct, uint16_t *stream_id, cjose_j
 
     do {
 
-        jws = cjose_jws_import(bin, jws_len, &c_err);
-        err = cjose_to_err(&c_err);
+        BOLT_IF(((char*)bin)[--jws_len], E_XL4BUS_DATA, "Compact serialization is not ASCISZ");
 
-        if (err != E_XL4BUS_OK) { break; }
+        DBG("Verifying serialized JWS (len %d, strlen %d) %s", jws_len, strlen(bin), bin);
+
+        BOLT_CJOSE(cjose_jws_import(bin, jws_len, &c_err));
 
         // $TODO: use proper key!
         BOLT_IF(cjose_jws_verify(jws, test_jwk_pub, &c_err), E_XL4BUS_DATA, "Failed JWS verify");
@@ -281,8 +282,9 @@ if ((res = cjose_to_err(&err)) != E_XL4BUS_OK) { \
             break;
         }
 
-        memcpy((*jws_data) + offset, jws_export, l);
-        *jws_len = l;
+        DBG("Serialized JWS(%d bytes) %s, ", l-1, jws_export);
+
+        memcpy((*jws_data) + offset, jws_export, *jws_len = l);
 
     } while (0);
 
