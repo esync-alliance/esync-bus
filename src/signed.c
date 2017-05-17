@@ -188,10 +188,10 @@ int validate_jws(void *bin, size_t jws_len, int ct, uint16_t *stream_id, cjose_j
 
         DBG("Verifying serialized JWS (len %d, strlen %d) %s", jws_len, strlen(bin), bin);
 
-        BOLT_CJOSE(cjose_jws_import(bin, jws_len, &c_err));
+        BOLT_CJOSE(jws = cjose_jws_import(bin, jws_len, &c_err));
 
         // $TODO: use proper key!
-        BOLT_IF(cjose_jws_verify(jws, test_jwk_pub, &c_err), E_XL4BUS_DATA, "Failed JWS verify");
+        BOLT_IF(!cjose_jws_verify(jws, test_jwk_pub, &c_err), E_XL4BUS_DATA, "Failed JWS verify");
 
         cjose_header_t *p_headers = cjose_jws_get_protected(jws);
         const char *hdr_str;
@@ -240,45 +240,34 @@ int validate_jws(void *bin, size_t jws_len, int ct, uint16_t *stream_id, cjose_j
 
 int sign_jws(const void *data, size_t data_len, int pad, int offset, char **jws_data, size_t *jws_len) {
 
-    cjose_err err;
+    cjose_err c_err = { .code = CJOSE_ERR_NONE};
     cjose_jws_t *jws = 0;
     cjose_header_t *j_hdr = 0;
-    int res; // = E_XL4BUS_OK;
-
-    err.code = CJOSE_ERR_NONE;
-
-#define CJOSE_ERR() { \
-if ((res = cjose_to_err(&err)) != E_XL4BUS_OK) { \
-     break; \
-    }\
-} do {} while(0)
+    int err;
 
     do {
 
-        j_hdr = cjose_header_new(&err);
-        CJOSE_ERR();
+        BOLT_CJOSE(j_hdr = cjose_header_new(&c_err));
 
-        cjose_header_set(j_hdr, CJOSE_HDR_ALG, "RS256", &err);
-        CJOSE_ERR();
+        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, "RS256", &c_err));
 
-        cjose_header_set(j_hdr, CJOSE_HDR_CTY, "application/vnd.xl4.busmessage+json", &err);
-        CJOSE_ERR();
+        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, "application/vnd.xl4.busmessage+json", &c_err));
+
+        json_object * obj = json_object_new_object();
+
+        BOLT_CJOSE(cjose_header_set(j_hdr, "x-xl4bus", json_object_get_string(obj), &c_err));
 
         // $TODO: use proper key
 
-        jws = cjose_jws_sign(test_jwk_priv, j_hdr, data, data_len, &err);
-        CJOSE_ERR();
+        BOLT_CJOSE(jws = cjose_jws_sign(test_jwk_priv, j_hdr, data, data_len, &c_err));
 
         const char *jws_export;
 
-        cjose_jws_export(jws, &jws_export, &err);
-        res = cjose_to_err(&err);
-
-        if (res != E_XL4BUS_OK) { break; }
+        BOLT_CJOSE(cjose_jws_export(jws, &jws_export, &c_err));
 
         size_t l = strlen(jws_export) + 1;
         if (!(*jws_data = f_malloc(l + pad))) {
-            res = E_XL4BUS_MEMORY;
+            err = E_XL4BUS_MEMORY;
             break;
         }
 
@@ -291,6 +280,6 @@ if ((res = cjose_to_err(&err)) != E_XL4BUS_OK) { \
     cjose_jws_release(jws);
     cjose_header_release(j_hdr);
 
-    return res;
+    return err;
 
 }

@@ -249,8 +249,8 @@ do {} while(0)
 
                                 // there must be at least one char, the first char must be '{' (we only support
                                 // JSON payload), the string must be ASCIIZ
-                                if (!txt_len || message.json[0] == '{' || message.json[txt_len] != 0) {
-                                    err = E_XL4BUS_DATA;
+                                if (!txt_len || message.json[0] != '{' || message.json[txt_len] != 0) {
+                                    BOLT_SAY(E_XL4BUS_DATA, "Plain text is not JSON");
                                     break;
                                 }
 
