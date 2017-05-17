@@ -69,6 +69,7 @@
 #define BOLT_IF(cond, __err, msg, x...) if (cond) { err = (__err); DBG(msg ", setting err %d", ## x, err); break; } do{}while(0)
 #define BOLT_M1(a, m, x...) if ((a)==-1) { DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
 #define BOLT_SYS(a, m, x...) if ((a)) { DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
-#define BOLT_SUB(a) if ((a)) { BOLT(a); } do{}while(0)
+#define BOLT_SUB(a) { err = (a); if (err != E_XL4BUS_OK) { BOLT_SAY(err, #a); }} do{}while(0)
+#define BOLT_CJOSE(a) { a; BOLT_SUB(cjose_to_err(&c_err)); }
 
 #endif // _XL4BUS_DEBUG_H_

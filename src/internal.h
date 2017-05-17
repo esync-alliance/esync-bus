@@ -47,12 +47,14 @@ typedef struct stream {
     uint16_t stream_id;
 
     int incoming_message_ct;
+    dbuf_t incoming_message_data;
 
-    dbuf_t incoming_message;
-
-    uint16_t message_started;
+    int message_started;
     uint16_t frame_seq_in;
     uint16_t frame_seq_out;
+
+    int is_final;
+    int is_reply;
 
 } stream_t;
 
@@ -92,14 +94,14 @@ int check_conn_io(xl4bus_connection_t*);
 
 /* secure.c */
 // $TODO: validate incoming JWS message
-int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id);
+int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, cjose_jws_t ** exp_jws);
 int sign_jws(const void * data, size_t data_len, int pad, int offset, char ** jws_data, size_t * jws_len);
 
 /* misc.c */
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
 void free_dbuf(dbuf_t *, int);
-void cleanup_stream(connection_internal_t *, stream_t *);
+void cleanup_stream(connection_internal_t *, stream_t **);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
 

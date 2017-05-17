@@ -246,15 +246,17 @@ void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
     stream_t * aux;
 
     HASH_ITER(hh, i_conn->streams, stream, aux) {
-        cleanup_stream(i_conn, stream);
+        cleanup_stream(i_conn, &stream);
     }
 
 }
 
-void cleanup_stream(connection_internal_t * i_conn, stream_t * stream) {
+void cleanup_stream(connection_internal_t * i_conn, stream_t ** stream) {
 
-    free_dbuf(&stream->incoming_message, 0);
-    HASH_DEL(i_conn->streams, stream);
+    free_dbuf(&(*stream)->incoming_message_data, 0);
+    HASH_DEL(i_conn->streams, *stream);
+    free(*stream);
+    *stream = 0;
 
 }
 

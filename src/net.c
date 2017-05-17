@@ -170,14 +170,17 @@ do {} while(0)
                         stream_t * stream;
                         uint16_t stream_id = ntohs(*(uint16_t*)frm.data.data);
                         HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+
+                        int is_not_first;
+
                         if (!stream) {
 
                             // there is no stream. We can only create a stream for
                             // first message, and if stream ID is not ours.
 
-                            if ((frm.byte0 & FRAME_MSG_FIRST_MASK) ||
+                            if ((is_not_first = (frm.byte0 & FRAME_MSG_FIRST_MASK)) ||
                                     (stream_id&0x1) != (conn->is_client ? 1 : 0)) {
-                                BOLT_SAY(E_XL4BUS_DATA, "Stream ID %d has incorrect parity (byte0 is %x, exp parity %d)",
+                                BOLT_SAY(E_XL4BUS_DATA, "Stream ID %d has incorrect parity or not a stream starter (byte0 is %x, exp parity %d)",
                                         stream_id, frm.byte0, (conn->is_client?1:0));
                             }
 
@@ -186,6 +189,14 @@ do {} while(0)
                             stream->stream_id = stream_id;
                             // $TODO: HASH mem check!
                             HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
+
+                        } else {
+
+                            if (!(frm.byte0 & FRAME_MSG_FIRST_MASK)) {
+                                BOLT_SAY(E_XL4BUS_DATA, "Frame attempts to start existing stream %d", stream_id);
+                            }
+
+                            is_not_first = 1;
 
                         }
 
@@ -200,6 +211,9 @@ do {} while(0)
                             stream->message_started = 1;
                             stream->incoming_message_ct = *(frm.data.data+4);
 
+                            stream->is_final = (frm.byte0 & FRAME_MSG_FINAL_MASK) > 0;
+                            stream->is_reply = is_not_first > 0;
+
                         }
 
                         // does frame sequence match our expectations?
@@ -208,10 +222,56 @@ do {} while(0)
                                 ntohs(*(uint16_t*)(frm.data.data+2)));
 
                         // OK, we are ready to consume the frame's contents.
-                        BOLT_IF(add_to_dbuf(&stream->incoming_message, &frm.data.data + offset, frm.data.len - offset),
+                        BOLT_IF(add_to_dbuf(&stream->incoming_message_data, &frm.data.data + offset, frm.data.len - offset),
                                 E_XL4BUS_MEMORY, "Not enough memory to expand message buffer");
 
                         // $TODO: must check if the message size is too big!!!
+
+                        // Is the message now complete?
+                        if (frm.byte0 & FRAME_LAST_MASK) {
+
+                            cjose_jws_t * jws = 0;
+
+                            do {
+
+                                cjose_err c_err = {.code = CJOSE_ERR_NONE};
+
+                                // the message is completed! Let's purge it.
+                                xl4bus_message_t message;
+
+                                BOLT_SUB(validate_jws(stream->incoming_message_data.data,
+                                        stream->incoming_message_data.len,
+                                        stream->incoming_message_ct, 0, &jws));
+
+                                size_t txt_len;
+
+                                BOLT_CJOSE(cjose_jws_get_plaintext(jws, (uint8_t**)&message.json, &txt_len, &c_err));
+
+                                // there must be at least one char, the first char must be '{' (we only support
+                                // JSON payload), the string must be ASCIIZ
+                                if (!txt_len || message.json[0] == '{' || message.json[txt_len] != 0) {
+                                    err = E_XL4BUS_DATA;
+                                    break;
+                                }
+
+                                message.form = XL4BPF_JSON;
+                                message.stream_id = stream_id;
+                                message.is_reply = stream->is_reply;
+                                message.is_final = stream->is_final;
+
+                                conn->ll_message(conn, &message);
+
+                            } while (0);
+
+                            free_dbuf(&stream->incoming_message_data, 0);
+                            stream->message_started = 0;
+                            cjose_jws_release(jws);
+
+                            if (stream->is_final) {
+                                cleanup_stream(i_conn, &stream);
+                            }
+
+                        }
 
                     }
                     break;
@@ -248,11 +308,11 @@ do {} while(0)
 
                         uint16_t stream_id;
                         if (validate_jws(frm.data.data + 1, frm.data.len - 1,
-                                (int)frm.data.data[0], &stream_id) == E_XL4BUS_OK) {
+                                (int)frm.data.data[0], &stream_id, 0) == E_XL4BUS_OK) {
                             stream_t * stream;
                             HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
                             if (stream) {
-                                cleanup_stream(i_conn, stream);
+                                cleanup_stream(i_conn, &stream);
                             }
                         }
 
