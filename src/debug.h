@@ -57,11 +57,12 @@
 // pointer to realloc
 // type of pointer
 // size
-#define BOLT_REALLOC(ptr,type,size) { \
+#define BOLT_REALLOC(ptr,type,size,newsize) { \
     int __size = size; \
     void * __aux = cfg.realloc(ptr, (__size)*sizeof(type)); \
     if (!__aux) { err = E_XL4BUS_MEMORY; DBG("out of memory, realloc %d", __size); break; } \
     ptr = (type*)__aux; \
+    newsize = __size; \
 } do{}while(0)
 
 #define BOLT(why) err = (why); DBG("setting err %d", err); break; do{}while(0)

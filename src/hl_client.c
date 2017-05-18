@@ -2,6 +2,7 @@
 #include <libxl4bus/high_level.h>
 #include "internal.h"
 #include "porting.h"
+#include "misc.h"
 
 #if XL4_PROVIDE_THREADS
 
@@ -15,6 +16,10 @@ static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
 #endif
 
 int xl4bus_init_client(xl4bus_client_t * clt) {
+
+    if (!(clt->_private = f_malloc(sizeof(client_internal_t)))) {
+        return E_XL4BUS_MEMORY;
+    }
 
 #if XL4_PROVIDE_THREADS
     if (clt->use_internal_thread) {
@@ -31,6 +36,26 @@ int xl4bus_init_client(xl4bus_client_t * clt) {
 
     // the caller must call process_client right away.
     return E_XL4BUS_OK;
+
+}
+
+int xl4bus_flag_poll(xl4bus_client_t * clt, int fd, int modes) {
+
+    int err = E_XL4BUS_OK;
+
+    do {
+
+        client_internal_t * i_clt = clt->_private;
+        if (i_clt->pending_len == i_clt->pending_cap) {
+            BOLT_REALLOC(i_clt->pending, pending_fd_t, i_clt->pending_cap + 1, i_clt->pending_cap);
+        }
+        pending_fd_t * pfd = i_clt->pending + i_clt->pending_len++;
+        pfd->fd = fd;
+        pfd->flags = modes;
+
+    } while (0);
+
+    return err;
 
 }
 
@@ -51,14 +76,17 @@ void client_thread(void * arg) {
         int err = pf_poll(poll_info.polls, poll_info.polls_len, timeout);
         if (err < 0) {
             xl4bus_stop_client(clt);
-            break;
+            return;
         }
 
         for (int i=0; err && i<poll_info.polls_len; i++) {
             pf_poll_t * pp = poll_info.polls + i;
             if (pp->revents) {
                 err--;
-                xl4bus_flag_poll(clt, pp->fd, pp->revents);
+                if (xl4bus_flag_poll(clt, pp->fd, pp->revents) != E_XL4BUS_OK) {
+                    xl4bus_stop_client(clt);
+                    return;
+                }
             }
         }
 

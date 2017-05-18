@@ -93,7 +93,7 @@ int main(int argc, char ** argv) {
 
             while (1) {
 
-                int rc = poll(&pfd, 1, 1);
+                int rc = poll(&pfd, 1, timeout);
                 if (rc < 0) {
                     perror("poll");
                     break;

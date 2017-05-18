@@ -94,6 +94,11 @@ typedef enum client_state {
     CONNECTED
 } client_state_t;
 
+typedef struct pending_fd {
+    int fd;
+    int flags;
+} pending_fd_t;
+
 typedef struct client_internal {
 
     client_state_t state;
@@ -101,6 +106,10 @@ typedef struct client_internal {
 #if XL4_PROVIDE_THREADS
     void * xl4_thread_space;
 #endif
+
+    pending_fd_t * pending;
+    int pending_len;
+    int pending_cap;
 
 } client_internal_t;
 
