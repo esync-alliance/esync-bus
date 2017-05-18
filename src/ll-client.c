@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <jansson.h>
 
-static void in_message(xl4bus_connection_t *, xl4bus_message_t *);
+static void in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int);
 static void print_out(const char *);
@@ -73,8 +73,9 @@ int main(int argc, char ** argv) {
 
         if ((err = xl4bus_init_connection(conn)) == E_XL4BUS_OK) {
 
-            xl4bus_message_t msg;
-            memset(&msg, 0, sizeof(xl4bus_message_t));
+            xl4bus_ll_message_t msg;
+            memset(&msg, 0, sizeof(xl4bus_ll_message_t));
+            int timeout = -1;
 
             json_t * j = json_object();
             json_object_set_new(j, "playing", json_string("hooky"));
@@ -83,7 +84,7 @@ int main(int argc, char ** argv) {
             msg.json = json_dumps(j, JSON_COMPACT);
             // msg.json = (char*)json_object_get_string(j);
 
-            if ((err = xl4bus_send_message(conn, &msg, 0)) != E_XL4BUS_OK) {
+            if ((err = xl4bus_send_ll_message(conn, &msg, 0)) != E_XL4BUS_OK) {
                 printf("failed to send a message : %s\n", xl4bus_strerr(err));
             }
 
@@ -92,7 +93,7 @@ int main(int argc, char ** argv) {
 
             while (1) {
 
-                int rc = poll(&pfd, 1, -1);
+                int rc = poll(&pfd, 1, 1);
                 if (rc < 0) {
                     perror("poll");
                     break;
@@ -107,7 +108,7 @@ int main(int argc, char ** argv) {
                     flags |= XL4BUS_POLL_ERR;
                 }
 
-                if ((err = xl4bus_process_connection(conn, flags)) != E_XL4BUS_OK) {
+                if ((err = xl4bus_process_connection(conn, flags, &timeout)) != E_XL4BUS_OK) {
                     printf("failed to maintain the connection : %s\n", xl4bus_strerr(err));
                     break;
                 }
@@ -142,7 +143,7 @@ int set_poll(xl4bus_connection_t * conn, int flg) {
 
 }
 
-void in_message(xl4bus_connection_t * conn, xl4bus_message_t * msg) {
+void in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     printf("hooray, a message!\n");
 

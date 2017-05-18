@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-static void in_message(xl4bus_connection_t *, xl4bus_message_t *);
+static void in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int);
 static void print_out(const char *);
@@ -109,9 +109,11 @@ void * run_conn(void * _arg) {
 
     if (xl4bus_init_connection(conn) == E_XL4BUS_OK) {
 
+        int timeout = -1;
+
         while (1) {
 
-            int rc = poll(&pfd, 1, -1);
+            int rc = poll(&pfd, 1, timeout);
             if (rc < 0) {
                 perror("poll");
                 break;
@@ -126,7 +128,7 @@ void * run_conn(void * _arg) {
                 flags |= XL4BUS_POLL_ERR;
             }
 
-            if (xl4bus_process_connection(conn, flags) != E_XL4BUS_OK) {
+            if (xl4bus_process_connection(conn, flags, &timeout) != E_XL4BUS_OK) {
                 break;
             }
 
@@ -157,7 +159,7 @@ int set_poll(xl4bus_connection_t * conn, int flg) {
 
 }
 
-void in_message(xl4bus_connection_t * conn, xl4bus_message_t * msg) {
+void in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     printf("hooray, a message!\n");
 

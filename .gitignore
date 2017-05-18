@@ -7,3 +7,4 @@ run.cmk
 .idea/tasks.xml
 config.h
 types_base.h
+build_config.h

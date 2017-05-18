@@ -24,9 +24,11 @@ int check_conn_io(xl4bus_connection_t * conn) {
 
 }
 
-int xl4bus_process_connection(xl4bus_connection_t * conn, int flags) {
+int xl4bus_process_connection(xl4bus_connection_t * conn, int flags, int * timeout) {
 
     int err = E_XL4BUS_OK;
+
+    *timeout = -1;
 
     do {
 
@@ -237,7 +239,7 @@ do {} while(0)
                                 cjose_err c_err = {.code = CJOSE_ERR_NONE};
 
                                 // the message is completed! Let's purge it.
-                                xl4bus_message_t message;
+                                xl4bus_ll_message_t message;
 
                                 BOLT_SUB(validate_jws(stream->incoming_message_data.data,
                                         stream->incoming_message_data.len,
@@ -337,6 +339,8 @@ do {} while(0)
 
         }
 
+        // $TODO: do all the timeouts here!!!
+
         if (err != E_XL4BUS_OK) { break; }
 
         err = check_conn_io(conn);
@@ -421,7 +425,7 @@ static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t 
 
 }
 
-int xl4bus_send_message(xl4bus_connection_t * conn, xl4bus_message_t * msg, void * ref) {
+int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *ref) {
 
     if (!msg || msg->form != XL4BPF_JSON || !msg->json) {
         return E_XL4BUS_ARG;

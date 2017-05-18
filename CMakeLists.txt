@@ -118,15 +118,20 @@ endif()
 set_empty(BUILD_SHARED TRUE)
 set_empty(BUILD_STATIC TRUE)
 set_empty(BUILD_BINS TRUE)
-set_empty(USE_THREADS TRUE)
+set_empty(XL4_PROVIDE_THREADS 1)
+set_empty(XL4_PROVIDE_DEBUG 1)
 set_empty(LIB_DEBUG TRUE)
+
+configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${CMAKE_SOURCE_DIR}/build_config.h)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/json-c)
 include_directories(${CMAKE_SOURCE_DIR}/src)
+include_directories(${CMAKE_SOURCE_DIR})
 include_directories(${PORT})
 
 set(LIB_SOURCE ${LIB_SOURCE}
+    build_config.h
     src/identity.c
     src/misc.c
     src/net.c
@@ -139,7 +144,9 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/debug.h
     src/printf.h
     src/printf.c
+    src/hl_client.c
     src/include/libxl4bus/low_level.h
+    src/include/libxl4bus/high_level.h
     src/include/libxl4bus/types.h
 )
 
@@ -148,7 +155,7 @@ if (NOT EXISTS ${JSON_C_LIB})
     message(FATAL_ERROR You must build json-c sources first!)
 endif()
 
-if (USE_THREADS)
+if (XL4_PROVIDE_THREADS)
     set(THREADS_PREFER_PTHREAD_FLAG TRUE)
     find_package(Threads MODULE REQUIRED)
 endif()
@@ -156,7 +163,7 @@ endif()
 if (BUILD_SHARED)
     add_library(xl4bus-shared SHARED ${LIB_SOURCE})
     set_target_properties(xl4bus-shared PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
-    if (USE_THREADS)
+    if (XL4_PROVIDE_THREADS)
         target_link_libraries(xl4bus-shared Threads::Threads)
     endif()
     set(USE_LIB xl4bus-shared)
@@ -166,7 +173,7 @@ endif()
 if (BUILD_STATIC)
     add_library(xl4bus-static STATIC ${LIB_SOURCE})
     set_target_properties(xl4bus-static PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
-    if (USE_THREADS)
+    if (XL4_PROVIDE_THREADS)
         target_link_libraries(xl4bus-static Threads::Threads)
     endif()
     if (NOT USE_LIB)
@@ -189,7 +196,7 @@ if (BUILD_BINS)
 
     target_link_libraries("ll-server" ${USE_LIB})
     target_link_libraries("ll-client" ${USE_LIB})
-    if (USE_THREADS)
+    if (XL4_PROVIDE_THREADS)
         target_link_libraries(ll-server Threads::Threads)
     else()
         message(FATAL_ERROR "Binaries require threading support that is not enabled. You probably want to disable binaries being built as well.")

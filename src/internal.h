@@ -87,6 +87,23 @@ typedef struct connection_internal {
 
 } connection_internal_t;
 
+typedef enum client_state {
+    DOWN,
+    RESOLVING,
+    CONNECTING,
+    CONNECTED
+} client_state_t;
+
+typedef struct client_internal {
+
+    client_state_t state;
+
+#if XL4_PROVIDE_THREADS
+    void * xl4_thread_space;
+#endif
+
+} client_internal_t;
+
 extern xl4bus_ll_cfg_t cfg;
 
 /* net.c */

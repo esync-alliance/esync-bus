@@ -2,5 +2,7 @@
 # if your CJose is not in default location:
 # set(ENV{CMAKE_APPBUNDLE_PATH} "/opt/soft/cjose")
 
+set(XL4_PROVIDE_DEBUG 1)
+
 set(LIB_SOURCE ${LIB_SOURCE} linux_port/config.h linux_port/port.c)
 

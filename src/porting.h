@@ -1,6 +1,8 @@
 #ifndef _XL4BUS_PORTING_H_
 #define _XL4BUS_PORTING_H_
 
+#include "build_config.h"
+
 /*
  * This file contains headers for
  * porting functions - such functions must be
@@ -33,16 +35,37 @@ uint64_t pf_msvalue();
 // the specified address.
 void pf_random(void *, size_t);
 
+#if XL4_PROVIDE_THREADS
+typedef void (*pf_runnable_t)(void *);
+// start new thread. The thread is to end when
+// pf_runnable_t exits. The argument included
+// in this function must be provided to the runnable.
+// return 0 if thread started successfully, or return 1
+// and set errno.
+int pf_start_thread(pf_runnable_t, void *);
+
+// this is copied from poll(2)
+typedef struct pf_poll {
+    int fd;
+    // events/revents are:
+    // XL4BUS_POLL_READ  (1<<1)
+    // XL4BUS_POLL_WRITE (1<<2)
+    // XL4BUS_POLL_ERR   (1<<3)
+    short events;
+    short revents;
+} pf_poll_t;
+
+// this is analogous to poll(2)
+int pf_poll(pf_poll_t *, int, int);
+
+#endif
+
 #ifndef HAVE_STD_MALLOC
 #define HAVE_STD_MALLOC 0
 #endif
 
 #ifndef HAVE_GETTIMEOFDAY
 #define HAVE_GETTIMEOFDAY 0
-#endif
-
-#ifndef XL4BUS_PROVIDE_DEBUG
-#define XL4BUS_PROVIDE_DEBUG 0
 #endif
 
 #ifndef NEED_PRINTF

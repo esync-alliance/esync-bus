@@ -1,0 +1,8 @@
+
+#ifndef _XL4BUS_BUILD_CONFIG_H_
+#define _XL4BUS_BUILD_CONFIG_H_
+
+#cmakedefine01 XL4_PROVIDE_THREADS
+#cmakedefine01 XL4_PROVIDE_DEBUG
+
+#endif
