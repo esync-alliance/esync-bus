@@ -47,4 +47,9 @@ static inline void * f_malloc(size_t size) {
 
 }
 
+static inline int timeval_to_millis(struct timeval * tv) {
+    // $TODO check for overflows.
+    return  (int) (tv->tv_sec * 1000 + tv->tv_usec / 1000);
+}
+
 #endif

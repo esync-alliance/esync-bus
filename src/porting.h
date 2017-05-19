@@ -44,6 +44,24 @@ typedef void (*pf_runnable_t)(void *);
 // and set errno.
 int pf_start_thread(pf_runnable_t, void *);
 
+// connect to a TCP destination.
+// the operation must be asynchronous if possible.
+// the *async should be set to 1, if the operation
+// must finish the connection later. Polling for
+// writeability will be requested, and when indicated,
+// the connection will be considered connected or
+// failed, if pf_get_socket_error() returns !0.
+// ip will always be an IP address (never host name),
+// and may be IPV6. Return -1 and set errno, if unable
+// to connect. The IP address is raw, encoded in host order,
+// as if in hostent structure, the ip_len contains its
+// length.
+int pf_connect_tcp(void * ip, int ip_len, int port, int * async);
+
+// return 0 if the socket is OK, otherwise return !0
+// and set errno.
+int pf_get_socket_error(int);
+
 // this is copied from poll(2)
 typedef struct pf_poll {
     int fd;

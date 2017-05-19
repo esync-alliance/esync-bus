@@ -90,6 +90,7 @@ typedef struct connection_internal {
 typedef enum client_state {
     DOWN,
     RESOLVING,
+    RESOLVED,
     CONNECTING,
     CONNECTED
 } client_state_t;
@@ -98,6 +99,12 @@ typedef struct pending_fd {
     int fd;
     int flags;
 } pending_fd_t;
+
+typedef struct known_fd {
+    int fd;
+    UT_hash_handle hh;
+    int modes;
+} known_fd_t;
 
 typedef struct client_internal {
 
@@ -110,6 +117,16 @@ typedef struct client_internal {
     pending_fd_t * pending;
     int pending_len;
     int pending_cap;
+    ares_channel ares;
+
+    int net_addr_count;
+    int net_addr_len;
+    void * net_addr;
+
+    char * host;
+    int port;
+
+    known_fd_t * known_fd;
 
 } client_internal_t;
 

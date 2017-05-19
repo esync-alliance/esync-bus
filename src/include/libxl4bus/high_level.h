@@ -7,7 +7,9 @@
 #define XL4_PUB __attribute__((visibility ("default")))
 #endif
 
-XL4_PUB int xl4bus_init_client(xl4bus_client_t *);
+// the only URL format accepted so far is:
+// tcp://hostname:port
+XL4_PUB int xl4bus_init_client(xl4bus_client_t *, char * url);
 XL4_PUB int xl4bus_flag_poll(xl4bus_client_t *, int fd, int modes);
 XL4_PUB void xl4bus_run_client(xl4bus_client_t *, int *);
 XL4_PUB void xl4bus_stop_client(xl4bus_client_t *);

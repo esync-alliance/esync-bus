@@ -113,15 +113,13 @@ typedef enum xl4bus_client_condition {
     CLIENT_STOPPED
 } xl4bus_client_condition_t;
 
-typedef void (*xl4bus_conn_info)(struct xl4bus_client *, xl4bus_client_condition_t, int);
+typedef void (*xl4bus_conn_info)(struct xl4bus_client *, xl4bus_client_condition_t);
 
 typedef struct xl4bus_client {
 
 #if XL4_PROVIDE_THREADS
     int use_internal_thread;
 #endif
-
-    char * url;
 
     xl4bus_set_poll set_poll;
     xl4bus_conn_info conn_notify;
