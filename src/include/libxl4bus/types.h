@@ -102,6 +102,8 @@ typedef struct xl4bus_message {
     int data_len;
 } xl4bus_message_t;
 
+struct xl4bus_client;
+
 typedef int (*xl4bus_set_poll) (struct xl4bus_client *, int fd, int modes);
 typedef void (*xl4bus_handle_message)(struct xl4bus_client *, xl4bus_message_t *);
 

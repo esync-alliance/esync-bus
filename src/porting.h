@@ -56,7 +56,7 @@ int pf_start_thread(pf_runnable_t, void *);
 // to connect. The IP address is raw, encoded in host order,
 // as if in hostent structure, the ip_len contains its
 // length.
-int pf_connect_tcp(void * ip, int ip_len, int port, int * async);
+int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async);
 
 // return 0 if the socket is OK, otherwise return !0
 // and set errno.

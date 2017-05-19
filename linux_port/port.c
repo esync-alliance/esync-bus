@@ -1,6 +1,7 @@
 
 #include "config.h"
 #include "porting.h"
+#include "debug.h"
 #include <libxl4bus/types.h>
 #include "internal.h"
 
@@ -150,6 +151,86 @@ int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
     }
 
     return ec;
+
+}
+
+int pf_get_socket_error(int fd) {
+
+    int error;
+    socklen_t err_len = sizeof(int);
+    int rc = getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &err_len);
+    if (rc) { return 1; }
+    if (error) {
+        pf_set_errno(error);
+        return 1;
+    }
+
+    return 0;
+
+}
+
+int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
+
+    int family = AF_UNSPEC;
+#if XL4_PROVIDE_IPV4
+    if (ip_len == 4) {
+        family = AF_INET;
+    }
+#endif
+#if XL4_PROVIDE_IPV6
+    if (ip_len == 16) {
+        family = AF_INET6;
+    }
+#endif
+
+    if (family == AF_UNSPEC) {
+        DBG("Unsupported address length %d", ip_len);
+        pf_set_errno(ENOTSUP);
+        return -1;
+    }
+
+    int fd = socket(family, SOCK_STREAM, 0);
+    if (fd < 0) { return -1; }
+
+    int rc;
+
+#if XL4_PROVIDE_IPV4
+    if (family == AF_INET) {
+        struct sockaddr_in sin;
+        sin.sin_family = AF_INET6;
+        sin.sin_port = htons(port);
+        memcpy(&sin.sin_addr, ip, ip_len);
+        rc = connect(fd, &sin, sizeof(struct sockaddr_in));
+    }
+#endif
+#if XL4_PROVIDE_IPV6
+    if (family == AF_INET6) {
+        struct sockaddr_in6 sin6;
+        sin6.sin6_family = AF_INET6;
+        sin6.sin6_port = htons(port);
+        memcpy(&sin6.sin6_addr, ip, ip_len);
+        rc = connect(fd, &sin6, sizeof(struct sockaddr_in));
+    }
+#endif
+
+    int err;
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wuninitialized"
+    if (!rc) {
+#pragma clang diagnostic pop
+        // connection actually completed already.
+        *async = 0;
+        return fd;
+    } else if ((err = pf_get_errno()) == EINPROGRESS) {
+        *async = 1;
+        return fd;
+    }
+
+    close(fd);
+    pf_set_errno(err);
+
+    return -1;
 
 }
 

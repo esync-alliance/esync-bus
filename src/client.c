@@ -16,6 +16,7 @@ typedef struct poll_info {
 
 static void client_thread(void *);
 static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
+
 #endif
 
 static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
@@ -604,5 +605,41 @@ static int create_ll_connection(xl4bus_client_t * clt) {
     } while (0);
 
     return err;
+
+}
+
+int ll_poll_cb(struct xl4bus_connection* conn, int modes) {
+
+    int err = E_XL4BUS_OK;
+    do {
+
+        xl4bus_client_t * clt = conn->custom;
+        client_internal_t * i_clt = clt->_private;
+
+        BOLT_IF(conn->fd != i_clt->tcp_fd, E_XL4BUS_INTERNAL,
+                "connection FD doesn't match client FD");
+
+        known_fd_t * fdi;
+
+        HASH_FIND_INT(i_clt->known_fd, &conn->fd, fdi);
+        if (!fdi && modes) {
+            BOLT_MALLOC(fdi, sizeof(known_fd_t));
+            fdi->fd = conn->fd;
+            HASH_ADD_INT(i_clt->known_fd, fd, fdi);
+        }
+
+        if (fdi) {
+            fdi->modes = modes;
+        }
+
+    } while(0);
+
+    return err;
+
+}
+
+void ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
+
+    DBG("Look, a message!");
 
 }
