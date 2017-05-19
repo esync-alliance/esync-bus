@@ -4,5 +4,7 @@
 
 #cmakedefine01 XL4_PROVIDE_THREADS
 #cmakedefine01 XL4_PROVIDE_DEBUG
+#cmakedefine01 XL4_PROVIDE_IPV4
+#cmakedefine01 XL4_PROVIDE_IPV6
 
 #endif

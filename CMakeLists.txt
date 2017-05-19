@@ -120,18 +120,19 @@ set_empty(BUILD_STATIC TRUE)
 set_empty(BUILD_BINS TRUE)
 set_empty(XL4_PROVIDE_THREADS 1)
 set_empty(XL4_PROVIDE_DEBUG 1)
+set_empty(XL4_PROVIDE_IPV6 1)
+set_empty(XL4_PROVIDE_IPV4 1)
 set_empty(LIB_DEBUG TRUE)
 
-configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${CMAKE_SOURCE_DIR}/build_config.h)
+configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${PORT}/build_config.h)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/json-c)
 include_directories(${CMAKE_SOURCE_DIR}/src)
-include_directories(${CMAKE_SOURCE_DIR})
 include_directories(${PORT})
 
 set(LIB_SOURCE ${LIB_SOURCE}
-    build_config.h
+    ${PORT}/build_config.h
     src/identity.c
     src/misc.c
     src/net.c

@@ -19,7 +19,7 @@ static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
 
 static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
 static int min_timeout(int a, int b);
-static void drop_client(xl4bus_client_t * clt);
+static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
 
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
@@ -101,7 +101,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
     client_internal_t * i_clt = clt->_private;
     // if somebody wants to set the timeout, they better do it.
     *timeout = -1;
-    int err = E_XL4BUS_OK;
+    int err; // = E_XL4BUS_OK;
 
     while (1) {
 
@@ -128,11 +128,29 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
             } else {
 
+                int family = AF_UNSPEC;
+#if XL4_PROVIDE_IPV4
+                family = AF_INET;
+#elif XL4_PROVIDE_IPV6
+                family = AF_INET6;
+#endif
+
+                if (family == AF_UNSPEC) {
+                    drop_client(clt, RESOLUTION_FAILED);
+                    break;
+                }
+
                 // we are ready to come out of DOWN state.
                 // first need we need to do is to resolve our broker address.
                 i_clt->state = RESOLVING;
                 ares_gethostbyname(i_clt->ares, i_clt->host,
-                        AF_UNSPEC, ares_gethostbyname_cb, clt);
+                        family, ares_gethostbyname_cb, clt);
+
+#if XL4_PROVIDE_IPV6 && XL4_PROVIDE_IPV4
+                // if we need both addresses
+                i_clt->dual_ip = 1;
+#endif
+
 
             }
 
@@ -174,11 +192,14 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             int ll_timeout;
             if (xl4bus_process_connection(i_clt->ll, ll_conn_reason, &ll_timeout) != E_XL4BUS_OK) {
                 i_clt->ll = 0;
-                drop_client(clt);
+                drop_client(clt, CONNECTION_BROKE);
                 continue;
             }
             *timeout = min_timeout(*timeout, ll_timeout);
         }
+
+        // reset any polled events.
+        i_clt->pending_len = 0;
 
         FD_ZERO(&read);
         FD_ZERO(&write);
@@ -251,21 +272,31 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             if (i_clt->tcp_fd < 0) {
                 // socket has not been established, or we have failed.
                 // try next address, or go down.
-                if (i_clt->net_addr_current == i_clt->net_addr_count) {
-                    // no more addresses to try.
-                    clt->conn_notify(clt, CONNECTION_FAILED);
-                    i_clt->state = DOWN;
+                ip_addr_t * addr = 0;
+                if (i_clt->addresses) {
+                    addr = &i_clt->addresses[i_clt->net_addr_current];
+                }
+                if (!addr || addr->family == AF_UNSPEC) {
+                    // no (more) addresses to try.
+                    drop_client(clt, addr ? CONNECTION_FAILED : RESOLUTION_FAILED);
                     break;
                 }
             }
         }
 
+        // if there is no change, let's get out.
         if (i_clt->state == old_state) {
-            // there is no change, let's get out.
+            // but if somebody said it's OK, then sure.
+            if (i_clt->repeat_process) {
+                i_clt->repeat_process = 0;
+                continue;
+            }
             break;
         }
 
     }
+
+
 
 }
 
@@ -365,30 +396,81 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
 
     do {
 
-        BOLT_IF(status != ARES_SUCCESS, E_XL4BUS_SYS, "Ares result %d", status);
-
-        if (i_clt->net_addr) {
-            cfg.free(i_clt->net_addr);
-            i_clt->net_addr = 0;
+        if (status != ARES_SUCCESS) {
+            DBG("ARES reported failure %d", status);
         }
 
-        i_clt->net_addr_current = 0;
-        i_clt->tcp_fd = 0;
+        int addr_count;
+        int addr_start;
+        for (addr_count = 0; hent->h_addr_list[addr_count]; addr_count++);
 
-        for (i_clt->net_addr_count = 0; hent->h_addr_list[i_clt->net_addr_count]; i_clt->net_addr_count++);
-        BOLT_IF(!i_clt->net_addr_count, E_XL4BUS_INTERNAL, "Ares hostent result has 0 addresses?");
-        BOLT_MALLOC(i_clt->net_addr, (size_t)i_clt->net_addr_count * (i_clt->net_addr_len = hent->h_length));
-        for (int i=0; i < i_clt->net_addr_count; i++) {
-            memcpy(i_clt->net_addr + i_clt->net_addr_len * i, hent->h_addr_list[i], (size_t)i_clt->net_addr_len);
+        if (!addr_count) {
+            DBG("Ares hostent result has 0 addresses?");
+            break;
+        }
+
+        addr_start = 0;
+        if (i_clt->addresses) {
+            for (; i_clt->addresses[addr_start].family != AF_UNSPEC; addr_start++);
+        }
+
+        int family = AF_UNSPEC;
+
+#if XL4_PROVIDE_IPV6
+        if (hent->h_addrtype == AF_INET6) { family = AF_INET6; }
+        if (hent->h_length != 16) {
+            DBG("Invalid address length %d for AF_INET6", hent->h_length);
+        }
+#endif
+#if XL4_PROVIDE_IPV4
+        if (hent->h_addrtype == AF_INET) { family = AF_INET; }
+        if (hent->h_length != 4) {
+            DBG("Invalid address length %d for AF_INET", hent->h_length);
+        }
+#endif
+
+        if (family == AF_UNSPEC) {
+            DBG("Unknown family %d", hent->h_addrtype);
+            break;
+        }
+
+        size_t aux;
+        BOLT_REALLOC(i_clt->addresses, ip_addr_t, addr_start + addr_count + 1, aux);
+        for (int i=0; i <= addr_count; i++) {
+            ip_addr_t * ip = i_clt->addresses + i + addr_start;
+            if (i == addr_count) {
+                ip->family = AF_UNSPEC; // last
+            } else {
+                ip->family = family;
+#if XL4_PROVIDE_IPV4
+                if (family == AF_INET) {
+                    memcpy(ip->ipv4, hent->h_addr_list[i], 4);
+                }
+#endif
+#if XL4_PROVIDE_IPV6
+                if (family == AF_INET6) {
+                    memcpy(ip->ipv6, hent->h_addr_list[i], 16);
+                }
+#endif
+            }
         }
 
     } while (0);
 
     if (err != E_XL4BUS_OK) {
-        clt->conn_notify(clt, RESOLUTION_FAILED);
-        i_clt->state = DOWN;
+        drop_client(clt, RESOLUTION_FAILED);
         return;
     }
+
+#if XL4_PROVIDE_IPV6 && XL4_PROVIDE_IPV4
+    if (i_clt->dual_ip) {
+        ares_gethostbyname(i_clt->ares, i_clt->host,
+                AF_INET6, ares_gethostbyname_cb, clt);
+        i_clt->repeat_process = 1;
+        i_clt->dual_ip = 0;
+        return;
+    }
+#endif
 
     i_clt->state = CONNECTING;
 
@@ -401,10 +483,19 @@ int min_timeout(int a, int b) {
     return b;
 }
 
-static void drop_client(xl4bus_client_t * clt) {
+static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     client_internal_t * i_clt = clt->_private;
     // $TODO: 2sec here is an arbitrary constant, and probably should
     // be a configuration value.
     i_clt->down_target = pf_msvalue() + 2000;
     i_clt->state = DOWN;
+    i_clt->net_addr_current = 0;
+
+    if (i_clt->addresses) {
+        cfg.free(i_clt->addresses);
+        i_clt->addresses = 0;
+    }
+
+    clt->conn_notify(clt, how);
+
 }

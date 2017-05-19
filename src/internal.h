@@ -106,6 +106,16 @@ typedef struct known_fd {
     int is_ll_conn;
 } known_fd_t;
 
+typedef struct ip_addr {
+
+    int family;
+    union {
+        uint8_t ipv4[4];
+        uint8_t ipv6[16];
+    };
+
+} ip_addr_t;
+
 typedef struct client_internal {
 
     client_state_t state;
@@ -119,9 +129,7 @@ typedef struct client_internal {
     int pending_cap;
     ares_channel ares;
 
-    int net_addr_count;
-    int net_addr_len;
-    void * net_addr;
+    ip_addr_t * addresses;
     int net_addr_current;
 
     int tcp_fd;
@@ -132,6 +140,10 @@ typedef struct client_internal {
     known_fd_t * known_fd;
     uint64_t down_target;
     xl4bus_connection_t * ll;
+    int repeat_process;
+#if XL4_PROVIDE_IPV4 && XL4_PROVIDE_IPV6
+    int dual_ip;
+#endif
 
 } client_internal_t;
 
