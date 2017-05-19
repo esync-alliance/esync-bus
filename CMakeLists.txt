@@ -145,7 +145,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/debug.h
     src/printf.h
     src/printf.c
-    src/hl_client.c
+    src/client.c
     src/include/libxl4bus/low_level.h
     src/include/libxl4bus/high_level.h
     src/include/libxl4bus/types.h
@@ -184,8 +184,9 @@ if (BUILD_STATIC)
 endif()
 
 if (BUILD_BINS)
-    add_executable(ll-server src/ll-server.c)
-    add_executable(ll-client src/ll-client.c)
+    add_executable(ll-server src/test_clients/ll-server.c)
+    add_executable(ll-client src/test_clients/ll-client.c)
+    add_executable(hl-client src/test_clients/hl-client.c)
 
     include(FindPkgConfig)
 
