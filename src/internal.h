@@ -145,6 +145,8 @@ typedef struct client_internal {
     int dual_ip;
 #endif
 
+    int stop;
+
 } client_internal_t;
 
 extern xl4bus_ll_cfg_t cfg;

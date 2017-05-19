@@ -99,8 +99,6 @@ int xl4bus_flag_poll(xl4bus_client_t * clt, int fd, int modes) {
 
 }
 
-#if XL4_PROVIDE_THREADS
-
 void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
     client_internal_t * i_clt = clt->_private;
@@ -383,6 +381,8 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
 }
 
+#if XL4_PROVIDE_THREADS
+
 void client_thread(void * arg) {
 
     poll_info_t poll_info = { .polls = 0, .polls_len = 0};
@@ -413,6 +413,7 @@ void client_thread(void * arg) {
         }
 
         xl4bus_run_client(clt, &timeout);
+        if (i_clt->stop) { break; }
 
     }
 
@@ -641,5 +642,13 @@ int ll_poll_cb(struct xl4bus_connection* conn, int modes) {
 void ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
     DBG("Look, a message!");
+
+}
+
+void xl4bus_stop_client(xl4bus_client_t * clt) {
+
+    drop_client(clt, CLIENT_STOPPED);
+    client_internal_t * i_clt = clt->_private;
+    i_clt->stop = 1;
 
 }
