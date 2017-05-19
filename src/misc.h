@@ -52,4 +52,8 @@ static inline int timeval_to_millis(struct timeval * tv) {
     return  (int) (tv->tv_sec * 1000 + tv->tv_usec / 1000);
 }
 
+static inline int max_int(int a1, int a2) {
+    return a1 > a2 ? a1 : a2;
+}
+
 #endif

@@ -1,5 +1,6 @@
 
 #include <libxl4bus/high_level.h>
+#include <libxl4bus/low_level.h>
 #include <netdb.h>
 #include "internal.h"
 #include "porting.h"
@@ -17,6 +18,8 @@ static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
 #endif
 
 static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
+static int min_timeout(int a, int b);
+static void drop_client(xl4bus_client_t * clt);
 
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
@@ -102,109 +105,168 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
     while (1) {
 
+        int old_state = i_clt->state;
+
         if (i_clt->state == DOWN) {
-            // we need to resolve the address.
-            i_clt->state = RESOLVING;
-            ares_gethostbyname(i_clt->ares, i_clt->host, AF_UNSPEC, ares_gethostbyname_cb, clt);
+
+            // did we expire the "down" counter?
+            uint64_t left;
+            if (!i_clt->down_target) {
+                left = 0;
+            } else {
+                uint64_t now = pf_msvalue();
+                if (now >= i_clt->down_target) {
+                    left = 0;
+                } else {
+                    left = i_clt->down_target - now;
+                }
+            }
+
+            if (left > 0) {
+
+                *timeout = min_timeout(*timeout, (int) left);
+
+            } else {
+
+                // we are ready to come out of DOWN state.
+                // first need we need to do is to resolve our broker address.
+                i_clt->state = RESOLVING;
+                ares_gethostbyname(i_clt->ares, i_clt->host,
+                        AF_UNSPEC, ares_gethostbyname_cb, clt);
+
+            }
+
         }
 
-        if (i_clt->state == RESOLVING) {
+        // we may have requested c-ares FDs to be polled.
+        fd_set read;
+        fd_set write;
+        FD_ZERO(&read);
+        FD_ZERO(&write);
 
-            // we may have requested c-ares FDs to be polled.
-            fd_set read;
-            fd_set write;
-            FD_ZERO(&read);
-            FD_ZERO(&write);
+        int ll_conn_reason = 0;
 
-            int mfd = ares_fds(i_clt->ares, &read, &write);
+        known_fd_t * fdi;
 
-            known_fd_t * fdi;
-            known_fd_t * aux;
+        for (int i=0; i<i_clt->pending_len; i++) {
 
-            HASH_ITER(hh, i_clt->known_fd, fdi, aux) {
+            pending_fd_t * pfd = i_clt->pending + i;
+            HASH_FIND_INT(i_clt->known_fd, &pfd->fd, fdi);
 
-                int reason = 0;
+            if (fdi && fdi->is_ll_conn) {
+                ll_conn_reason = pfd->flags;
+            } else {
+                if (pfd->flags & XL4BUS_POLL_READ) {
+                    FD_SET(pfd->fd, &read);
+                }
 
+                if (pfd->flags & XL4BUS_POLL_WRITE) {
+                    FD_SET(pfd->fd, &write);
+                }
+            }
+
+            // $TODO: handle errors!
+
+        }
+
+        ares_process(i_clt->ares, &read, &write);
+        if (i_clt->ll) {
+            int ll_timeout;
+            if (xl4bus_process_connection(i_clt->ll, ll_conn_reason, &ll_timeout) != E_XL4BUS_OK) {
+                i_clt->ll = 0;
+                drop_client(clt);
+                continue;
+            }
+            *timeout = min_timeout(*timeout, ll_timeout);
+        }
+
+        FD_ZERO(&read);
+        FD_ZERO(&write);
+
+        int mfd = ares_fds(i_clt->ares, &read, &write);
+
+        known_fd_t * aux;
+
+        HASH_ITER(hh, i_clt->known_fd, fdi, aux) {
+
+            int reason = 0;
+
+            if (fdi->is_ll_conn) {
+                // callback must set the reason for the ll conn!
+                reason = fdi->modes;
+            } else {
                 if (FD_ISSET(fdi->fd, &read)) {
                     reason |= XL4BUS_POLL_READ;
                     FD_CLR(fdi->fd, &read);
                 }
+
                 if (FD_ISSET(fdi->fd, &write)) {
                     reason |= XL4BUS_POLL_WRITE;
                     FD_CLR(fdi->fd, &write);
                 }
-                if (!reason) {
-                    BOLT_SUB(clt->set_poll(clt, fdi->fd, XL4BUS_POLL_REMOVE));
-                    HASH_DEL(i_clt->known_fd, fdi);
-                } else {
-                    if (fdi->modes != reason) {
-                        clt->set_poll(clt, fdi->fd, reason);
-                        fdi->modes = reason;
-                    }
-                }
             }
 
-            for (int i=0; i<mfd; i++) {
-
-                int reason = 0;
-
-                if (FD_ISSET(i, &read)) {
-                    reason |= XL4BUS_POLL_READ;
-                }
-
-                if (FD_ISSET(i, &write)) {
-                    reason |= XL4BUS_POLL_WRITE;
-                }
-
-                if (reason) {
-                    BOLT_MALLOC(fdi, sizeof(known_fd_t));
-                    fdi->fd = i;
+            if (!reason) {
+                BOLT_SUB(clt->set_poll(clt, fdi->fd, XL4BUS_POLL_REMOVE));
+                HASH_DEL(i_clt->known_fd, fdi);
+            } else {
+                if (fdi->modes != reason) {
+                    clt->set_poll(clt, fdi->fd, reason);
                     fdi->modes = reason;
-                    HASH_ADD_INT(i_clt->known_fd, fd, fdi);
-                    BOLT_SUB(clt->set_poll(clt, i, reason));
                 }
-
-            }
-
-            FD_ZERO(&read);
-            FD_ZERO(&write);
-
-            for (int i=0; i<i_clt->pending_len; i++) {
-                pending_fd_t * pfd = i_clt->pending + i;
-                if (pfd->flags & XL4BUS_POLL_READ) {
-                    FD_SET(pfd->fd, &read);
-                }
-                if (pfd->flags & XL4BUS_POLL_WRITE) {
-                    FD_SET(pfd->fd, &write);
-                }
-                // $TODO: handle errors!
-            }
-
-            ares_process(i_clt->ares, &read, &write);
-            if (i_clt->state == RESOLVING) {
-                struct timeval tv;
-                ares_timeout(i_clt->ares, 0, &tv);
-                *timeout = timeval_to_millis(&tv);
-                return;
-            } else if (i_clt->state == DOWN) {
-                *timeout = 2000;
-                break;
             }
         }
 
-        if (i_clt->state == RESOLVED) {
+        // now make sure we add all C-ARES pollers.
+        for (int i=0; i<mfd; i++) {
+            int reason = 0;
+
+            if (FD_ISSET(i, &read)) {
+                reason |= XL4BUS_POLL_READ;
+            }
+
+            if (FD_ISSET(i, &write)) {
+                reason |= XL4BUS_POLL_WRITE;
+            }
+
+            if (reason) {
+                BOLT_MALLOC(fdi, sizeof(known_fd_t));
+                fdi->fd = i;
+                fdi->modes = reason;
+                HASH_ADD_INT(i_clt->known_fd, fd, fdi);
+                BOLT_SUB(clt->set_poll(clt, i, reason));
+            }
 
         }
 
-        if (i_clt->state == DOWN) {
-            // this happens if the state became DOWN from whatever
-            // previous state. This happens when there is a problem.
-            // we want to cool down for some time, and start over.
-            *timeout = 2000; // $TODO: arbitrary value, FIXME
-            return;
+        {
+            // let's get c-ares timeout into the mix.
+            struct timeval tv;
+            ares_timeout(i_clt->ares, 0, &tv);
+            *timeout = min_timeout(*timeout, timeval_to_millis(&tv));
+
+        }
+
+        if (i_clt->state == CONNECTING) {
+            if (i_clt->tcp_fd < 0) {
+                // socket has not been established, or we have failed.
+                // try next address, or go down.
+                if (i_clt->net_addr_current == i_clt->net_addr_count) {
+                    // no more addresses to try.
+                    clt->conn_notify(clt, CONNECTION_FAILED);
+                    i_clt->state = DOWN;
+                    break;
+                }
+            }
+        }
+
+        if (i_clt->state == old_state) {
+            // there is no change, let's get out.
+            break;
         }
 
     }
+
 }
 
 void client_thread(void * arg) {
@@ -310,7 +372,9 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
             i_clt->net_addr = 0;
         }
 
-        ;
+        i_clt->net_addr_current = 0;
+        i_clt->tcp_fd = 0;
+
         for (i_clt->net_addr_count = 0; hent->h_addr_list[i_clt->net_addr_count]; i_clt->net_addr_count++);
         BOLT_IF(!i_clt->net_addr_count, E_XL4BUS_INTERNAL, "Ares hostent result has 0 addresses?");
         BOLT_MALLOC(i_clt->net_addr, (size_t)i_clt->net_addr_count * (i_clt->net_addr_len = hent->h_length));
@@ -326,6 +390,21 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
         return;
     }
 
-    i_clt->state = RESOLVED;
+    i_clt->state = CONNECTING;
 
+}
+
+int min_timeout(int a, int b) {
+    if (a == -1) { return b; }
+    if (b == -1) { return a; }
+    if (a < b) { return a; }
+    return b;
+}
+
+static void drop_client(xl4bus_client_t * clt) {
+    client_internal_t * i_clt = clt->_private;
+    // $TODO: 2sec here is an arbitrary constant, and probably should
+    // be a configuration value.
+    i_clt->down_target = pf_msvalue() + 2000;
+    i_clt->state = DOWN;
 }

@@ -90,7 +90,6 @@ typedef struct connection_internal {
 typedef enum client_state {
     DOWN,
     RESOLVING,
-    RESOLVED,
     CONNECTING,
     CONNECTED
 } client_state_t;
@@ -104,6 +103,7 @@ typedef struct known_fd {
     int fd;
     UT_hash_handle hh;
     int modes;
+    int is_ll_conn;
 } known_fd_t;
 
 typedef struct client_internal {
@@ -122,11 +122,16 @@ typedef struct client_internal {
     int net_addr_count;
     int net_addr_len;
     void * net_addr;
+    int net_addr_current;
+
+    int tcp_fd;
 
     char * host;
     int port;
 
     known_fd_t * known_fd;
+    uint64_t down_target;
+    xl4bus_connection_t * ll;
 
 } client_internal_t;
 
