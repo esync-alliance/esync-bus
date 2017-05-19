@@ -46,7 +46,7 @@ int pf_start_thread(pf_runnable_t, void *);
 
 // connect to a TCP destination.
 // the operation must be asynchronous if possible.
-// the *async should be set to 1, if the operation
+// The *async should be set to 1, if the operation
 // must finish the connection later. Polling for
 // writeability will be requested, and when indicated,
 // the connection will be considered connected or

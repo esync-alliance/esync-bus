@@ -2,6 +2,7 @@
 #include <libxl4bus/high_level.h>
 #include <libxl4bus/low_level.h>
 #include <netdb.h>
+#include <zconf.h>
 #include "internal.h"
 #include "porting.h"
 #include "misc.h"
@@ -20,6 +21,9 @@ static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
 static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
 static int min_timeout(int a, int b);
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
+static int ll_poll_cb(struct xl4bus_connection*, int);
+static void ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
+static int create_ll_connection(xl4bus_client_t *);
 
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
@@ -101,7 +105,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
     client_internal_t * i_clt = clt->_private;
     // if somebody wants to set the timeout, they better do it.
     *timeout = -1;
-    int err; // = E_XL4BUS_OK;
+    int err = E_XL4BUS_OK;
 
     while (1) {
 
@@ -128,17 +132,15 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
             } else {
 
-                int family = AF_UNSPEC;
+                int family;
+
 #if XL4_PROVIDE_IPV4
                 family = AF_INET;
 #elif XL4_PROVIDE_IPV6
                 family = AF_INET6;
+#else
+#error  No address family configured, please configure at least one
 #endif
-
-                if (family == AF_UNSPEC) {
-                    drop_client(clt, RESOLUTION_FAILED);
-                    break;
-                }
 
                 // we are ready to come out of DOWN state.
                 // first need we need to do is to resolve our broker address.
@@ -165,6 +167,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
         int ll_conn_reason = 0;
 
         known_fd_t * fdi;
+        known_fd_t * ll_fdi = 0;
 
         for (int i=0; i<i_clt->pending_len; i++) {
 
@@ -172,12 +175,12 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             HASH_FIND_INT(i_clt->known_fd, &pfd->fd, fdi);
 
             if (fdi && fdi->is_ll_conn) {
+                ll_fdi = fdi;
                 ll_conn_reason = pfd->flags;
             } else {
                 if (pfd->flags & XL4BUS_POLL_READ) {
                     FD_SET(pfd->fd, &read);
                 }
-
                 if (pfd->flags & XL4BUS_POLL_WRITE) {
                     FD_SET(pfd->fd, &write);
                 }
@@ -191,11 +194,38 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
         if (i_clt->ll) {
             int ll_timeout;
             if (xl4bus_process_connection(i_clt->ll, ll_conn_reason, &ll_timeout) != E_XL4BUS_OK) {
+                cfg.free(i_clt->ll);
                 i_clt->ll = 0;
                 drop_client(clt, CONNECTION_BROKE);
                 continue;
             }
             *timeout = min_timeout(*timeout, ll_timeout);
+        } else if (ll_conn_reason) {
+
+            if (ll_conn_reason & XL4BUS_POLL_WRITE) {
+                // this should not happen.
+                BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_READ));
+            }
+
+            if (ll_conn_reason & XL4BUS_POLL_READ) {
+
+                // no matter what, we should remove that
+                // socket. When needed, the poll request from the low-level
+                // will put it back.
+                BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_REMOVE));
+                HASH_DEL(i_clt->known_fd, ll_fdi);
+                cfg.free(ll_fdi);
+
+                // the read event came, since there is no clt, this must
+                // be connection event.
+                if (pf_get_socket_error(i_clt->tcp_fd)) {
+                    close(i_clt->tcp_fd);
+                    i_clt->tcp_fd = -1;
+                } else {
+                    create_ll_connection(clt);
+                }
+            }
+
         }
 
         // reset any polled events.
@@ -269,17 +299,51 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
         }
 
         if (i_clt->state == CONNECTING) {
+
             if (i_clt->tcp_fd < 0) {
                 // socket has not been established, or we have failed.
                 // try next address, or go down.
                 ip_addr_t * addr = 0;
                 if (i_clt->addresses) {
-                    addr = &i_clt->addresses[i_clt->net_addr_current];
+                    addr = &i_clt->addresses[i_clt->net_addr_current++];
                 }
                 if (!addr || addr->family == AF_UNSPEC) {
                     // no (more) addresses to try.
                     drop_client(clt, addr ? CONNECTION_FAILED : RESOLUTION_FAILED);
                     break;
+                }
+
+                void * ip_addr;
+                int ip_len;
+#if XL4_PROVIDE_IPV6
+                if (addr->family == AF_INET6) {
+                    ip_addr = addr->ipv6;
+                    ip_len = 16;
+                }
+#endif
+#if XL4_PROVIDE_IPV4
+                if (addr->family == AF_INET) {
+                    ip_addr = addr->ipv4;
+                    ip_len = 4;
+                }
+#endif
+                int async;
+                i_clt -> tcp_fd = pf_connect_tcp(ip_addr, ip_len, i_clt->port, &async);
+
+                if (i_clt->tcp_fd < 0) {
+                    // failed right away, ugh. Let's move on then.
+                    i_clt->repeat_process = 1;
+                } else {
+                    // connected, or going to connected
+                    if (!async) {
+                        BOLT_SUB(create_ll_connection(clt));
+                    } else {
+                        BOLT_MALLOC(fdi, sizeof(known_fd_t));
+                        fdi->is_ll_conn = 1;
+                        fdi->fd = i_clt->tcp_fd;
+                        HASH_ADD_INT(i_clt->known_fd, fd, fdi);
+                        BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_READ));
+                    }
                 }
             }
         }
@@ -296,7 +360,25 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
     }
 
+    if (err != E_XL4BUS_OK) {
+        xl4bus_client_condition_t reason;
+        switch (i_clt->state) {
+            case DOWN:
+                return;
+            case RESOLVING:
+                reason = RESOLUTION_FAILED;
+                break;
+            case CONNECTING:
+                reason = CONNECTION_FAILED;
+                break;
+            default:
+            case CONNECTED:
+                reason = CONNECTION_BROKE;
+                break;
+        }
 
+        drop_client(clt, reason);
+    }
 
 }
 
@@ -497,5 +579,30 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     }
 
     clt->conn_notify(clt, how);
+
+}
+static int create_ll_connection(xl4bus_client_t * clt) {
+
+    int err;
+
+    client_internal_t * i_clt = clt->_private;
+
+    do {
+
+        BOLT_MALLOC(i_clt->ll, sizeof(xl4bus_connection_t));
+
+        i_clt->ll->fd = i_clt->tcp_fd;
+        i_clt->ll->set_poll = ll_poll_cb;
+        i_clt->ll->custom = clt;
+        i_clt->ll->is_client = 1;
+        i_clt->ll->ll_message = ll_msg_cb;
+
+        BOLT_SUB(xl4bus_init_connection(i_clt->ll));
+
+        i_clt->state = CONNECTED;
+
+    } while (0);
+
+    return err;
 
 }
