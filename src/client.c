@@ -19,6 +19,10 @@ static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
 
 #endif
 
+#if XL4_PROVIDE_DEBUG
+static char * state_str(client_state_t);
+#endif
+
 static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
 static int min_timeout(int a, int b);
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
@@ -51,6 +55,8 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
         i_clt = clt->_private;
         i_clt->host = url_copy;
         i_clt->port = port;
+        i_clt->state = DOWN;
+        i_clt->tcp_fd = -1;
 
         BOLT_ARES(ares_init(&i_clt->ares));
 
@@ -107,6 +113,8 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
     int err = E_XL4BUS_OK;
 
     while (1) {
+
+        DBG("Run processing state %s", state_str(i_clt->state));
 
         int old_state = i_clt->state;
 
@@ -292,8 +300,10 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
         {
             // let's get c-ares timeout into the mix.
             struct timeval tv;
-            ares_timeout(i_clt->ares, 0, &tv);
-            *timeout = min_timeout(*timeout, timeval_to_millis(&tv));
+            struct timeval * rtv = ares_timeout(i_clt->ares, 0, &tv);
+            if (rtv) {
+                *timeout = min_timeout(*timeout, timeval_to_millis(&tv));
+            }
 
         }
 
@@ -309,7 +319,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 if (!addr || addr->family == AF_UNSPEC) {
                     // no (more) addresses to try.
                     drop_client(clt, addr ? CONNECTION_FAILED : RESOLUTION_FAILED);
-                    break;
+                    continue;
                 }
 
                 void * ip_addr;
@@ -327,7 +337,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 }
 #endif
                 int async;
-                i_clt -> tcp_fd = pf_connect_tcp(ip_addr, ip_len, i_clt->port, &async);
+                i_clt->tcp_fd = pf_connect_tcp(ip_addr, ip_len, i_clt->port, &async);
 
                 if (i_clt->tcp_fd < 0) {
                     // failed right away, ugh. Let's move on then.
@@ -358,6 +368,8 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
         }
 
     }
+
+    DBG("Run exited, state %s, err %d", state_str(i_clt->state), err);
 
     if (err != E_XL4BUS_OK) {
         xl4bus_client_condition_t reason;
@@ -408,7 +420,7 @@ void client_thread(void * arg) {
             pf_poll_t * pp = poll_info.polls + i;
             if (pp->revents) {
                 err--;
-                DBG("Conn %p : flagging %x for fd %d", clt, pp->fd, pp->revents);
+                DBG("Conn %p : flagging %x for fd %d", clt, pp->revents, pp->fd);
                 if (xl4bus_flag_poll(clt, pp->fd, pp->revents) != E_XL4BUS_OK) {
                     xl4bus_stop_client(clt);
                     return;
@@ -427,6 +439,8 @@ int internal_set_poll(xl4bus_client_t *clt, int fd, int modes) {
 
     client_internal_t * i_clt = clt->_private;
     poll_info_t * poll_info = i_clt->xl4_thread_space;
+
+    DBG("Conn %p requested to set poll %x for fd %d", clt, modes, fd);
 
     if (modes & XL4BUS_POLL_REMOVE) {
 
@@ -448,7 +462,7 @@ int internal_set_poll(xl4bus_client_t *clt, int fd, int modes) {
             if (poll->fd == fd) {
                 found = poll;
                 break;
-            } else if (fd < 0) {
+            } else if (poll->fd < 0) {
                 free = poll;
             }
         }
@@ -462,7 +476,7 @@ int internal_set_poll(xl4bus_client_t *clt, int fd, int modes) {
                     return E_XL4BUS_MEMORY;
                 }
                 poll_info->polls = v;
-                found = v + poll_info->polls_len++;
+                found = poll_info->polls + poll_info->polls_len++;
             }
             found->fd = fd;
         }
@@ -484,9 +498,7 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
 
     do {
 
-        if (status != ARES_SUCCESS) {
-            DBG("ARES reported failure %d", status);
-        }
+        DBG("ARES reported status %d", status);
 
         int addr_count;
         int addr_start;
@@ -661,5 +673,18 @@ void xl4bus_stop_client(xl4bus_client_t * clt) {
     drop_client(clt, CLIENT_STOPPED);
     client_internal_t * i_clt = clt->_private;
     i_clt->stop = 1;
+
+}
+
+char * state_str(client_state_t state) {
+
+    switch (state) {
+        case DOWN: return "DOWN";
+        case RESOLVING: return "RESOLVING";
+        case CONNECTING: return "CONNECTING";
+        case CONNECTED: return "CONNECTED";
+        default: return "??INVALID??";
+    }
+
 
 }

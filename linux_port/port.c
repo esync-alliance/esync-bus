@@ -121,7 +121,10 @@ int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
     for (int i=0; i<polls_len; i++) {
 
         polls[i].revents = 0;
-        if ((s_poll[i].fd = polls[i].fd) < 0) { continue; }
+        if ((s_poll[i].fd = polls[i].fd) < 0) {
+            // DBG("pf_poll: skipping negative fd");
+            continue;
+        }
 
         s_poll[i].events = 0;
         short ine = polls[i].events;
@@ -131,13 +134,18 @@ int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
         if (ine & XL4BUS_POLL_READ) {
             s_poll[i].events |= POLLIN;
         }
+
+        // DBG("pf_poll : %d: %x->%x", s_poll[i].fd, polls[i].events, s_poll[i].events);
+
     }
 
     int ec = poll(s_poll, (nfds_t) polls_len, timeout);
     if (ec <= 0) { return ec; }
 
+    // DBG("pf_poll: %d descriptors, %d timeout, returned %d", polls_len, timeout, ec);
+
     for (int i=0; i<polls_len; i++) {
-        if (s_poll[i].fd < 0) { break; }
+        if (s_poll[i].fd < 0) { continue; }
         short ine = s_poll[i].revents;
         if (ine & POLLOUT) {
             polls[i].revents |= XL4BUS_POLL_WRITE;
@@ -145,9 +153,10 @@ int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
         if (ine & POLLIN) {
             polls[i].revents |= XL4BUS_POLL_READ;
         }
-        if (ine & (POLLERR|POLLHUP)) {
+        if (ine & (POLLERR|POLLHUP|POLLNVAL)) {
             polls[i].revents |= XL4BUS_POLL_ERR;
         }
+        // DBG("pf_poll: %x->%x for %d", ine, polls[i].revents, s_poll[i].fd);
     }
 
     return ec;
