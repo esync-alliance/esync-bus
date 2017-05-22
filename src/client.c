@@ -395,6 +395,9 @@ void client_thread(void * arg) {
 
     while (1) {
 
+        DBG("Conn %p: after run : poll requested timeout %d, poll_info has %d entries", clt, timeout,
+                poll_info.polls_len);
+
         int err = pf_poll(poll_info.polls, poll_info.polls_len, timeout);
         if (err < 0) {
             xl4bus_stop_client(clt);
@@ -405,6 +408,7 @@ void client_thread(void * arg) {
             pf_poll_t * pp = poll_info.polls + i;
             if (pp->revents) {
                 err--;
+                DBG("Conn %p : flagging %x for fd %d", clt, pp->fd, pp->revents);
                 if (xl4bus_flag_poll(clt, pp->fd, pp->revents) != E_XL4BUS_OK) {
                     xl4bus_stop_client(clt);
                     return;
@@ -501,15 +505,22 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
         int family = AF_UNSPEC;
 
 #if XL4_PROVIDE_IPV6
-        if (hent->h_addrtype == AF_INET6) { family = AF_INET6; }
-        if (hent->h_length != 16) {
-            DBG("Invalid address length %d for AF_INET6", hent->h_length);
+        if (hent->h_addrtype == AF_INET6) {
+            if (hent->h_length != 16) {
+                DBG("Invalid address length %d for AF_INET6", hent->h_length);
+            } else {
+                family = AF_INET6;
+            }
         }
 #endif
 #if XL4_PROVIDE_IPV4
-        if (hent->h_addrtype == AF_INET) { family = AF_INET; }
-        if (hent->h_length != 4) {
-            DBG("Invalid address length %d for AF_INET", hent->h_length);
+        if (hent->h_addrtype == AF_INET) {
+            family = AF_INET;
+            if (hent->h_length != 4) {
+                DBG("Invalid address length %d for AF_INET", hent->h_length);
+            } else {
+                family = AF_INET;
+            }
         }
 #endif
 
