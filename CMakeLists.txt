@@ -189,6 +189,7 @@ if (BUILD_BINS)
     add_executable(hl-client src/test_clients/hl-client.c)
     add_executable(xl4bus-broker
             src/broker/main.c
+            src/broker/debug.h
     )
 
     include(FindPkgConfig)

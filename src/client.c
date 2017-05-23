@@ -731,7 +731,7 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             // https://gitlab.excelfore.com/schema/json/xl4bus/registration-request.json
 
             json_object * json = json_object_new_object();
-            json_object_object_add(json, "type", json_object_new_string("xl4bus.alg-supported"));
+            json_object_object_add(json, "type", json_object_new_string("xl4bus.registration-request"));
 
             xl4bus_ll_message_t x_msg;
             memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));

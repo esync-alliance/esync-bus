@@ -1,4 +1,6 @@
 
+#define _GNU_SOURCE
+
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -8,14 +10,28 @@
 #include <poll.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <stdarg.h>
 #include "json.h"
 
 #include <libxl4bus/low_level.h>
 
-static void in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
+#include "broker/debug.h"
+
+static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int);
 static void print_out(const char *);
+static char * f_asprintf(char * fmt, ...);
+
+int debug = 1;
+
+typedef struct conn_info {
+
+    struct pollfd pfd;
+    int reg_req;
+
+} conn_info_t;
 
 int main(int argc, char ** argv) {
 
@@ -100,12 +116,12 @@ void * run_conn(void * _arg) {
 
     xl4bus_connection_t * conn = (xl4bus_connection_t*)_arg;
 
-    struct pollfd pfd;
+    conn_info_t ci;
 
-    memset(&pfd, 0, sizeof(pfd));
-    pfd.fd = conn->fd;
+    memset(&ci, 0, sizeof(ci));
 
-    conn->custom = &pfd;
+    ci.pfd.fd = conn->fd;
+    conn->custom = &ci;
 
     int err = xl4bus_init_connection(conn);
 
@@ -149,18 +165,18 @@ void * run_conn(void * _arg) {
 
         if (err != E_XL4BUS_OK) { break; }
 
-        int rc = poll(&pfd, 1, timeout);
+        int rc = poll(&ci.pfd, 1, timeout);
         if (rc < 0) {
             perror("poll");
             break;
         }
 
         int flags = 0;
-        if (pfd.revents & (POLLIN | POLLPRI)) {
+        if (ci.pfd.revents & (POLLIN | POLLPRI)) {
             flags = XL4BUS_POLL_READ;
-        } else if (pfd.revents & POLLOUT) {
+        } else if (ci.pfd.revents & POLLOUT) {
             flags |= XL4BUS_POLL_WRITE;
-        } else if (pfd.revents & (POLLHUP | POLLNVAL)) {
+        } else if (ci.pfd.revents & (POLLHUP | POLLNVAL)) {
             flags |= XL4BUS_POLL_ERR;
         }
 
@@ -181,26 +197,110 @@ void * run_conn(void * _arg) {
 
 int set_poll(xl4bus_connection_t * conn, int flg) {
 
-    struct pollfd * pfd = conn->custom;
-    pfd->events = 0;
+    conn_info_t * ci = conn->custom;
+
+    ci->pfd.events = 0;
+
     if (flg & XL4BUS_POLL_READ) {
-        pfd->events = POLLIN;
+        ci->pfd.events = POLLIN;
     }
     if (flg & XL4BUS_POLL_WRITE) {
-        pfd->events |= POLLOUT;
+        ci->pfd.events |= POLLOUT;
     }
     return E_XL4BUS_OK;
 
 }
 
-void in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
+int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
-    printf("hooray, a message!\n");
+    int err = E_XL4BUS_OK;
+    json_object * root = 0;
+
+    do {
+
+        conn_info_t * ci = conn->custom;
+
+        if (!strcmp("application/vnd.xl4.busmessage+json", msg->message.content_type)) {
+
+            // the json must be ASCIIZ.
+            BOLT_IF(((uint8_t*)msg->message.data)[msg->message.data_len-1], E_XL4BUS_CLIENT,
+                    "Incoming message is not ASCIIZ");
+
+            BOLT_IF(!(root = json_tokener_parse(msg->message.data)), E_XL4BUS_CLIENT, "Not valid json: %s", msg->message.data);
+
+            json_object * aux;
+            BOLT_IF(!json_object_object_get_ex(root, "type", &aux) || !json_object_is_type(aux, json_type_string),
+                    E_XL4BUS_CLIENT, "No/non-string type property in %s", msg->message.data);
+
+            const char * type = json_object_get_string(aux);
+
+            if (!strcmp(type, "xl4bus.registration-request")) {
+                BOLT_IF(ci->reg_req, E_XL4BUS_CLIENT, "already registered");
+                ci->reg_req = 1;
+
+                // send registration response
+                // https://gitlab.excelfore.com/schema/json/xl4bus/registration-confirmation.json
+                json_object * json = json_object_new_object();
+                json_object_object_add(json, "type", json_object_new_string("xl4bus.registration-confirmation"));
+
+                xl4bus_ll_message_t x_msg;
+                memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+
+                const char * bux = json_object_get_string(json);
+                x_msg.message.data = bux;
+                x_msg.message.data_len = strlen(bux) + 1;
+                x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
+
+                x_msg.stream_id = msg->stream_id;
+                x_msg.is_final = 1;
+                x_msg.is_reply = 1;
+
+                if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
+                    printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                }
+
+                json_object_put(json);
+
+                break;
+
+            }
+
+            BOLT_SAY(E_XL4BUS_CLIENT, "Don't know what to do with message %s", type);
+
+        } else {
+
+            BOLT_SAY(E_XL4BUS_CLIENT, "Message of c/t %s ignored", msg->message.content_type);
+
+        }
+
+
+    } while (0);
+
+    json_object_put(root);
+
+    return err;
 
 }
 
 void print_out(const char * msg) {
 
     printf("%s\n", msg);
+
+}
+
+char * f_asprintf(char * fmt, ...) {
+
+    char * ret;
+    va_list ap;
+
+    va_start(ap, fmt);
+    int rc = vasprintf(&ret, fmt, ap);
+    va_end(ap);
+
+    if (rc < 0) {
+        return 0;
+    }
+
+    return ret;
 
 }
