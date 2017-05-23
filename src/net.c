@@ -245,23 +245,23 @@ do {} while(0)
                                         stream->incoming_message_data.len,
                                         stream->incoming_message_ct, 0, &jws));
 
-                                size_t txt_len;
+                                BOLT_CJOSE(cjose_jws_get_plaintext(jws, (uint8_t**)&message.message.data,
+                                        &message.message.data_len, &c_err));
 
-                                BOLT_CJOSE(cjose_jws_get_plaintext(jws, (uint8_t**)&message.json, &txt_len, &c_err));
-
-                                // there must be at least one char, the first char must be '{' (we only support
-                                // JSON payload), the string must be ASCIIZ
-                                if (!txt_len || message.json[0] != '{' || message.json[txt_len] != 0) {
-                                    BOLT_SAY(E_XL4BUS_DATA, "Plain text is not JSON");
-                                    break;
+                                cjose_header_t * hdr = cjose_jws_get_protected(jws);
+                                const char * aux;
+                                BOLT_CJOSE(aux = cjose_header_get(hdr, CJOSE_HDR_CTY, &c_err));
+                                if (aux) {
+                                    BOLT_MEM(message.message.content_type = f_strdup(aux));
+                                } else {
+                                    message.message.content_type = 0;
                                 }
 
-                                message.form = XL4BPF_JSON;
                                 message.stream_id = stream_id;
                                 message.is_reply = stream->is_reply;
                                 message.is_final = stream->is_final;
 
-                                conn->ll_message(conn, &message);
+                                BOLT_SUB(conn->ll_message(conn, &message));
 
                             } while (0);
 
@@ -427,21 +427,8 @@ static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t 
 
 int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *ref) {
 
-    if (!msg || msg->form != XL4BPF_JSON || !msg->json) {
-        return E_XL4BUS_ARG;
-    }
-
-    json_object * j_obj = json_tokener_parse(msg->json);
-
-    if (!j_obj || !json_object_is_type(j_obj, json_type_object)) {
-        json_object_put(j_obj);
-        return E_XL4BUS_ARG;
-    }
-
     uint8_t * frame = 0;
     int err;
-
-    const char * j_str = 0;
 
     do {
 
@@ -468,10 +455,8 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
-        j_str = json_object_get_string(j_obj);
-
-        if ((err = sign_jws(
-                j_str, (size_t)strlen(j_str), 13, 9, (char **) &frame, &ser_len)) != E_XL4BUS_OK) {
+        if ((err = sign_jws(msg->message.data, msg->message.data_len, msg->message.content_type, 13, 9,
+                (char **) &frame, &ser_len)) != E_XL4BUS_OK) {
             break;
         }
 
@@ -500,7 +485,6 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     } while(0);
 
     free(frame);
-    json_object_put(j_obj);
 
     if (err == E_XL4BUS_OK) {
         err = check_conn_io(conn);

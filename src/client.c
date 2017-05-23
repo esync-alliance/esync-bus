@@ -27,7 +27,7 @@ static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
 static int min_timeout(int a, int b);
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
 static int ll_poll_cb(struct xl4bus_connection*, int);
-static void ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
+static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
 static int create_ll_connection(xl4bus_client_t *);
 
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
@@ -55,7 +55,7 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
         i_clt = clt->_private;
         i_clt->host = url_copy;
         i_clt->port = port;
-        i_clt->state = DOWN;
+        i_clt->state = CS_DOWN;
         i_clt->tcp_fd = -1;
 
         BOLT_ARES(ares_init(&i_clt->ares));
@@ -118,7 +118,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
         int old_state = i_clt->state;
 
-        if (i_clt->state == DOWN) {
+        if (i_clt->state == CS_DOWN) {
 
             // did we expire the "down" counter?
             uint64_t left;
@@ -151,7 +151,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
                 // we are ready to come out of DOWN state.
                 // first need we need to do is to resolve our broker address.
-                i_clt->state = RESOLVING;
+                i_clt->state = CS_RESOLVING;
                 ares_gethostbyname(i_clt->ares, i_clt->host,
                         family, ares_gethostbyname_cb, clt);
 
@@ -203,14 +203,14 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             if (xl4bus_process_connection(i_clt->ll, ll_conn_reason, &ll_timeout) != E_XL4BUS_OK) {
                 cfg.free(i_clt->ll);
                 i_clt->ll = 0;
-                drop_client(clt, CONNECTION_BROKE);
+                drop_client(clt, XL4BCC_CONNECTION_BROKE);
                 continue;
             }
             *timeout = min_timeout(*timeout, ll_timeout);
 
         } else if (ll_conn_reason) {
 
-            if (i_clt->state == CONNECTING) {
+            if (i_clt->state == CS_CONNECTING) {
 
                 if (ll_conn_reason & XL4BUS_POLL_READ) {
                     // this should not happen.
@@ -312,7 +312,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
         }
 
-        if (i_clt->state == CONNECTING) {
+        if (i_clt->state == CS_CONNECTING) {
 
             if (i_clt->tcp_fd < 0) {
                 // socket has not been established, or we have failed.
@@ -323,7 +323,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 }
                 if (!addr || addr->family == AF_UNSPEC) {
                     // no (more) addresses to try.
-                    drop_client(clt, addr ? CONNECTION_FAILED : RESOLUTION_FAILED);
+                    drop_client(clt, addr ? XL4BCC_CONNECTION_FAILED : XL4BCC_RESOLUTION_FAILED);
                     continue;
                 }
 
@@ -362,7 +362,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             }
         }
 
-        if (i_clt->state == CONNECTED) {
+        if (i_clt->ll) {
             int ll_timeout;
             BOLT_SUB(xl4bus_process_connection(i_clt->ll, ll_conn_reason, &ll_timeout));
             *timeout = min_timeout(*timeout, ll_timeout);
@@ -385,17 +385,21 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
     if (err != E_XL4BUS_OK) {
         xl4bus_client_condition_t reason;
         switch (i_clt->state) {
-            case DOWN:
+            case CS_DOWN:
                 return;
-            case RESOLVING:
-                reason = RESOLUTION_FAILED;
+            case CS_RESOLVING:
+                reason = XL4BCC_RESOLUTION_FAILED;
                 break;
-            case CONNECTING:
-                reason = CONNECTION_FAILED;
+            case CS_CONNECTING:
+                reason = XL4BCC_CONNECTION_FAILED;
                 break;
             default:
-            case CONNECTED:
-                reason = CONNECTION_BROKE;
+            case CS_EXPECTING_ALGO:
+            case CS_EXPECTING_CONFIRM:
+                reason = XL4BCC_REGISTRATION_FAILED;
+                break;
+            case CS_RUNNING:
+                reason = XL4BCC_CONNECTION_BROKE;
                 break;
         }
 
@@ -576,7 +580,7 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
     } while (0);
 
     if (err != E_XL4BUS_OK) {
-        drop_client(clt, RESOLUTION_FAILED);
+        drop_client(clt, XL4BCC_RESOLUTION_FAILED);
         return;
     }
 
@@ -590,7 +594,7 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
     }
 #endif
 
-    i_clt->state = CONNECTING;
+    i_clt->state = CS_CONNECTING;
 
 }
 
@@ -606,7 +610,7 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     // $TODO: 2sec here is an arbitrary constant, and probably should
     // be a configuration value.
     i_clt->down_target = pf_msvalue() + 2000;
-    i_clt->state = DOWN;
+    i_clt->state = CS_DOWN;
     i_clt->net_addr_current = 0;
 
     if (i_clt->ll) {
@@ -647,7 +651,7 @@ static int create_ll_connection(xl4bus_client_t * clt) {
 
         BOLT_SUB(xl4bus_init_connection(i_clt->ll));
 
-        i_clt->state = CONNECTED;
+        i_clt->state = CS_EXPECTING_ALGO;
 
     } while (0);
 
@@ -689,15 +693,73 @@ int ll_poll_cb(struct xl4bus_connection* conn, int modes) {
 
 }
 
-void ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
+int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
-    DBG("Look, a message!");
+    int err = E_XL4BUS_OK;
+    json_object * root = 0;
+
+    do {
+
+        xl4bus_client_t * clt = conn->custom;
+        client_internal_t * i_clt = clt->_private;
+
+        if (i_clt->state == CS_RUNNING) {
+            clt->handle_message(clt, &msg->message);
+            return E_XL4BUS_OK;
+        }
+
+        BOLT_IF(strcmp("application/vnd.xl4.busmessage+json", msg->message.content_type),
+                E_XL4BUS_CLIENT, "Invalid content type %s", SAFE_STR(msg->message.content_type));
+
+        // the json must be ASCIIZ.
+        BOLT_IF(((uint8_t*)msg->message.data)[msg->message.data_len-1], E_XL4BUS_CLIENT,
+                "Incoming message is not ASCIIZ");
+
+        BOLT_IF(!(root = json_tokener_parse(msg->message.data)), E_XL4BUS_CLIENT, "Not valid json: %s", msg->message.data);
+
+        json_object * aux;
+        BOLT_IF(!json_object_object_get_ex(root, "type", &aux) || !json_object_is_type(aux, json_type_string),
+                E_XL4BUS_CLIENT, "No/non-string type property in %s", msg->message.data);
+
+        const char * type = json_object_get_string(aux);
+
+        if (i_clt->state == CS_EXPECTING_ALGO && !strcmp(type, "xl4bus.alg-supported")) {
+
+            i_clt->state = CS_EXPECTING_CONFIRM;
+
+            // send registration request.
+            // https://gitlab.excelfore.com/schema/json/xl4bus/registration-request.json
+
+            json_object * json = json_object_new_object();
+            json_object_object_add(json, "type", json_object_new_string("xl4bus.alg-supported"));
+
+            xl4bus_ll_message_t x_msg;
+            memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+
+
+        } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
+
+                !strcmp(type, "xl4bus.registration-confirmation")) {
+
+            i_clt->state = CS_RUNNING;
+
+            clt->conn_notify(clt, XL4BCC_RUNNING);
+        }
+
+    } while (0);
+
+    json_object_put(root);
+
+    return err;
+
+
+
 
 }
 
 void xl4bus_stop_client(xl4bus_client_t * clt) {
 
-    drop_client(clt, CLIENT_STOPPED);
+    drop_client(clt, XL4BCC_CLIENT_STOPPED);
     client_internal_t * i_clt = clt->_private;
     i_clt->stop = 1;
 
@@ -706,10 +768,12 @@ void xl4bus_stop_client(xl4bus_client_t * clt) {
 char * state_str(client_state_t state) {
 
     switch (state) {
-        case DOWN: return "DOWN";
-        case RESOLVING: return "RESOLVING";
-        case CONNECTING: return "CONNECTING";
-        case CONNECTED: return "CONNECTED";
+        case CS_DOWN: return "DOWN";
+        case CS_RESOLVING: return "RESOLVING";
+        case CS_CONNECTING: return "CONNECTING";
+        case CS_EXPECTING_ALGO: return "EXPECTING_ALGO";
+        case CS_EXPECTING_CONFIRM: return "EXPECTING_CONFIRM";
+        case CS_RUNNING: return "RUNNING";
         default: return "??INVALID??";
     }
 }

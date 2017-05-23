@@ -4,6 +4,8 @@
 #include "types_base.h"
 #include "build_config.h"
 
+struct xl4bus_client;
+
 typedef struct xl4bus_buf {
     uint8_t * data;
     size_t len;
@@ -28,16 +30,15 @@ typedef struct xl4bus_ll_cfg {
 
 } xl4bus_ll_cfg_t;
 
-typedef enum xl4bus_payload_form {
-    XL4BPF_JSON
-} xl4bus_payload_form_t;
+typedef struct xl4bus_message {
+    char * content_type;
+    void const * data;
+    size_t data_len;
+} xl4bus_message_t;
 
 typedef struct xl4bus_ll_message {
 
-    xl4bus_payload_form_t form;
-    union {
-        char * json;
-    };
+    xl4bus_message_t message;
 
     uint16_t stream_id;
     int is_final;
@@ -60,8 +61,9 @@ struct xl4bus_connection;
 #define E_XL4BUS_EOF        (-4) // unexpected EOF from channel
 #define E_XL4BUS_DATA       (-5) // communication channel received unrecognized data.
 #define E_XL4BUS_ARG        (-6) // invalid argument provided to the function
+#define E_XL4BUS_CLIENT     (-7) // client code reported an error
 
-typedef void (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_ll_message_t *);
+typedef int (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_ll_message_t *);
 typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, void *);
 
 typedef char * (*xl4bus_password_callback_t) (struct xl4bus_X509v3_Identity *);
@@ -96,23 +98,17 @@ typedef struct xl4bus_connection {
 
 } xl4bus_connection_t;
 
-typedef struct xl4bus_message {
-    char * content_type;
-    void * data;
-    int data_len;
-} xl4bus_message_t;
-
-struct xl4bus_client;
 
 typedef int (*xl4bus_set_poll) (struct xl4bus_client *, int fd, int modes);
 typedef void (*xl4bus_handle_message)(struct xl4bus_client *, xl4bus_message_t *);
 
 typedef enum xl4bus_client_condition {
-    RUNNING,
-    RESOLUTION_FAILED,
-    CONNECTION_FAILED,
-    CONNECTION_BROKE,
-    CLIENT_STOPPED
+    XL4BCC_RUNNING,
+    XL4BCC_RESOLUTION_FAILED,
+    XL4BCC_CONNECTION_FAILED,
+    XL4BCC_REGISTRATION_FAILED,
+    XL4BCC_CONNECTION_BROKE,
+    XL4BCC_CLIENT_STOPPED
 } xl4bus_client_condition_t;
 
 typedef void (*xl4bus_conn_info)(struct xl4bus_client *, xl4bus_client_condition_t);
@@ -125,6 +121,7 @@ typedef struct xl4bus_client {
 
     xl4bus_set_poll set_poll;
     xl4bus_conn_info conn_notify;
+    xl4bus_handle_message handle_message;
 
     void * custom;
     void * _private;

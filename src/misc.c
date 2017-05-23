@@ -288,12 +288,13 @@ char const * xl4bus_strerr(int e) {
     switch (e) {
 
         case E_XL4BUS_OK: return "ok";
-        case E_XL4BUS_ARG: return "invalid argument";
         case E_XL4BUS_MEMORY: return "out of memory";
-        case E_XL4BUS_INTERNAL: return "internal error";
-        case E_XL4BUS_DATA: return "invalid data received";
         case E_XL4BUS_SYS: return "system error";
+        case E_XL4BUS_INTERNAL: return "internal error";
         case E_XL4BUS_EOF: return "end-of-file received";
+        case E_XL4BUS_DATA: return "invalid data received";
+        case E_XL4BUS_ARG: return "invalid argument";
+        case E_XL4BUS_CLIENT: return "client error";
         default:
             return "unknown error";
 

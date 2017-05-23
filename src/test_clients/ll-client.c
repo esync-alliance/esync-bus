@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <jansson.h>
 
-static void in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
+static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int);
 static void print_out(const char *);
@@ -80,8 +80,8 @@ int main(int argc, char ** argv) {
             json_t * j = json_object();
             json_object_set_new(j, "playing", json_string("hooky"));
 
-            msg.form = XL4BPF_JSON;
-            msg.json = json_dumps(j, JSON_COMPACT);
+            msg.message.data = json_dumps(j, JSON_COMPACT);
+            msg.message.data_len = strlen(msg.message.data) + 1;
             // msg.json = (char*)json_object_get_string(j);
 
             if ((err = xl4bus_send_ll_message(conn, &msg, 0)) != E_XL4BUS_OK) {
@@ -89,7 +89,7 @@ int main(int argc, char ** argv) {
             }
 
             json_decref(j);
-            free(msg.json);
+            free((void *) msg.message.data);
 
             while (1) {
 
@@ -143,9 +143,10 @@ int set_poll(xl4bus_connection_t * conn, int flg) {
 
 }
 
-void in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
+int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     printf("hooray, a message!\n");
+    return E_XL4BUS_OK;
 
 }
 

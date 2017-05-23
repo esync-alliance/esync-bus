@@ -113,26 +113,33 @@ void * run_conn(void * _arg) {
 
         // send initial message - alg-supported
         // https://gitlab.excelfore.com/schema/json/xl4bus/alg-supported.json
-        json_object * msg = json_object_new_object();
+        json_object * json = json_object_new_object();
         json_object * aux;
-        json_object_object_add(msg, "signature", aux = json_object_new_array());
+        json_object * body;
+        json_object_object_add(json, "body", body = json_object_new_object());
+
+        json_object_object_add(body, "signature", aux = json_object_new_array());
         json_object_array_add(aux, json_object_new_string("RS256"));
-        json_object_object_add(msg, "encryption-key", aux = json_object_new_array());
+        json_object_object_add(body, "encryption-key", aux = json_object_new_array());
         json_object_array_add(aux, json_object_new_string("RSA-OAEP"));
-        json_object_object_add(msg, "encryption-alg", aux = json_object_new_array());
+        json_object_object_add(body, "encryption-alg", aux = json_object_new_array());
         json_object_array_add(aux, json_object_new_string("A128CBC-HS256"));
 
-        xl4bus_ll_message_t x_msg;
-        memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+        json_object_object_add(json, "type", json_object_new_string("xl4bus.alg-supported"));
 
-        x_msg.form = XL4BPF_JSON;
-        x_msg.json = (char *) json_object_get_string(msg);
+        xl4bus_ll_message_t msg;
+        memset(&msg, 0, sizeof(xl4bus_ll_message_t));
 
-        if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
+        const char * bux = json_object_get_string(json);
+        msg.message.data = bux;
+        msg.message.data_len = strlen(bux) + 1;
+        msg.message.content_type = "application/vnd.xl4.busmessage+json";
+
+        if ((err = xl4bus_send_ll_message(conn, &msg, 0)) != E_XL4BUS_OK) {
             printf("failed to send a message : %s\n", xl4bus_strerr(err));
         }
 
-        json_object_put(msg);
+        json_object_put(json);
 
     }
 

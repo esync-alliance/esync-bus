@@ -180,7 +180,7 @@ int validate_jws(void *bin, size_t jws_len, int ct, uint16_t *stream_id, cjose_j
 
     cjose_jws_t *jws = 0;
     json_object *hdr = 0;
-    int err;
+    int err = E_XL4BUS_OK;
 
     do {
 
@@ -238,12 +238,12 @@ int validate_jws(void *bin, size_t jws_len, int ct, uint16_t *stream_id, cjose_j
 
 }
 
-int sign_jws(const void *data, size_t data_len, int pad, int offset, char **jws_data, size_t *jws_len) {
+int sign_jws(const void *data, size_t data_len, char * ct, int pad, int offset, char **jws_data, size_t *jws_len) {
 
     cjose_err c_err = { .code = CJOSE_ERR_NONE};
     cjose_jws_t *jws = 0;
     cjose_header_t *j_hdr = 0;
-    int err;
+    int err = E_XL4BUS_OK;
 
     do {
 
@@ -251,7 +251,7 @@ int sign_jws(const void *data, size_t data_len, int pad, int offset, char **jws_
 
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, "RS256", &c_err));
 
-        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, "application/vnd.xl4.busmessage+json", &c_err));
+        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, ct, &c_err));
 
         json_object * obj = json_object_new_object();
 
