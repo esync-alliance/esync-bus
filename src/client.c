@@ -649,6 +649,8 @@ static int create_ll_connection(xl4bus_client_t * clt) {
         i_clt->ll->is_client = 1;
         i_clt->ll->ll_message = ll_msg_cb;
 
+        memcpy(&i_clt->ll->identity, &clt->identity, sizeof(clt->identity));
+
         BOLT_SUB(xl4bus_init_connection(i_clt->ll));
 
         i_clt->state = CS_EXPECTING_ALGO;
@@ -732,6 +734,32 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
             json_object * json = json_object_new_object();
             json_object_object_add(json, "type", json_object_new_string("xl4bus.registration-request"));
+
+#if 1   /* replace with X.509 based auth */
+
+            BOLT_IF(conn->identity.type != XL4BIT_TRUST, E_XL4BUS_ARG, "Only trust identity is supported yet");
+
+            {
+                json_object * id = json_object_new_object();
+                json_object_object_add(json, "xxx-id", id);
+
+                if (conn->identity.trust.is_dm_client) {
+                    json_object_object_add(id, "is_dmclient", json_object_new_boolean(1));
+                } else if (conn->identity.trust.update_agent) {
+                    json_object_object_add(id, "is_update_agent", json_object_new_boolean(1));
+                    json_object_object_add(id, "update_agent", json_object_new_string(conn->identity.trust.update_agent));
+                } else {
+                    BOLT_SAY(E_XL4BUS_ARG, "Can not identify as either update agent or dmclient");
+                }
+
+                json_object * groups = json_object_new_array();
+                json_object_object_add(id, "groups", groups);
+                for (int i=0; i<conn->identity.trust.group_cnt; i++) {
+                    json_object_array_add(groups, json_object_new_string(conn->identity.trust.groups[i]));
+                }
+
+            }
+#endif
 
             xl4bus_ll_message_t x_msg;
             memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));

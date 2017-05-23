@@ -32,6 +32,7 @@ typedef struct xl4bus_ll_cfg {
 
 typedef struct xl4bus_message {
     char * content_type;
+    char * xl4bus_address;
     void const * data;
     size_t data_len;
 } xl4bus_message_t;
@@ -78,15 +79,42 @@ typedef struct xl4bus_X509v3_Identity {
     xl4bus_buf_t certificate;
     xl4bus_buf_t private_key;
     xl4bus_password_callback_t password;
-    xl4bus_buf_t * trust;
     size_t trust_len;
+    xl4bus_buf_t * trust;
 
 } xl4bus_X509v3_Identity_t;
+
+typedef struct xl4bus_Trust_Identity {
+
+    char * update_agent;
+    int is_dm_client;
+    int is_broker;
+    int group_cnt;
+    char ** groups;
+
+} xl4bus_Trust_Identity;
+
+typedef enum xl4bus_identity_type {
+    XL4BIT_X509,
+    XL4BIT_TRUST
+} xl4bus_identity_type_t;
+
+typedef struct xl4bus_identity {
+
+    xl4bus_identity_type_t type;
+    union {
+        xl4bus_X509v3_Identity_t x509;
+        xl4bus_Trust_Identity trust;
+    };
+
+} xl4bus_identity_t;
 
 typedef struct xl4bus_connection {
 
     int fd;
     int is_client;
+
+    xl4bus_identity_t identity;
 
     xl4bus_set_ll_poll set_poll;
     xl4bus_handle_ll_message ll_message;
@@ -95,6 +123,7 @@ typedef struct xl4bus_connection {
 
     void * custom;
     void * _private;
+
 
 } xl4bus_connection_t;
 
@@ -122,6 +151,7 @@ typedef struct xl4bus_client {
     xl4bus_set_poll set_poll;
     xl4bus_conn_info conn_notify;
     xl4bus_handle_message handle_message;
+    xl4bus_identity_t identity;
 
     void * custom;
     void * _private;

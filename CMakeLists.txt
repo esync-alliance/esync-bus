@@ -186,10 +186,18 @@ endif()
 if (BUILD_BINS)
     add_executable(ll-server src/test_clients/ll-server.c)
     add_executable(ll-client src/test_clients/ll-client.c)
-    add_executable(hl-client src/test_clients/hl-client.c)
+    add_executable(hl-client
+            src/test_clients/hl-client.c
+            src/broker/common.h
+            src/broker/common.c
+            )
     add_executable(xl4bus-broker
             src/broker/main.c
             src/broker/debug.h
+            src/uthash.h
+            src/utarray.h
+            src/broker/common.h
+            src/broker/common.c
     )
 
     include(FindPkgConfig)

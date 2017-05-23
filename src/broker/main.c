@@ -1,6 +1,4 @@
 
-#define _GNU_SOURCE
-
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -15,23 +13,73 @@
 #include "json.h"
 
 #include <libxl4bus/low_level.h>
+#include <uthash.h>
+#include <utarray.h>
 
 #include "broker/debug.h"
+#include "broker/common.h"
 
 static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int);
-static void print_out(const char *);
-static char * f_asprintf(char * fmt, ...);
 
-int debug = 1;
+
+static inline int void_cmp_fun(const void * a, const void * b) {
+    if ((uintptr_t)b > (uintptr_t)a) {
+        return 1;
+    } else if (a == b) {
+        return 0;
+    }
+    return -1;
+}
+
+typedef enum terminal_type {
+    TT_DM_CLIENT,
+    TT_UPDATE_AGENT
+} terminal_type_t;
+
+#define ADD_TO_ARRAY_ONCE(array, item) do {\
+    if (!utarray_find(array, item, void_cmp_fun)) { \
+        utarray_push_back(array, item); \
+        utarray_sort(array, void_cmp_fun); \
+    } \
+} while(0)
+
+#define HASH_LIST_ADD(root, obj, key_fld) do { \
+    conn_info_hash_list_t * __list; \
+    const char * __keyval = (obj)->key_fld; \
+    size_t __keylen = strlen(__keyval) + 1; \
+    HASH_FIND(hh, root, __keyval, __keylen, __list); \
+    if (!__list) { \
+        __list = f_malloc(sizeof(conn_info_hash_list_t)); \
+        HASH_ADD_KEYPTR(hh, root, __keyval, __keylen, __list); \
+        utarray_new(__list->items, &ut_ptr_icd); \
+    } \
+    ADD_TO_ARRAY_ONCE(__list->items, obj); \
+} while(0)
 
 typedef struct conn_info {
 
     struct pollfd pfd;
     int reg_req;
 
+    terminal_type_t terminal;
+    char * ua_name;
+    int group_count;
+    char ** groups;
+
 } conn_info_t;
+
+typedef struct conn_info_hash_list {
+    UT_hash_handle hh;
+    UT_array * items;
+} conn_info_hash_list_t;
+
+int debug = 1;
+
+static conn_info_hash_list_t * ci_by_name = 0;
+static conn_info_hash_list_t * ci_by_group = 0;
+UT_array * dm_clients;
 
 int main(int argc, char ** argv) {
 
@@ -238,6 +286,46 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 BOLT_IF(ci->reg_req, E_XL4BUS_CLIENT, "already registered");
                 ci->reg_req = 1;
 
+#if 1 /* throw this code out the window, must use x-509 ID only */
+                BOLT_IF(!json_object_object_get_ex(root, "xxx-id", &aux) || !json_object_is_type(aux, json_type_object),
+                        E_XL4BUS_CLIENT, "Missing xxx-id property");
+                {
+                    json_object * bux;
+                    if (json_object_object_get_ex(aux, "is_dmclient", &bux) &&
+                            json_object_is_type(bux, json_type_boolean) && json_object_get_boolean(bux)) {
+                        ci->terminal = TT_DM_CLIENT;
+                        ADD_TO_ARRAY_ONCE(dm_clients, ci);
+                    } else if (json_object_object_get_ex(aux, "is_update_agent", &bux) &&
+                            json_object_is_type(bux, json_type_boolean) && json_object_get_boolean(bux)) {
+                        ci->terminal = TT_UPDATE_AGENT;
+                        BOLT_IF(!json_object_object_get_ex(aux, "update_agent", &bux) ||
+                                !json_object_is_type(bux, json_type_string), E_XL4BUS_CLIENT,
+                                "No update agent name present");
+                        ci->ua_name = f_strdup(json_object_get_string(bux));
+                        BOLT_IF(!*ci->ua_name, E_XL4BUS_CLIENT, "empty update agent name");
+
+                        HASH_LIST_ADD(ci_by_name, ci, ua_name);
+                    } else {
+                        BOLT_SAY(E_XL4BUS_CLIENT, "Can't accept/identify terminal type");
+                    }
+
+                    if (json_object_object_get_ex(root, "groups", &bux) &&
+                            json_object_is_type(bux, json_type_array)) {
+
+                        int l = json_object_array_length(bux);
+                        for (int i=0; i<l; i++) {
+                            json_object * cux = json_object_array_get_idx(bux, i);
+                            if (!json_object_is_type(cux, json_type_string)) { continue; }
+                            ci->groups = f_realloc(ci->groups, sizeof(char*) * (ci->group_count+1));
+                            ci->groups[ci->group_count] = f_strdup(json_object_get_string(cux));
+                            HASH_LIST_ADD(ci_by_group, ci, groups[ci->group_count]);
+                            ci->group_count++;
+                        }
+                    }
+                }
+
+#endif
+
                 // send registration response
                 // https://gitlab.excelfore.com/schema/json/xl4bus/registration-confirmation.json
                 json_object * json = json_object_new_object();
@@ -279,28 +367,5 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     json_object_put(root);
 
     return err;
-
-}
-
-void print_out(const char * msg) {
-
-    printf("%s\n", msg);
-
-}
-
-char * f_asprintf(char * fmt, ...) {
-
-    char * ret;
-    va_list ap;
-
-    va_start(ap, fmt);
-    int rc = vasprintf(&ret, fmt, ap);
-    va_end(ap);
-
-    if (rc < 0) {
-        return 0;
-    }
-
-    return ret;
 
 }

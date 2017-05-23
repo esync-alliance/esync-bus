@@ -2,6 +2,11 @@
 #ifndef _XL4BROKER_DEBUG_H_
 #define _XL4BROKER_DEBUG_H_
 
+#include <sys/time.h>
+#include <string.h>
+#include <time.h>
+#include <stdlib.h>
+
 extern int debug;
 
 #define _ltime_ \
