@@ -14,6 +14,20 @@ typedef struct poll_info {
     int polls_len;
 } poll_info_t;
 
+typedef enum message_info_state {
+    MIS_VIRGIN,
+    MIS_WAIT_DESTINATIONS,
+    MIS_WAIT_DETAILS,
+    MIS_WAIT_CONFIRM
+};
+
+typedef struct message_info {
+    xl4bus_message_t * msg;
+    struct message_info * next;
+    struct message_info * prev;
+    uint16_t stream_id;
+} message_info_t;
+
 static void client_thread(void *);
 static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
 
@@ -747,7 +761,8 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                     json_object_object_add(id, "is_dmclient", json_object_new_boolean(1));
                 } else if (conn->identity.trust.update_agent) {
                     json_object_object_add(id, "is_update_agent", json_object_new_boolean(1));
-                    json_object_object_add(id, "update_agent", json_object_new_string(conn->identity.trust.update_agent));
+                    json_object_object_add(id, "update_agent",
+                            json_object_new_string(conn->identity.trust.update_agent));
                 } else {
                     BOLT_SAY(E_XL4BUS_ARG, "Can not identify as either update agent or dmclient");
                 }

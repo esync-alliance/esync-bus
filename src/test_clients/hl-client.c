@@ -84,6 +84,16 @@ int main(int argc, char ** argv) {
 
     xl4bus_init_client(&clt, "tcp://localhost:9133");
 
+    xl4bus_message_t msg;
+    memset(&msg, 0, sizeof(msg));
+
+    msg.xl4bus_address = "{\"update-agent\":\"/test1\"}";
+    msg.content_type = "application/json";
+    msg.data = "{\"say\":\"hello\"}";
+    msg.data_len = strlen(msg.data) + 1;
+
+    xl4bus_send_message(&clt, &msg);
+
     while (1) {
         sleep(60);
     }
@@ -91,9 +101,7 @@ int main(int argc, char ** argv) {
 }
 
 void conn_info(struct xl4bus_client * clt, xl4bus_client_condition_t cond) {
-
     printf("Client %p changed to %d\n", clt, cond);
-
 }
 
 void help() {
