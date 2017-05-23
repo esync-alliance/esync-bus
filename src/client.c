@@ -207,30 +207,35 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 continue;
             }
             *timeout = min_timeout(*timeout, ll_timeout);
+
         } else if (ll_conn_reason) {
 
-            if (ll_conn_reason & XL4BUS_POLL_WRITE) {
-                // this should not happen.
-                BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_READ));
-            }
+            if (i_clt->state == CONNECTING) {
 
-            if (ll_conn_reason & XL4BUS_POLL_READ) {
-
-                // no matter what, we should remove that
-                // socket. When needed, the poll request from the low-level
-                // will put it back.
-                BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_REMOVE));
-                HASH_DEL(i_clt->known_fd, ll_fdi);
-                cfg.free(ll_fdi);
-
-                // the read event came, since there is no clt, this must
-                // be connection event.
-                if (pf_get_socket_error(i_clt->tcp_fd)) {
-                    close(i_clt->tcp_fd);
-                    i_clt->tcp_fd = -1;
-                } else {
-                    create_ll_connection(clt);
+                if (ll_conn_reason & XL4BUS_POLL_READ) {
+                    // this should not happen.
+                    BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_WRITE));
                 }
+
+                if (ll_conn_reason & XL4BUS_POLL_WRITE) {
+
+                    // no matter what, we should remove that
+                    // socket. When needed, the poll request from the low-level
+                    // will put it back.
+                    BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_REMOVE));
+                    HASH_DEL(i_clt->known_fd, ll_fdi);
+                    cfg.free(ll_fdi);
+
+                    // the read event came, since there is no clt, this must
+                    // be connection event.
+                    if (pf_get_socket_error(i_clt->tcp_fd)) {
+                        close(i_clt->tcp_fd);
+                        i_clt->tcp_fd = -1;
+                    } else {
+                        create_ll_connection(clt);
+                    }
+                }
+
             }
 
         }
@@ -269,7 +274,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 HASH_DEL(i_clt->known_fd, fdi);
             } else {
                 if (fdi->modes != reason) {
-                    clt->set_poll(clt, fdi->fd, reason);
+                    BOLT_SUB(clt->set_poll(clt, fdi->fd, reason));
                     fdi->modes = reason;
                 }
             }
@@ -351,10 +356,16 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                         fdi->is_ll_conn = 1;
                         fdi->fd = i_clt->tcp_fd;
                         HASH_ADD_INT(i_clt->known_fd, fd, fdi);
-                        BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_READ));
+                        BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_WRITE));
                     }
                 }
             }
+        }
+
+        if (i_clt->state == CONNECTED) {
+            int ll_timeout;
+            BOLT_SUB(xl4bus_process_connection(i_clt->ll, ll_conn_reason, &ll_timeout));
+            *timeout = min_timeout(*timeout, ll_timeout);
         }
 
         // if there is no change, let's get out.
@@ -407,7 +418,7 @@ void client_thread(void * arg) {
 
     while (1) {
 
-        DBG("Conn %p: after run : poll requested timeout %d, poll_info has %d entries", clt, timeout,
+        DBG("Clt %p: after run : poll requested timeout %d, poll_info has %d entries", clt, timeout,
                 poll_info.polls_len);
 
         int err = pf_poll(poll_info.polls, poll_info.polls_len, timeout);
@@ -420,7 +431,7 @@ void client_thread(void * arg) {
             pf_poll_t * pp = poll_info.polls + i;
             if (pp->revents) {
                 err--;
-                DBG("Conn %p : flagging %x for fd %d", clt, pp->revents, pp->fd);
+                DBG("Clt %p : flagging %x for fd %d", clt, pp->revents, pp->fd);
                 if (xl4bus_flag_poll(clt, pp->fd, pp->revents) != E_XL4BUS_OK) {
                     xl4bus_stop_client(clt);
                     return;
@@ -440,7 +451,7 @@ int internal_set_poll(xl4bus_client_t *clt, int fd, int modes) {
     client_internal_t * i_clt = clt->_private;
     poll_info_t * poll_info = i_clt->xl4_thread_space;
 
-    DBG("Conn %p requested to set poll %x for fd %d", clt, modes, fd);
+    DBG("Clt %p requested to set poll %x for fd %d", clt, modes, fd);
 
     if (modes & XL4BUS_POLL_REMOVE) {
 
@@ -598,6 +609,18 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     i_clt->state = DOWN;
     i_clt->net_addr_current = 0;
 
+    if (i_clt->ll) {
+        cfg.free(i_clt->ll);
+        i_clt->ll = 0;
+    }
+
+    if (i_clt->tcp_fd >= 0) {
+        pf_shutdown_rdwr(i_clt->tcp_fd);
+        close(i_clt->tcp_fd);
+        clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_REMOVE);
+        i_clt->tcp_fd = -1;
+    }
+
     if (i_clt->addresses) {
         cfg.free(i_clt->addresses);
         i_clt->addresses = 0;
@@ -640,6 +663,8 @@ int ll_poll_cb(struct xl4bus_connection* conn, int modes) {
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
 
+        DBG("Clt %p: set poll to %x", conn, modes);
+
         BOLT_IF(conn->fd != i_clt->tcp_fd, E_XL4BUS_INTERNAL,
                 "connection FD doesn't match client FD");
 
@@ -649,11 +674,13 @@ int ll_poll_cb(struct xl4bus_connection* conn, int modes) {
         if (!fdi && modes) {
             BOLT_MALLOC(fdi, sizeof(known_fd_t));
             fdi->fd = conn->fd;
+            fdi->is_ll_conn = 1;
             HASH_ADD_INT(i_clt->known_fd, fd, fdi);
         }
 
         if (fdi) {
             fdi->modes = modes;
+            BOLT_SUB(clt->set_poll(clt, fdi->fd, modes));
         }
 
     } while(0);
@@ -685,6 +712,4 @@ char * state_str(client_state_t state) {
         case CONNECTED: return "CONNECTED";
         default: return "??INVALID??";
     }
-
-
 }

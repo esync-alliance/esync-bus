@@ -76,6 +76,9 @@ typedef struct pf_poll {
 // this is analogous to poll(2)
 int pf_poll(pf_poll_t *, int, int);
 
+// like shutdown(2), but always with RDWR flag.
+void pf_shutdown_rdwr(int);
+
 #endif
 
 #ifndef HAVE_STD_MALLOC

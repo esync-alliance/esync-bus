@@ -187,6 +187,9 @@ if (BUILD_BINS)
     add_executable(ll-server src/test_clients/ll-server.c)
     add_executable(ll-client src/test_clients/ll-client.c)
     add_executable(hl-client src/test_clients/hl-client.c)
+    add_executable(xl4bus-broker
+            src/broker/main.c
+    )
 
     include(FindPkgConfig)
 
@@ -196,12 +199,16 @@ if (BUILD_BINS)
     influence_pkg_spec(ll-server JANSSON)
     influence_pkg_spec(ll-client JANSSON)
 
+    target_link_libraries(xl4bus-broker ${JSON_C_LIB})
+
     target_link_libraries("ll-server" ${USE_LIB})
     target_link_libraries("ll-client" ${USE_LIB})
     target_link_libraries("hl-client" ${USE_LIB})
+    target_link_libraries("xl4bus-broker" ${USE_LIB})
     if (XL4_PROVIDE_THREADS)
         target_link_libraries(ll-server Threads::Threads)
         target_link_libraries(hl-client Threads::Threads)
+        target_link_libraries(xl4bus-broker Threads::Threads)
     else()
         message(FATAL_ERROR "Binaries require threading support that is not enabled. You probably want to disable binaries being built as well.")
     endif()

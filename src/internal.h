@@ -149,6 +149,13 @@ typedef struct client_internal {
 
 } client_internal_t;
 
+typedef struct xl4_message_internal {
+
+    xl4bus_message_t * msg;
+    uint16_t stream_id;
+
+} xl4_message_internal_t;
+
 extern xl4bus_ll_cfg_t cfg;
 
 /* net.c */
