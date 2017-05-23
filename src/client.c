@@ -736,14 +736,28 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             xl4bus_ll_message_t x_msg;
             memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
 
+            const char * bux = json_object_get_string(json);
+            x_msg.message.data = bux;
+            x_msg.message.data_len = strlen(bux) + 1;
+            x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
+
+            x_msg.stream_id = msg->stream_id;
+            x_msg.is_reply = 1;
+
+            xl4bus_send_ll_message(conn, &x_msg, 0);
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
-
-                !strcmp(type, "xl4bus.registration-confirmation")) {
+                !strcmp(type, "xl4bus.registration-confirmation") && msg->is_final) {
 
             i_clt->state = CS_RUNNING;
 
             clt->conn_notify(clt, XL4BCC_RUNNING);
+
+        } else {
+
+            DBG("Resetting handshake. State: %s, incoming typ: %s, is_final: %d", state_str(i_clt->state),
+                    type, msg->is_final);
+
         }
 
     } while (0);

@@ -438,20 +438,22 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         connection_internal_t * i_conn = conn->_private;
 
+        HASH_FIND(hh, i_conn->streams, &msg->stream_id, 2, stream);
+
         if (!msg->is_reply) {
+
+            BOLT_IF(stream, E_XL4BUS_INTERNAL, "Stream %d already exists", msg->stream_id);
             stream = f_malloc(sizeof(stream_t));
             if (!stream) { err = E_XL4BUS_MEMORY; break; }
             stream->stream_id = msg->stream_id = i_conn->stream_seq_out;
             i_conn->stream_seq_out += 2;
-        } else {
 
-            HASH_FIND(hh, i_conn->streams, &msg->stream_id, 2, stream);
-            if (!stream) {
-                err = E_XL4BUS_ARG;
-                break;
-            }
             // $TODO: HASH mem check!
             HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
+
+        } else {
+
+            BOLT_IF(!stream, E_XL4BUS_INTERNAL, "Replying to stream %d that doesn't exist", msg->stream_id);
 
         }
 
