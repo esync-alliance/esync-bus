@@ -123,7 +123,7 @@ void * run_conn(void * _arg) {
         json_object_array_add(aux, json_object_new_string("A128CBC-HS256"));
 
         xl4bus_ll_message_t x_msg;
-        memset(&msg, 0, sizeof(xl4bus_ll_message_t));
+        memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
 
         x_msg.form = XL4BPF_JSON;
         x_msg.json = (char *) json_object_get_string(msg);

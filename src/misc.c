@@ -156,6 +156,10 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             break;
         }
 
+        if (!conn->is_client) {
+            i_conn->stream_seq_out = 1;
+        }
+
         err = check_conn_io(conn);
 
     } while(0);
