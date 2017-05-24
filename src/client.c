@@ -29,7 +29,9 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
 static int ll_poll_cb(struct xl4bus_connection*, int);
 static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
 static int create_ll_connection(xl4bus_client_t *);
-static int process_message_out(xl4bus_client_t *, message_internal_t *);
+static void process_message_out(xl4bus_client_t *, message_internal_t *);
+static int get_xl4bus_message(xl4bus_message_t const *, json_object **, char const **);
+static void release_message(xl4bus_client_t *, message_internal_t *, int);
 
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
@@ -705,26 +707,48 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
+        char const * type;
 
         if (i_clt->state == CS_RUNNING) {
+
+            message_internal_t * mint;
+            HASH_FIND(hh, i_clt->stream_hash, &msg->stream_id, 2, mint);
+            if (mint) {
+
+                BOLT_SUB(get_xl4bus_message(&msg->message, &root, &type));
+
+                if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", type)) {
+
+                    // here we would request certificate details, but since
+                    // we are using trust, there is nothing to request,
+                    // so we can skip on to sending the actual message.
+                    // mint->mis = MIS_WAIT_DETAILS;
+
+                    xl4bus_ll_message_t x_msg;
+                    memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+
+                    memcpy(&x_msg.message, &msg->message, sizeof(msg->message));
+                    x_msg.stream_id = msg->stream_id;
+                    xl4bus_send_ll_message(i_clt->ll, &x_msg, 0);
+                    mint->mis = MIS_WAIT_CONFIRM;
+
+                } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", type)) {
+
+                    if (!msg->is_final) {
+                        DBG("Message confirmation was not a final stream message!");
+                        xl4bus_abort_stream(conn, mint->stream_id);
+                    }
+                    release_message(clt, mint, 1);
+
+                }
+
+            }
+
             clt->handle_message(clt, &msg->message);
-            return E_XL4BUS_OK;
+            break;
         }
 
-        BOLT_IF(strcmp("application/vnd.xl4.busmessage+json", msg->message.content_type),
-                E_XL4BUS_CLIENT, "Invalid content type %s", SAFE_STR(msg->message.content_type));
-
-        // the json must be ASCIIZ.
-        BOLT_IF(((uint8_t*)msg->message.data)[msg->message.data_len-1], E_XL4BUS_CLIENT,
-                "Incoming message is not ASCIIZ");
-
-        BOLT_IF(!(root = json_tokener_parse(msg->message.data)), E_XL4BUS_CLIENT, "Not valid json: %s", msg->message.data);
-
-        json_object * aux;
-        BOLT_IF(!json_object_object_get_ex(root, "type", &aux) || !json_object_is_type(aux, json_type_string),
-                E_XL4BUS_CLIENT, "No/non-string type property in %s", msg->message.data);
-
-        const char * type = json_object_get_string(aux);
+        BOLT_SUB(get_xl4bus_message(&msg->message, &root, &type));
 
         if (i_clt->state == CS_EXPECTING_ALGO && !strcmp(type, "xl4bus.alg-supported")) {
 
@@ -798,20 +822,34 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
 }
 
-void xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg) {
+int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg) {
 
-    client_internal_t * i_clt = clt->_private;
+    int err = E_XL4BUS_OK;
 
-    message_internal_t * mint = f_malloc(sizeof(message_internal_t));
+    do {
 
-    mint->msg = msg;
+        client_internal_t * i_clt = clt->_private;
 
-    mint->stream_id = i_clt->stream_id += 2;
-    mint->mis = MIS_VIRGIN;
+        json_object * addr;
+        BOLT_IF(!(addr = json_tokener_parse(msg->xl4bus_address)), E_XL4BUS_ARG, "Can't parse address");
 
-    DL_APPEND(i_clt->message_list, mint);
+        message_internal_t * mint;
 
-    process_message_out(clt, mint);
+        BOLT_MALLOC(mint, sizeof(message_internal_t));
+
+        mint->msg = msg;
+        mint->stream_id = i_clt->stream_id += 2;
+        mint->mis = MIS_VIRGIN;
+        mint->addr = addr;
+        mint->custom = arg;
+
+        DL_APPEND(i_clt->message_list, mint);
+
+        process_message_out(clt, mint);
+
+    } while(0);
+
+    return err;
 
 }
 
@@ -823,6 +861,7 @@ void xl4bus_stop_client(xl4bus_client_t * clt) {
 
 }
 
+#if XL4_PROVIDE_DEBUG
 char * state_str(client_state_t state) {
 
     switch (state) {
@@ -835,4 +874,87 @@ char * state_str(client_state_t state) {
         default: return "??INVALID??";
     }
 }
+#endif
 
+static void process_message_out(xl4bus_client_t * clt, message_internal_t * msg) {
+
+    client_internal_t * i_clt = clt->_private;
+
+    if (i_clt->state != CS_RUNNING) {
+        msg->mis = MIS_VIRGIN;
+        return;
+    }
+
+    if (msg->mis == MIS_VIRGIN) {
+        // request destinations
+        // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
+        json_object * json = json_object_new_object();
+        json_object * body;
+
+        json_object_object_add(json, "type", json_object_new_string("xl4bus.request-destinations"));
+        json_object_object_add(json, "body", body = json_object_new_object());
+        json_object_object_add(body, "destination", json_object_get(msg->addr));
+
+        xl4bus_ll_message_t x_msg;
+        memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+
+        const char * bux = json_object_get_string(json);
+        x_msg.message.data = bux;
+        x_msg.message.data_len = strlen(bux) + 1;
+        x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
+        x_msg.stream_id = msg->stream_id;
+
+        xl4bus_send_ll_message(i_clt->ll, &x_msg, 0);
+
+        json_object_put(json);
+
+        msg->mis = MIS_WAIT_DESTINATIONS;
+    }
+
+}
+
+int get_xl4bus_message(xl4bus_message_t const * msg, json_object ** json, char const ** type) {
+
+    int err = E_XL4BUS_OK;
+    *json = 0;
+
+    do {
+
+        BOLT_IF(strcmp("application/vnd.xl4.busmessage+json", msg->content_type),
+                E_XL4BUS_CLIENT, "Invalid content type %s", SAFE_STR(msg->content_type));
+
+        // the json must be ASCIIZ.
+        BOLT_IF(((uint8_t*)msg->data)[msg->data_len-1], E_XL4BUS_CLIENT,
+                "Incoming message is not ASCIIZ");
+
+        BOLT_IF(!(*json = json_tokener_parse(msg->data)), E_XL4BUS_CLIENT, "Not valid json: %s", msg->data);
+
+        json_object * aux;
+        BOLT_IF(!json_object_object_get_ex(*json, "type", &aux) || !json_object_is_type(aux, json_type_string),
+                E_XL4BUS_CLIENT, "No/non-string type property in %s", msg->data);
+
+        *type = json_object_get_string(aux);
+
+    } while(0);
+
+    if (err != E_XL4BUS_OK) {
+        json_object_put(*json);
+        *json = 0;
+    }
+
+    return err;
+
+}
+
+static void release_message(xl4bus_client_t * clt, message_internal_t * mint, int ok) {
+
+    clt->message_notify(clt, mint->msg, mint->custom, ok);
+
+    client_internal_t * i_clt = clt->_private;
+    HASH_DEL(i_clt->stream_hash, mint);
+    DL_DELETE(i_clt->message_list, mint);
+
+    json_object_put(mint->addr);
+    cfg.free(mint);
+
+}

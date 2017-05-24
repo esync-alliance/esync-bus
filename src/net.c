@@ -495,3 +495,9 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     return err;
 
 }
+
+void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
+
+    // $TODO: implement
+
+}

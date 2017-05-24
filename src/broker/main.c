@@ -23,7 +23,6 @@ static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int);
 
-
 static inline int void_cmp_fun(const void * a, const void * b) {
     if ((uintptr_t)b > (uintptr_t)a) {
         return 1;
@@ -69,6 +68,8 @@ typedef struct conn_info {
     char ** groups;
 
 } conn_info_t;
+
+
 
 typedef struct conn_info_hash_list {
     UT_hash_handle hh;

@@ -50,9 +50,9 @@ typedef struct xl4bus_ll_message {
 struct xl4bus_X509v3_Identity;
 struct xl4bus_connection;
 
-#define XL4BUS_POLL_READ  (1<<1)
-#define XL4BUS_POLL_WRITE (1<<2)
-#define XL4BUS_POLL_ERR (1<<3)
+#define XL4BUS_POLL_READ   (1<<1)
+#define XL4BUS_POLL_WRITE  (1<<2)
+#define XL4BUS_POLL_ERR    (1<<3)
 #define XL4BUS_POLL_REMOVE (1<<4)
 
 #define E_XL4BUS_OK         (0)
@@ -127,10 +127,6 @@ typedef struct xl4bus_connection {
 
 } xl4bus_connection_t;
 
-
-typedef int (*xl4bus_set_poll) (struct xl4bus_client *, int fd, int modes);
-typedef void (*xl4bus_handle_message)(struct xl4bus_client *, xl4bus_message_t *);
-
 typedef enum xl4bus_client_condition {
     XL4BCC_RUNNING,
     XL4BCC_RESOLUTION_FAILED,
@@ -140,7 +136,10 @@ typedef enum xl4bus_client_condition {
     XL4BCC_CLIENT_STOPPED
 } xl4bus_client_condition_t;
 
+typedef int (*xl4bus_set_poll) (struct xl4bus_client *, int fd, int modes);
+typedef void (*xl4bus_handle_message)(struct xl4bus_client *, xl4bus_message_t *);
 typedef void (*xl4bus_conn_info)(struct xl4bus_client *, xl4bus_client_condition_t);
+typedef void (*xl4bus_message_info)(struct xl4bus_client *, xl4bus_message_t *, void *, int);
 
 typedef struct xl4bus_client {
 
@@ -150,6 +149,7 @@ typedef struct xl4bus_client {
 
     xl4bus_set_poll set_poll;
     xl4bus_conn_info conn_notify;
+    xl4bus_message_info message_notify;
     xl4bus_handle_message handle_message;
     xl4bus_identity_t identity;
 

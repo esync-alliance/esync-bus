@@ -133,6 +133,8 @@ typedef struct message_internal {
     uint16_t stream_id;
     UT_hash_handle hh;
     message_info_state_t mis;
+    json_object * addr;
+    void * custom;
 
 } message_internal_t;
 
@@ -152,6 +154,7 @@ typedef struct client_internal {
     ip_addr_t * addresses;
     int net_addr_current;
     message_internal_t * message_list;
+    message_internal_t * stream_hash;
 
     uint16_t stream_id;
 

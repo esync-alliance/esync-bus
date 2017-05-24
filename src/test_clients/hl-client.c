@@ -17,6 +17,7 @@
 int debug = 1;
 
 static void conn_info(struct xl4bus_client *, xl4bus_client_condition_t);
+static void msg_info(struct xl4bus_client *, xl4bus_message_t *, void *, int);
 
 static void help(void);
 
@@ -74,6 +75,7 @@ int main(int argc, char ** argv) {
 
     clt.use_internal_thread = 1;
     clt.conn_notify = conn_info;
+    clt.message_notify = msg_info;
 
     clt.identity.type = XL4BIT_TRUST;
     clt.identity.trust.groups = groups;
@@ -92,7 +94,7 @@ int main(int argc, char ** argv) {
     msg.data = "{\"say\":\"hello\"}";
     msg.data_len = strlen(msg.data) + 1;
 
-    xl4bus_send_message(&clt, &msg);
+    xl4bus_send_message(&clt, &msg, 0);
 
     while (1) {
         sleep(60);
@@ -112,5 +114,12 @@ void help() {
             "-d : report as a DM Client (not an update agent)\n"
     );
     _exit(1);
+
+}
+
+static void msg_info(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok) {
+
+    // we don't have to do any clean up.
+    printf("Message %p delivered %s", msg, ok?"OK":"NOT OK");
 
 }
