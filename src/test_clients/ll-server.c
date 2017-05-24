@@ -81,7 +81,7 @@ int main(int argc, char ** argv) {
 
         memset(conn, 0, sizeof(xl4bus_connection_t));
 
-        conn->ll_message = in_message;
+        conn->on_message = in_message;
         conn->fd = fd2;
 
         conn->set_poll = set_poll;

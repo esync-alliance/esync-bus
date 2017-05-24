@@ -6,10 +6,13 @@
 #include <netinet/in.h>
 #include <stdlib.h>
 #include <poll.h>
-#include <pthread.h>
+// #include <pthread.h>
 #include <unistd.h>
+#include <stddef.h>
 #include <sys/time.h>
 #include <stdarg.h>
+#include <sys/epoll.h>
+#include <errno.h>
 #include "json.h"
 
 #include <libxl4bus/low_level.h>
@@ -18,19 +21,6 @@
 
 #include "broker/debug.h"
 #include "broker/common.h"
-
-static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
-static void * run_conn(void *);
-static int set_poll(xl4bus_connection_t *, int);
-
-static inline int void_cmp_fun(const void * a, const void * b) {
-    if ((uintptr_t)b > (uintptr_t)a) {
-        return 1;
-    } else if (a == b) {
-        return 0;
-    }
-    return -1;
-}
 
 typedef enum terminal_type {
     TT_DM_CLIENT,
@@ -52,9 +42,10 @@ typedef enum terminal_type {
     if (!__list) { \
         __list = f_malloc(sizeof(conn_info_hash_list_t)); \
         HASH_ADD_KEYPTR(hh, root, __keyval, __keylen, __list); \
-        utarray_new(__list->items, &ut_ptr_icd); \
+        /* utarray_new(__list->items, &ut_ptr_icd); */ \
+        utarray_init(&__list->items, &ut_ptr_icd); \
     } \
-    ADD_TO_ARRAY_ONCE(__list->items, obj); \
+    ADD_TO_ARRAY_ONCE(&__list->items, obj); \
 } while(0)
 
 typedef struct conn_info {
@@ -67,20 +58,59 @@ typedef struct conn_info {
     int group_count;
     char ** groups;
 
+    xl4bus_connection_t * conn;
+
+    struct conn_info * next;
+    struct conn_info * prev;
+
 } conn_info_t;
 
-
+typedef struct stream_info {
+    UT_hash_handle hh;
+    uint16_t stream_id;
+} stream_info_t;
 
 typedef struct conn_info_hash_list {
     UT_hash_handle hh;
-    UT_array * items;
+    UT_array items;
 } conn_info_hash_list_t;
+
+typedef enum poll_info_type {
+    INCOMING,
+    XL4
+} poll_info_type_t;
+
+typedef struct poll_info {
+
+    poll_info_type_t type;
+    int fd;
+    struct conn_info * ci;
+
+} poll_info_t;
+
+static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
+static void * run_conn(void *);
+static int set_poll(xl4bus_connection_t *, int);
+static int pick_timeout(int t1, int t2);
+static void dismiss_connection(conn_info_t * ci);
+
+static inline int void_cmp_fun(const void * a, const void * b) {
+    if ((uintptr_t)b > (uintptr_t)a) {
+        return 1;
+    } else if (a == b) {
+        return 0;
+    }
+    return -1;
+}
 
 int debug = 1;
 
 static conn_info_hash_list_t * ci_by_name = 0;
 static conn_info_hash_list_t * ci_by_group = 0;
-UT_array * dm_clients;
+static UT_array dm_clients;
+static stream_info_t * open_streams = 0;
+static int poll_fd;
+conn_info_t * connections;
 
 int main(int argc, char ** argv) {
 
@@ -119,6 +149,8 @@ int main(int argc, char ** argv) {
     }
 #endif
 
+    utarray_init(&dm_clients, &ut_ptr_icd);
+
     if (bind(fd, (struct sockaddr*)&b_addr, sizeof(b_addr))) {
         perror("bind");
         return 1;
@@ -129,6 +161,7 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+#if 0
     while (1) {
 
         socklen_t b_addr_len = sizeof(b_addr);
@@ -138,15 +171,11 @@ int main(int argc, char ** argv) {
             return 1;
         }
 
-        xl4bus_connection_t * conn = malloc(sizeof(xl4bus_connection_t));
-        if (!conn) {
-            perror("malloc");
-            return 1;
-        }
+        xl4bus_connection_t * conn = f_malloc(sizeof(xl4bus_connection_t));
 
         memset(conn, 0, sizeof(xl4bus_connection_t));
 
-        conn->ll_message = in_message;
+        conn->on_message = in_message;
         conn->fd = fd2;
 
         conn->set_poll = set_poll;
@@ -159,88 +188,169 @@ int main(int argc, char ** argv) {
         }
 
     }
-}
 
-void * run_conn(void * _arg) {
+#endif
 
-    xl4bus_connection_t * conn = (xl4bus_connection_t*)_arg;
-
-    conn_info_t ci;
-
-    memset(&ci, 0, sizeof(ci));
-
-    ci.pfd.fd = conn->fd;
-    conn->custom = &ci;
-
-    int err = xl4bus_init_connection(conn);
-
-    if (err == E_XL4BUS_OK) {
-
-        // send initial message - alg-supported
-        // https://gitlab.excelfore.com/schema/json/xl4bus/alg-supported.json
-        json_object * json = json_object_new_object();
-        json_object * aux;
-        json_object * body;
-        json_object_object_add(json, "body", body = json_object_new_object());
-
-        json_object_object_add(body, "signature", aux = json_object_new_array());
-        json_object_array_add(aux, json_object_new_string("RS256"));
-        json_object_object_add(body, "encryption-key", aux = json_object_new_array());
-        json_object_array_add(aux, json_object_new_string("RSA-OAEP"));
-        json_object_object_add(body, "encryption-alg", aux = json_object_new_array());
-        json_object_array_add(aux, json_object_new_string("A128CBC-HS256"));
-
-        json_object_object_add(json, "type", json_object_new_string("xl4bus.alg-supported"));
-
-        xl4bus_ll_message_t msg;
-        memset(&msg, 0, sizeof(xl4bus_ll_message_t));
-
-        const char * bux = json_object_get_string(json);
-        msg.message.data = bux;
-        msg.message.data_len = strlen(bux) + 1;
-        msg.message.content_type = "application/vnd.xl4.busmessage+json";
-
-        if ((err = xl4bus_send_ll_message(conn, &msg, 0)) != E_XL4BUS_OK) {
-            printf("failed to send a message : %s\n", xl4bus_strerr(err));
-        }
-
-        json_object_put(json);
-
+    if (set_nonblocking(fd)) {
+        perror("non-blocking");
+        return 1;
     }
 
+    poll_fd = epoll_create1(0);
+    if (poll_fd < 0) {
+        perror("epoll_create");
+        return 1;
+    }
+
+    poll_info_t main_pit = {
+            .type = INCOMING,
+            .fd = fd
+    };
+
+    struct epoll_event ev;
+    ev.events = POLLIN;
+    ev.data.ptr = &main_pit;
+
+    if (epoll_ctl(poll_fd, EPOLL_CTL_ADD, fd, &ev)) {
+        perror("epoll_ctl");
+        return 1;
+    }
+
+    int max_ev = 1;
     int timeout = -1;
 
     while (1) {
 
-        if (err != E_XL4BUS_OK) { break; }
+        struct epoll_event rev[max_ev];
+        uint64_t before;
 
-        int rc = poll(&ci.pfd, 1, timeout);
-        if (rc < 0) {
-            perror("poll");
-            break;
+        if (timeout >= 0) {
+            before = msvalue();
+        }
+        int ec = epoll_wait(poll_fd, rev, max_ev, timeout);
+        if (timeout >= 0) {
+            before = msvalue() - before;
+            if (timeout > before) {
+                timeout -= before;
+            } else {
+                timeout = 0;
+            }
+        }
+        if (ec < 0) {
+            if (errno == EINTR) { continue; }
+            perror("epoll_wait");
+            return 1;
         }
 
-        int flags = 0;
-        if (ci.pfd.revents & (POLLIN | POLLPRI)) {
-            flags = XL4BUS_POLL_READ;
-        } else if (ci.pfd.revents & POLLOUT) {
-            flags |= XL4BUS_POLL_WRITE;
-        } else if (ci.pfd.revents & (POLLHUP | POLLNVAL)) {
-            flags |= XL4BUS_POLL_ERR;
-        }
+        if (ec == max_ev) { max_ev++; }
 
-        if (xl4bus_process_connection(conn, flags, &timeout) != E_XL4BUS_OK) {
-            break;
+        for (int i=0; i<ec; i++) {
+
+            poll_info_t * pit = rev[i].data.ptr;
+            if (pit->type == INCOMING) {
+
+                if (rev[i].events & POLLERR) {
+                    get_socket_error(pit->fd);
+                    perror("Error on incoming socket");
+                    return 1;
+                }
+
+                if (rev[i].events & POLLIN) {
+
+                    socklen_t b_addr_len = sizeof(b_addr);
+                    int fd2 = accept(fd, (struct sockaddr*)&b_addr, &b_addr_len);
+                    if (fd2 < 0) {
+                        perror("accept");
+                        return 1;
+                    }
+
+                    xl4bus_connection_t * conn = f_malloc(sizeof(xl4bus_connection_t));
+                    conn_info_t * ci = f_malloc(sizeof(ci));
+
+                    conn->on_message = in_message;
+                    conn->fd = fd2;
+                    conn->set_poll = set_poll;
+
+                    conn->custom = ci;
+                    ci->conn = conn;
+
+                    int err = xl4bus_init_connection(conn);
+
+                    if (err == E_XL4BUS_OK) {
+
+                        // send initial message - alg-supported
+                        // https://gitlab.excelfore.com/schema/json/xl4bus/alg-supported.json
+                        json_object *json = json_object_new_object();
+                        json_object *aux;
+                        json_object *body;
+                        json_object_object_add(json, "body", body = json_object_new_object());
+
+                        json_object_object_add(body, "signature", aux = json_object_new_array());
+                        json_object_array_add(aux, json_object_new_string("RS256"));
+                        json_object_object_add(body, "encryption-key", aux = json_object_new_array());
+                        json_object_array_add(aux, json_object_new_string("RSA-OAEP"));
+                        json_object_object_add(body, "encryption-alg", aux = json_object_new_array());
+                        json_object_array_add(aux, json_object_new_string("A128CBC-HS256"));
+
+                        json_object_object_add(json, "type", json_object_new_string("xl4bus.alg-supported"));
+
+                        xl4bus_ll_message_t msg;
+                        memset(&msg, 0, sizeof(xl4bus_ll_message_t));
+
+                        const char *bux = json_object_get_string(json);
+                        msg.message.data = bux;
+                        msg.message.data_len = strlen(bux) + 1;
+                        msg.message.content_type = "application/vnd.xl4.busmessage+json";
+
+                        if ((err = xl4bus_send_ll_message(conn, &msg, 0)) != E_XL4BUS_OK) {
+                            printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                        }
+
+                        json_object_put(json);
+
+                        int my_timeout;
+                        if (xl4bus_process_connection(conn, 0, &my_timeout) == E_XL4BUS_OK) {
+                            timeout = pick_timeout(timeout, my_timeout);
+                        } else {
+                            dismiss_connection(ci);
+                        }
+
+                    } else {
+                        free(ci);
+                        free(conn);
+                    }
+
+                }
+
+            } else if (pit->type == XL4) {
+
+                conn_info_t * ci = pit->ci;
+                int flags = 0;
+                if (rev[i].events & POLLIN) {
+                    flags |= XL4BUS_POLL_READ;
+                }
+                if (rev[i].events & POLLOUT) {
+                    flags |= XL4BUS_POLL_WRITE;
+                }
+                if (rev[i].events & (POLLERR|POLLNVAL|POLLHUP)) {
+                    flags |= XL4BUS_POLL_ERR;
+                }
+
+                int my_timeout;
+                if (xl4bus_process_connection(ci->conn, flags, &my_timeout) != E_XL4BUS_OK) {
+                    timeout = pick_timeout(timeout, my_timeout);
+                } else {
+                    dismiss_connection(ci);
+                }
+
+            } else {
+                DBG("PIT type %d?", pit->type);
+                return 1;
+            }
+
         }
 
     }
-
-    printf("Shutting down connection %d\n", conn->fd);
-    shutdown(conn->fd, SHUT_RDWR);
-    close(conn->fd);
-    free(conn);
-
-    return 0;
 
 }
 
@@ -284,6 +394,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             const char * type = json_object_get_string(aux);
 
             if (!strcmp(type, "xl4bus.registration-request")) {
+
                 BOLT_IF(ci->reg_req, E_XL4BUS_CLIENT, "already registered");
                 ci->reg_req = 1;
 
@@ -295,7 +406,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     if (json_object_object_get_ex(aux, "is_dmclient", &bux) &&
                             json_object_is_type(bux, json_type_boolean) && json_object_get_boolean(bux)) {
                         ci->terminal = TT_DM_CLIENT;
-                        ADD_TO_ARRAY_ONCE(dm_clients, ci);
+                        ADD_TO_ARRAY_ONCE(&dm_clients, ci);
                     } else if (json_object_object_get_ex(aux, "is_update_agent", &bux) &&
                             json_object_is_type(bux, json_type_boolean) && json_object_get_boolean(bux)) {
                         ci->terminal = TT_UPDATE_AGENT;
@@ -352,21 +463,108 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 break;
 
+            } else if (!strcmp("xl4bus.request-destinations", type)) {
+
+                stream_info_t * si;
+                HASH_FIND(hh, open_streams, &msg->stream_id, 2, si);
+                if (si) {
+                    // one shall not request destinations on existing stream.
+                    DBG("request-destinations on existing stream %d", msg->stream_id);
+                    HASH_DEL(open_streams, si);
+                    xl4bus_abort_stream(conn, msg->stream_id);
+                    break;
+                }
+
+                si = f_malloc(sizeof(stream_info_t));
+                si->stream_id = msg->stream_id;
+                HASH_ADD(hh, open_streams, stream_id, 2, si);
+
+                // send destination list
+                // https://gitlab.excelfore.com/schema/json/xl4bus/destination-info.json
+                json_object * json = json_object_new_object();
+                json_object_object_add(json, "type", json_object_new_string("xl4bus.destination-info"));
+
+                xl4bus_ll_message_t x_msg;
+                memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+
+                const char * bux = json_object_get_string(json);
+                x_msg.message.data = bux;
+                x_msg.message.data_len = strlen(bux) + 1;
+                x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
+
+                x_msg.stream_id = msg->stream_id;
+                x_msg.is_reply = 1;
+
+                if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
+                    printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                }
+
+                json_object_put(json);
+
             }
 
             BOLT_SAY(E_XL4BUS_CLIENT, "Don't know what to do with message %s", type);
 
         } else {
 
-            BOLT_SAY(E_XL4BUS_CLIENT, "Message of c/t %s ignored", msg->message.content_type);
+            stream_info_t * si;
+            HASH_FIND(hh, open_streams, &msg->stream_id, 2, si);
+            if (!si) {
+                DBG("Message of c/t %s ignored", msg->message.content_type);
+                break;
+            }
+
+            // confirm the message to the caller.
+            // https://gitlab.excelfore.com/schema/json/xl4bus/message-confirm.json
+            json_object * json = json_object_new_object();
+            json_object_object_add(json, "type", json_object_new_string("xl4bus.message-confirm"));
+
+            xl4bus_ll_message_t x_msg;
+            memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+
+            const char * bux = json_object_get_string(json);
+            x_msg.message.data = bux;
+            x_msg.message.data_len = strlen(bux) + 1;
+            x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
+
+            x_msg.stream_id = msg->stream_id;
+            x_msg.is_reply = 1;
+            x_msg.is_final = 1;
+
+            if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
+                printf("failed to send a message : %s\n", xl4bus_strerr(err));
+            }
+
+            json_object_put(json);
+
+            // let's send to all possible destinations.
+
 
         }
-
 
     } while (0);
 
     json_object_put(root);
 
     return err;
+
+}
+
+int pick_timeout(int t1, int t2) {
+    if (t1 < 0) { return t2; }
+    if (t2 < 0) { return t1; }
+    if (t1 < t2) { return t1; }
+    return t2;
+}
+
+void dismiss_connection(conn_info_t * ci) {
+
+    epoll_ctl(poll_fd, EPOLL_CTL_DEL, ci->conn->fd, (struct epoll_event *) 1);
+
+    shutdown(ci->conn->fd, SHUT_RDWR);
+    close(ci->conn->fd);
+
+    free(ci);
+    free(ci->conn);
 
 }

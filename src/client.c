@@ -650,7 +650,7 @@ static int create_ll_connection(xl4bus_client_t * clt) {
         i_clt->ll->set_poll = ll_poll_cb;
         i_clt->ll->custom = clt;
         i_clt->ll->is_client = 1;
-        i_clt->ll->ll_message = ll_msg_cb;
+        i_clt->ll->on_message = ll_msg_cb;
 
         memcpy(&i_clt->ll->identity, &clt->identity, sizeof(clt->identity));
 

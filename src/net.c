@@ -261,7 +261,7 @@ do {} while(0)
                                 message.is_reply = stream->is_reply;
                                 message.is_final = stream->is_final;
 
-                                BOLT_SUB(conn->ll_message(conn, &message));
+                                BOLT_SUB(conn->on_message(conn, &message));
 
                             } while (0);
 
@@ -315,6 +315,9 @@ do {} while(0)
                             HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
                             if (stream) {
                                 cleanup_stream(i_conn, &stream);
+                            }
+                            if (conn->on_stream_abort) {
+                                conn->on_stream_abort(conn, stream_id);
                             }
                         }
 
