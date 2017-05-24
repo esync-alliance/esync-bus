@@ -14,20 +14,6 @@ typedef struct poll_info {
     int polls_len;
 } poll_info_t;
 
-typedef enum message_info_state {
-    MIS_VIRGIN,
-    MIS_WAIT_DESTINATIONS,
-    MIS_WAIT_DETAILS,
-    MIS_WAIT_CONFIRM
-};
-
-typedef struct message_info {
-    xl4bus_message_t * msg;
-    struct message_info * next;
-    struct message_info * prev;
-    uint16_t stream_id;
-} message_info_t;
-
 static void client_thread(void *);
 static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
 
@@ -43,6 +29,7 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
 static int ll_poll_cb(struct xl4bus_connection*, int);
 static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
 static int create_ll_connection(xl4bus_client_t *);
+static int process_message_out(xl4bus_client_t *, message_internal_t *);
 
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
@@ -809,8 +796,22 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
     return err;
 
+}
 
+void xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg) {
 
+    client_internal_t * i_clt = clt->_private;
+
+    message_internal_t * mint = f_malloc(sizeof(message_internal_t));
+
+    mint->msg = msg;
+
+    mint->stream_id = i_clt->stream_id += 2;
+    mint->mis = MIS_VIRGIN;
+
+    DL_APPEND(i_clt->message_list, mint);
+
+    process_message_out(clt, mint);
 
 }
 
@@ -834,3 +835,4 @@ char * state_str(client_state_t state) {
         default: return "??INVALID??";
     }
 }
+

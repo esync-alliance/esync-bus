@@ -118,6 +118,24 @@ typedef struct ip_addr {
 
 } ip_addr_t;
 
+typedef enum message_info_state {
+    MIS_VIRGIN,
+    MIS_WAIT_DESTINATIONS,
+    MIS_WAIT_DETAILS,
+    MIS_WAIT_CONFIRM
+} message_info_state_t;
+
+typedef struct message_internal {
+
+    xl4bus_message_t * msg;
+    struct message_internal * next;
+    struct message_internal * prev;
+    uint16_t stream_id;
+    UT_hash_handle hh;
+    message_info_state_t mis;
+
+} message_internal_t;
+
 typedef struct client_internal {
 
     client_state_t state;
@@ -133,6 +151,9 @@ typedef struct client_internal {
 
     ip_addr_t * addresses;
     int net_addr_current;
+    message_internal_t * message_list;
+
+    uint16_t stream_id;
 
     int tcp_fd;
 
@@ -150,13 +171,6 @@ typedef struct client_internal {
     int stop;
 
 } client_internal_t;
-
-typedef struct xl4_message_internal {
-
-    xl4bus_message_t * msg;
-    uint16_t stream_id;
-
-} xl4_message_internal_t;
 
 extern xl4bus_ll_cfg_t cfg;
 
