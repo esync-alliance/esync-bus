@@ -493,6 +493,9 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
     if (err == E_XL4BUS_OK) {
         err = check_conn_io(conn);
+        if (err != E_XL4BUS_OK) {
+            xl4bus_shutdown_connection(conn);
+        }
     }
 
     return err;

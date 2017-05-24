@@ -18,6 +18,7 @@
 #include <libxl4bus/low_level.h>
 #include <uthash.h>
 #include <utarray.h>
+#include <utlist.h>
 
 #include "broker/debug.h"
 #include "broker/common.h"
@@ -48,6 +49,23 @@ typedef enum terminal_type {
     ADD_TO_ARRAY_ONCE(&__list->items, obj); \
 } while(0)
 
+struct conn_info;
+
+typedef enum poll_info_type {
+    PIT_INCOMING,
+    PIT_XL4
+} poll_info_type_t;
+
+typedef struct poll_info {
+
+    poll_info_type_t type;
+    int fd;
+    struct conn_info * ci;
+
+} poll_info_t;
+
+
+
 typedef struct conn_info {
 
     struct pollfd pfd;
@@ -58,10 +76,14 @@ typedef struct conn_info {
     int group_count;
     char ** groups;
 
+    int poll_modes;
+
     xl4bus_connection_t * conn;
 
     struct conn_info * next;
     struct conn_info * prev;
+
+    struct poll_info pit;
 
 } conn_info_t;
 
@@ -74,19 +96,6 @@ typedef struct conn_info_hash_list {
     UT_hash_handle hh;
     UT_array items;
 } conn_info_hash_list_t;
-
-typedef enum poll_info_type {
-    INCOMING,
-    XL4
-} poll_info_type_t;
-
-typedef struct poll_info {
-
-    poll_info_type_t type;
-    int fd;
-    struct conn_info * ci;
-
-} poll_info_t;
 
 static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
@@ -203,7 +212,7 @@ int main(int argc, char ** argv) {
     }
 
     poll_info_t main_pit = {
-            .type = INCOMING,
+            .type = PIT_INCOMING,
             .fd = fd
     };
 
@@ -247,7 +256,7 @@ int main(int argc, char ** argv) {
         for (int i=0; i<ec; i++) {
 
             poll_info_t * pit = rev[i].data.ptr;
-            if (pit->type == INCOMING) {
+            if (pit->type == PIT_INCOMING) {
 
                 if (rev[i].events & POLLERR) {
                     get_socket_error(pit->fd);
@@ -265,7 +274,7 @@ int main(int argc, char ** argv) {
                     }
 
                     xl4bus_connection_t * conn = f_malloc(sizeof(xl4bus_connection_t));
-                    conn_info_t * ci = f_malloc(sizeof(ci));
+                    conn_info_t * ci = f_malloc(sizeof(conn_info_t));
 
                     conn->on_message = in_message;
                     conn->fd = fd2;
@@ -273,10 +282,15 @@ int main(int argc, char ** argv) {
 
                     conn->custom = ci;
                     ci->conn = conn;
+                    ci->pit.ci = ci;
+                    ci->pit.type = PIT_XL4;
+                    ci->pit.fd = fd;
 
                     int err = xl4bus_init_connection(conn);
 
                     if (err == E_XL4BUS_OK) {
+
+                        DL_APPEND(connections, ci);
 
                         // send initial message - alg-supported
                         // https://gitlab.excelfore.com/schema/json/xl4bus/alg-supported.json
@@ -304,15 +318,18 @@ int main(int argc, char ** argv) {
 
                         if ((err = xl4bus_send_ll_message(conn, &msg, 0)) != E_XL4BUS_OK) {
                             printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                            dismiss_connection(ci);
                         }
 
                         json_object_put(json);
 
-                        int my_timeout;
-                        if (xl4bus_process_connection(conn, 0, &my_timeout) == E_XL4BUS_OK) {
-                            timeout = pick_timeout(timeout, my_timeout);
-                        } else {
-                            dismiss_connection(ci);
+                        if (err == E_XL4BUS_OK) {
+                            int my_timeout;
+                            if (xl4bus_process_connection(conn, 0, &my_timeout) == E_XL4BUS_OK) {
+                                timeout = pick_timeout(timeout, my_timeout);
+                            } else {
+                                dismiss_connection(ci);
+                            }
                         }
 
                     } else {
@@ -322,7 +339,7 @@ int main(int argc, char ** argv) {
 
                 }
 
-            } else if (pit->type == XL4) {
+            } else if (pit->type == PIT_XL4) {
 
                 conn_info_t * ci = pit->ci;
                 int flags = 0;
@@ -350,12 +367,31 @@ int main(int argc, char ** argv) {
 
         }
 
+        if (!timeout) {
+
+            timeout = -1;
+
+            conn_info_t * aux;
+            conn_info_t * ci;
+
+            DL_FOREACH_SAFE(connections, ci, aux) {
+                int my_timeout;
+                if (xl4bus_process_connection(ci->conn, 0, &my_timeout) != E_XL4BUS_OK) {
+                    timeout = pick_timeout(timeout, my_timeout);
+                } else {
+                    dismiss_connection(ci);
+                }
+            }
+
+        }
+
     }
 
 }
 
 int set_poll(xl4bus_connection_t * conn, int flg) {
 
+#if 0
     conn_info_t * ci = conn->custom;
 
     ci->pfd.events = 0;
@@ -366,6 +402,44 @@ int set_poll(xl4bus_connection_t * conn, int flg) {
     if (flg & XL4BUS_POLL_WRITE) {
         ci->pfd.events |= POLLOUT;
     }
+    return E_XL4BUS_OK;
+#endif
+
+    conn_info_t * ci = conn->custom;
+
+    uint32_t need_flg = 0;
+    if (flg & XL4BUS_POLL_WRITE) {
+        need_flg |= POLLOUT;
+    }
+    if (flg & XL4BUS_POLL_READ) {
+        need_flg |= POLLIN;
+    }
+    // otherwise, remove from poll
+    if (ci->poll_modes != need_flg) {
+
+        int rc;
+
+        if (need_flg) {
+            struct epoll_event ev = {
+                    .events = need_flg,
+                    .data = { .ptr =  &ci->pit }
+            };
+
+            if (ci->poll_modes) {
+                rc = epoll_ctl(poll_fd, EPOLL_CTL_MOD, conn->fd, &ev);
+            } else {
+                rc = epoll_ctl(poll_fd, EPOLL_CTL_ADD, conn->fd, &ev);
+            }
+
+        } else {
+            rc = epoll_ctl(poll_fd, EPOLL_CTL_DEL, conn->fd, (struct epoll_event *) 1);
+        }
+
+        if (rc) { return E_XL4BUS_SYS; }
+        ci->poll_modes = need_flg;
+
+    }
+
     return E_XL4BUS_OK;
 
 }
@@ -457,6 +531,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                    dismiss_connection(ci);
                 }
 
                 json_object_put(json);
@@ -497,6 +572,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                    dismiss_connection(ci);
                 }
 
                 json_object_put(json);
@@ -533,6 +609,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
                 printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                dismiss_connection(ci);
             }
 
             json_object_put(json);
@@ -560,6 +637,8 @@ int pick_timeout(int t1, int t2) {
 void dismiss_connection(conn_info_t * ci) {
 
     epoll_ctl(poll_fd, EPOLL_CTL_DEL, ci->conn->fd, (struct epoll_event *) 1);
+
+    DL_DELETE(connections, ci);
 
     shutdown(ci->conn->fd, SHUT_RDWR);
     close(ci->conn->fd);
