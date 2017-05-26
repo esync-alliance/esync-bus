@@ -2,6 +2,21 @@
 #define _XL4BUS_PORTING_H_
 
 #include "build_config.h"
+#include "config.h"
+
+#if XL4_PROVIDE_THREADS && !XL4_SUPPORT_THREADS
+#error You are requesting threading support (XL4_PROVIDE_THREADS=>1), but disabling use of threads (XL4_SUPPORT_THREADS=>0).
+#endif
+
+#if XL4_SUPPORT_THREADS
+#if !XL4_SUPPORT_UNIX_DGRAM_PAIR
+#error You are requesting threading support, but no ITC mechanisms are enabled (XL4_SUPPORT_UNIX_DGRAM_PAIR).
+#endif
+#endif
+
+#if XL4_SUPPORT_UNIX_DGRAM_PAIR && !XL4_NEED_DGRAM
+#define XL4_NEED_DGRAM 1
+#endif
 
 /*
  * This file contains headers for
@@ -9,10 +24,24 @@
  * implemented in the corresponding porting layer.
  */
 
+typedef void * (*pf_malloc_fun)(size_t);
+
 // SEND(2), but flags are always 0
 ssize_t pf_send(int sockfd, const void *buf, size_t len);
 // RECV(2), but flags are always 0
 ssize_t pf_recv(int sockfd, void *buf, size_t len);
+
+#if XL4_NEED_DGRAM
+// this must receive a whole datagram from the specified
+// (datagram) socket. The size of the read datagram should
+// be returned. 0 for EOF, or <0 for error should be returned.
+// the buffer is to be allocated with the specified allocation function.
+// the allocation function may return 0 to indicate out of memory.
+// however, if the allocation succeeded, and later attempt to receive
+// data failed, the buffer shall remain allocated, and the caller
+// must free it.
+ssize_t pf_recv_dgram(int sockfd, void ** addr, pf_malloc_fun);
+#endif
 
 // sets descriptor to non-blocking mode, return 0 if OK,
 // !0 if not OK (errno must be set)
@@ -79,20 +108,13 @@ int pf_poll(pf_poll_t *, int, int);
 // like shutdown(2), but always with RDWR flag.
 void pf_shutdown_rdwr(int);
 
+// like close(2), but library doesn't care if close() failed
+void pf_close(int);
+
 #endif
 
-#ifndef HAVE_STD_MALLOC
-#define HAVE_STD_MALLOC 0
-#endif
-
-#ifndef HAVE_GETTIMEOFDAY
-#define HAVE_GETTIMEOFDAY 0
-#endif
-
-#ifndef NEED_PRINTF
-// if NEED_PRINTF is 0, then please add
-// a header definition of vasprintf
-#define NEED_PRINTF 0
+#if XL4_SUPPORT_UNIX_DGRAM_PAIR
+int pf_dgram_pair(int sv[2]);
 #endif
 
 #endif

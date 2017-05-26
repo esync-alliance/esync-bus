@@ -128,7 +128,7 @@ void * run_conn(void * _arg) {
                 flags |= XL4BUS_POLL_ERR;
             }
 
-            if (xl4bus_process_connection(conn, flags, &timeout) != E_XL4BUS_OK) {
+            if (xl4bus_process_connection(conn, conn->fd, flags, &timeout) != E_XL4BUS_OK) {
                 break;
             }
 

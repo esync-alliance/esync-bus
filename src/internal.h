@@ -2,9 +2,10 @@
 #define _XL4BUS_INTERNAL_H_
 
 #include "config.h"
+#include "porting.h"
 #include <libxl4bus/low_level.h>
 
-#if NEED_PRINTF
+#if XL4_PROVIDE_PRINTF
 #define vasprintf tft_vasprintf
 #include "printf.h"
 #endif
@@ -85,6 +86,10 @@ typedef struct connection_internal {
     uint64_t connectivity_test_ts;
     uint16_t stream_seq_out;
 
+#if XL4_SUPPORT_THREADS
+    int mt_read_socket;
+#endif
+
 } connection_internal_t;
 
 typedef enum client_state {
@@ -142,10 +147,6 @@ typedef struct client_internal {
 
     client_state_t state;
 
-#if XL4_PROVIDE_THREADS
-    void * xl4_thread_space;
-#endif
-
     pending_fd_t * pending;
     int pending_len;
     int pending_cap;
@@ -167,11 +168,19 @@ typedef struct client_internal {
     uint64_t down_target;
     xl4bus_connection_t * ll;
     int repeat_process;
-#if XL4_PROVIDE_IPV4 && XL4_PROVIDE_IPV6
-    int dual_ip;
+
+#if XL4_PROVIDE_THREADS
+    void * xl4_thread_space;
+    int stop;
 #endif
 
-    int stop;
+#if XL4_SUPPORT_THREADS
+    int mt_read_socket;
+#endif
+
+#if XL4_SUPPORT_IPV4 && XL4_SUPPORT_IPV6
+    int dual_ip;
+#endif
 
 } client_internal_t;
 

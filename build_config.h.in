@@ -2,9 +2,23 @@
 #ifndef _XL4BUS_BUILD_CONFIG_H_
 #define _XL4BUS_BUILD_CONFIG_H_
 
+/*
+ * XL4_PROVIDE_XXX - the library will compile the code
+ * to provide a specific function.
+ * XL4_SUPPORT_XXX - the library can use a specific functionality
+ * that is otherwise provided by the platform (directly or through porting layer)
+ * XL4_HAVE_XXX - the library can use a specific functionality if it is available
+ * but if it is not, an alternative will not be used.
+ */
+
 #cmakedefine01 XL4_PROVIDE_THREADS
 #cmakedefine01 XL4_PROVIDE_DEBUG
-#cmakedefine01 XL4_PROVIDE_IPV4
-#cmakedefine01 XL4_PROVIDE_IPV6
+#cmakedefine01 XL4_PROVIDE_PRINTF
+#cmakedefine01 XL4_SUPPORT_IPV4
+#cmakedefine01 XL4_SUPPORT_IPV6
+#cmakedefine01 XL4_SUPPORT_THREADS
+#cmakedefine01 XL4_SUPPORT_UNIX_DGRAM_PAIR
+#cmakedefine01 XL4_HAVE_GETTIMEOFDAY
+#cmakedefine01 XL4_HAVE_STD_MALLOC
 
 #endif

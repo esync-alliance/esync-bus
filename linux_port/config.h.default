@@ -10,8 +10,6 @@
 #include <cjose/cjose.h>
 #include <stdio.h>
 
-#define HAVE_STD_MALLOC 1
-#define XL4BUS_PROVIDE_DEBUG 1
-#define HAVE_GETTIMEOFDAY 1
+typedef pthread_mutex_t pf_lock_t;
 
 #endif

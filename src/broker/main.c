@@ -101,7 +101,7 @@ static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int);
 static int pick_timeout(int t1, int t2);
-static void dismiss_connection(conn_info_t * ci);
+static void dismiss_connection(conn_info_t * ci, int need_shutdown);
 
 static inline int void_cmp_fun(const void * a, const void * b) {
     if ((uintptr_t)b > (uintptr_t)a) {
@@ -284,7 +284,9 @@ int main(int argc, char ** argv) {
                     ci->conn = conn;
                     ci->pit.ci = ci;
                     ci->pit.type = PIT_XL4;
-                    ci->pit.fd = fd;
+                    ci->pit.fd = fd2;
+
+                    DBG("Created connection %p/%p fd %d", ci, ci->conn, fd2);
 
                     int err = xl4bus_init_connection(conn);
 
@@ -316,19 +318,21 @@ int main(int argc, char ** argv) {
                         msg.message.data_len = strlen(bux) + 1;
                         msg.message.content_type = "application/vnd.xl4.busmessage+json";
 
-                        if ((err = xl4bus_send_ll_message(conn, &msg, 0)) != E_XL4BUS_OK) {
+                        if ((err = xl4bus_send_ll_message(conn, &msg, 0, 0)) != E_XL4BUS_OK) {
                             printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                            dismiss_connection(ci);
+                            dismiss_connection(ci, 1);
                         }
 
                         json_object_put(json);
 
                         if (err == E_XL4BUS_OK) {
                             int my_timeout;
-                            if (xl4bus_process_connection(conn, 0, &my_timeout) == E_XL4BUS_OK) {
+                            int s_err;
+                            if ((s_err = xl4bus_process_connection(conn, -1, 0, &my_timeout)) == E_XL4BUS_OK) {
                                 timeout = pick_timeout(timeout, my_timeout);
                             } else {
-                                dismiss_connection(ci);
+                                DBG("xl4bus process (initial) returned %d", s_err);
+                                dismiss_connection(ci, 0);
                             }
                         }
 
@@ -354,10 +358,12 @@ int main(int argc, char ** argv) {
                 }
 
                 int my_timeout;
-                if (xl4bus_process_connection(ci->conn, flags, &my_timeout) != E_XL4BUS_OK) {
+                int s_err;
+                if ((s_err = xl4bus_process_connection(ci->conn, pit->fd, flags, &my_timeout)) == E_XL4BUS_OK) {
                     timeout = pick_timeout(timeout, my_timeout);
                 } else {
-                    dismiss_connection(ci);
+                    DBG("xl4bus process (fd up route) returned %d", s_err);
+                    dismiss_connection(ci, 0);
                 }
 
             } else {
@@ -376,10 +382,12 @@ int main(int argc, char ** argv) {
 
             DL_FOREACH_SAFE(connections, ci, aux) {
                 int my_timeout;
-                if (xl4bus_process_connection(ci->conn, 0, &my_timeout) != E_XL4BUS_OK) {
+                int s_err;
+                if ((s_err = xl4bus_process_connection(ci->conn, -1, 0, &my_timeout)) != E_XL4BUS_OK) {
                     timeout = pick_timeout(timeout, my_timeout);
                 } else {
-                    dismiss_connection(ci);
+                    DBG("xl4bus process (timeout route) returned %d", s_err);
+                    dismiss_connection(ci, 0);
                 }
             }
 
@@ -414,7 +422,7 @@ int set_poll(xl4bus_connection_t * conn, int flg) {
     if (flg & XL4BUS_POLL_READ) {
         need_flg |= POLLIN;
     }
-    // otherwise, remove from poll
+
     if (ci->poll_modes != need_flg) {
 
         int rc;
@@ -432,7 +440,11 @@ int set_poll(xl4bus_connection_t * conn, int flg) {
             }
 
         } else {
-            rc = epoll_ctl(poll_fd, EPOLL_CTL_DEL, conn->fd, (struct epoll_event *) 1);
+            if (ci->poll_modes) {
+                rc = epoll_ctl(poll_fd, EPOLL_CTL_DEL, conn->fd, (struct epoll_event *) 1);
+            } else {
+                rc = 0;
+            }
         }
 
         if (rc) { return E_XL4BUS_SYS; }
@@ -529,9 +541,9 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 x_msg.is_final = 1;
                 x_msg.is_reply = 1;
 
-                if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
+                if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                    dismiss_connection(ci);
+                    dismiss_connection(ci, 1);
                 }
 
                 json_object_put(json);
@@ -570,9 +582,9 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 x_msg.stream_id = msg->stream_id;
                 x_msg.is_reply = 1;
 
-                if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
+                if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                    dismiss_connection(ci);
+                    dismiss_connection(ci, 1);
                 }
 
                 json_object_put(json);
@@ -607,9 +619,9 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             x_msg.is_reply = 1;
             x_msg.is_final = 1;
 
-            if ((err = xl4bus_send_ll_message(conn, &x_msg, 0)) != E_XL4BUS_OK) {
+            if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
                 printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                dismiss_connection(ci);
+                dismiss_connection(ci, 1);
             }
 
             json_object_put(json);
@@ -634,11 +646,15 @@ int pick_timeout(int t1, int t2) {
     return t2;
 }
 
-void dismiss_connection(conn_info_t * ci) {
+void dismiss_connection(conn_info_t * ci, int need_shutdown) {
 
-    epoll_ctl(poll_fd, EPOLL_CTL_DEL, ci->conn->fd, (struct epoll_event *) 1);
+    if (need_shutdown) {
+        xl4bus_shutdown_connection(ci->conn);
+    }
 
     DL_DELETE(connections, ci);
+
+    DBG("Dismissing connection %p/%p fd %d", ci, ci->conn, ci->conn->fd);
 
     shutdown(ci->conn->fd, SHUT_RDWR);
     close(ci->conn->fd);

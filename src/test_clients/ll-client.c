@@ -84,7 +84,7 @@ int main(int argc, char ** argv) {
             msg.message.data_len = strlen(msg.message.data) + 1;
             // msg.json = (char*)json_object_get_string(j);
 
-            if ((err = xl4bus_send_ll_message(conn, &msg, 0)) != E_XL4BUS_OK) {
+            if ((err = xl4bus_send_ll_message(conn, &msg, 0, 0)) != E_XL4BUS_OK) {
                 printf("failed to send a message : %s\n", xl4bus_strerr(err));
             }
 
@@ -108,7 +108,7 @@ int main(int argc, char ** argv) {
                     flags |= XL4BUS_POLL_ERR;
                 }
 
-                if ((err = xl4bus_process_connection(conn, flags, &timeout)) != E_XL4BUS_OK) {
+                if ((err = xl4bus_process_connection(conn, conn->fd, flags, &timeout)) != E_XL4BUS_OK) {
                     printf("failed to maintain the connection : %s\n", xl4bus_strerr(err));
                     break;
                 }

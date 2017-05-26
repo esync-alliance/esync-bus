@@ -8,6 +8,15 @@ static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8
 static void set_frame_size(void * frame_body, uint32_t size);
 static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc);
 static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t len);
+static void ts_send_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void * arg);
+
+#define ITC_MESSAGE_MAGIC 0xda8de347
+
+typedef struct itc_message {
+    uint32_t magic;
+    xl4bus_ll_message_t * msg;
+    void * ref;
+} itc_message_t;
 
 int check_conn_io(xl4bus_connection_t * conn) {
 
@@ -20,34 +29,63 @@ int check_conn_io(xl4bus_connection_t * conn) {
         flags |= XL4BUS_POLL_WRITE;
     }
 
-    return conn->set_poll(conn, flags);
+    return conn->set_poll(conn, conn->fd, flags);
 
 }
 
-int xl4bus_process_connection(xl4bus_connection_t * conn, int flags, int * timeout) {
+int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags, int * timeout) {
 
     int err = E_XL4BUS_OK;
 
     *timeout = -1;
 
+    int is_data_fd = fd == conn->fd;
+
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+#if XL4_SUPPORT_THREADS
+    void * ctl_buf = 0;
+    int is_ctl_fd = conn->mt_support && i_conn->mt_read_socket == fd;
+#endif
+
     do {
 
-        if (flags & XL4BUS_POLL_ERR) {
-            // $TODO: we should read the error from the socket.
-            // $TODO: report a correct error.
+        if (is_data_fd && (flags & XL4BUS_POLL_ERR)) {
+            pf_set_errno(pf_get_socket_error(fd));
             err = E_XL4BUS_SYS;
             break;
         }
 
-        connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+#if XL4_SUPPORT_THREADS
 
-        if (flags & XL4BUS_POLL_WRITE) {
+        if (is_ctl_fd && XL4BUS_POLL_ERR) {
+            pf_set_errno(pf_get_socket_error(fd));
+            err = E_XL4BUS_SYS;
+            break;
+        }
+
+        if (is_ctl_fd && XL4BUS_POLL_READ) {
+            ssize_t buf_read = pf_recv_dgram(fd, &ctl_buf, f_malloc);
+            if (buf_read <= 0) {
+                err = E_XL4BUS_SYS;
+                break;
+            }
+
+            if (buf_read == sizeof(itc_message_t) && ((itc_message_t*)ctl_buf)->magic == ITC_MESSAGE_MAGIC) {
+                ts_send_message(conn, ((itc_message_t*)ctl_buf)->msg, ((itc_message_t*)ctl_buf)->ref);
+            }
+
+        }
+
+#endif
+
+        if (is_data_fd && (flags & XL4BUS_POLL_WRITE)) {
 
             while (i_conn->out_queue) {
 
                 chunk_t * top = i_conn->out_queue;
 
-                ssize_t res = pf_send(conn->fd, top->data, top->len);
+                ssize_t res = pf_send(fd, top->data, top->len);
                 if (res < 0) {
                     int s_err = pf_get_errno();
                     if (s_err == EINTR) { continue; }
@@ -79,7 +117,7 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags, int * timeo
 
         }
 
-        if (flags & XL4BUS_POLL_READ) {
+        if (is_data_fd && (flags & XL4BUS_POLL_READ)) {
 
 #define RDP(pos, where, len, why) {\
     size_t _len = len; \
@@ -92,7 +130,7 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int flags, int * timeo
         _len = _len - delta; \
         void * ptr = where + delta; \
         while (_len) { \
-            ssize_t res = pf_recv(conn->fd, ptr, _len); \
+            ssize_t res = pf_recv(fd, ptr, _len); \
             if (res < 0) { \
                 int x_err = pf_get_errno(); \
                 if (x_err == EINTR) { continue; } \
@@ -357,6 +395,10 @@ do {} while(0)
         xl4bus_shutdown_connection(conn);
     }
 
+#if XL4_SUPPORT_THREADS
+    cfg.free(ctl_buf);
+#endif
+
     return err;
 
 }
@@ -428,7 +470,48 @@ static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t 
 
 }
 
-int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *ref) {
+int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *ref
+#if XL4_SUPPORT_THREADS
+        , int is_mt
+#endif
+) {
+
+#if XL4_SUPPORT_THREADS
+    if (is_mt && !conn->mt_support) {
+        return E_XL4BUS_ARG;
+    }
+
+    if (!is_mt) {
+        ts_send_message(conn, msg, ref);
+        return E_XL4BUS_OK;
+    }
+
+    itc_message_t itc;
+    itc.msg = msg;
+    itc.ref = ref;
+    itc.magic = ITC_MESSAGE_MAGIC;
+
+    if (pf_send(conn->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc)) {
+        return E_XL4BUS_SYS;
+    }
+
+#else
+
+    ts_send_message(conn, msg, ref);
+
+#endif
+
+    return E_XL4BUS_OK;
+
+}
+
+void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
+
+    // $TODO: implement
+
+}
+
+static void ts_send_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void * arg) {
 
     uint8_t * frame = 0;
     int err;
@@ -491,19 +574,13 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
     free(frame);
 
+    conn->send_callback(conn, msg, arg, err);
+
     if (err == E_XL4BUS_OK) {
         err = check_conn_io(conn);
         if (err != E_XL4BUS_OK) {
             xl4bus_shutdown_connection(conn);
         }
     }
-
-    return err;
-
-}
-
-void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
-
-    // $TODO: implement
 
 }

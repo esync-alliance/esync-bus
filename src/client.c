@@ -2,7 +2,6 @@
 #include <libxl4bus/high_level.h>
 #include <libxl4bus/low_level.h>
 #include <netdb.h>
-#include <zconf.h>
 #include "internal.h"
 #include "porting.h"
 #include "misc.h"
@@ -144,9 +143,9 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
                 int family;
 
-#if XL4_PROVIDE_IPV4
+#if XL4_SUPPORT_IPV4
                 family = AF_INET;
-#elif XL4_PROVIDE_IPV6
+#elif XL4_SUPPORT_IPV6
                 family = AF_INET6;
 #else
 #error  No address family configured, please configure at least one
@@ -158,7 +157,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 ares_gethostbyname(i_clt->ares, i_clt->host,
                         family, ares_gethostbyname_cb, clt);
 
-#if XL4_PROVIDE_IPV6 && XL4_PROVIDE_IPV4
+#if XL4_SUPPORT_IPV6 && XL4_SUPPORT_IPV4
                 // if we need both addresses
                 i_clt->dual_ip = 1;
 #endif
@@ -203,7 +202,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
         ares_process(i_clt->ares, &read, &write);
         if (i_clt->ll) {
             int ll_timeout;
-            if (xl4bus_process_connection(i_clt->ll, ll_conn_reason, &ll_timeout) != E_XL4BUS_OK) {
+            if (xl4bus_process_connection(i_clt->ll, ll_fdi->fd, ll_conn_reason, &ll_timeout) != E_XL4BUS_OK) {
                 cfg.free(i_clt->ll);
                 i_clt->ll = 0;
                 drop_client(clt, XL4BCC_CONNECTION_BROKE);
@@ -232,7 +231,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                     // the read event came, since there is no clt, this must
                     // be connection event.
                     if (pf_get_socket_error(i_clt->tcp_fd)) {
-                        close(i_clt->tcp_fd);
+                        pf_close(i_clt->tcp_fd);
                         i_clt->tcp_fd = -1;
                     } else {
                         create_ll_connection(clt);
@@ -332,13 +331,13 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
                 void * ip_addr;
                 int ip_len;
-#if XL4_PROVIDE_IPV6
+#if XL4_SUPPORT_IPV6
                 if (addr->family == AF_INET6) {
                     ip_addr = addr->ipv6;
                     ip_len = 16;
                 }
 #endif
-#if XL4_PROVIDE_IPV4
+#if XL4_SUPPORT_IPV4
                 if (addr->family == AF_INET) {
                     ip_addr = addr->ipv4;
                     ip_len = 4;
@@ -367,7 +366,13 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
         if (i_clt->ll) {
             int ll_timeout;
-            BOLT_SUB(xl4bus_process_connection(i_clt->ll, ll_conn_reason, &ll_timeout));
+            int fd;
+            if (fdi) {
+                fd = fdi->fd;
+            } else {
+                fd = -1;
+            }
+            BOLT_SUB(xl4bus_process_connection(i_clt->ll, fd, ll_conn_reason, &ll_timeout));
             *timeout = min_timeout(*timeout, ll_timeout);
         }
 
@@ -534,7 +539,7 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
 
         int family = AF_UNSPEC;
 
-#if XL4_PROVIDE_IPV6
+#if XL4_SUPPORT_IPV6
         if (hent->h_addrtype == AF_INET6) {
             if (hent->h_length != 16) {
                 DBG("Invalid address length %d for AF_INET6", hent->h_length);
@@ -543,7 +548,7 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
             }
         }
 #endif
-#if XL4_PROVIDE_IPV4
+#if XL4_SUPPORT_IPV4
         if (hent->h_addrtype == AF_INET) {
             family = AF_INET;
             if (hent->h_length != 4) {
@@ -567,12 +572,12 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
                 ip->family = AF_UNSPEC; // last
             } else {
                 ip->family = family;
-#if XL4_PROVIDE_IPV4
+#if XL4_SUPPORT_IPV4
                 if (family == AF_INET) {
                     memcpy(ip->ipv4, hent->h_addr_list[i], 4);
                 }
 #endif
-#if XL4_PROVIDE_IPV6
+#if XL4_SUPPORT_IPV6
                 if (family == AF_INET6) {
                     memcpy(ip->ipv6, hent->h_addr_list[i], 16);
                 }
@@ -587,7 +592,7 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
         return;
     }
 
-#if XL4_PROVIDE_IPV6 && XL4_PROVIDE_IPV4
+#if XL4_SUPPORT_IPV6 && XL4_SUPPORT_IPV4
     if (i_clt->dual_ip) {
         ares_gethostbyname(i_clt->ares, i_clt->host,
                 AF_INET6, ares_gethostbyname_cb, clt);
@@ -623,7 +628,7 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
 
     if (i_clt->tcp_fd >= 0) {
         pf_shutdown_rdwr(i_clt->tcp_fd);
-        close(i_clt->tcp_fd);
+        pf_close(i_clt->tcp_fd);
         clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_REMOVE);
         i_clt->tcp_fd = -1;
     }
@@ -729,7 +734,7 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
                     memcpy(&x_msg.message, &msg->message, sizeof(msg->message));
                     x_msg.stream_id = msg->stream_id;
-                    xl4bus_send_ll_message(i_clt->ll, &x_msg, 0);
+                    xl4bus_send_ll_message(i_clt->ll, &x_msg, 0, 0);
                     mint->mis = MIS_WAIT_CONFIRM;
 
                 } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", type)) {
@@ -798,14 +803,14 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             x_msg.stream_id = msg->stream_id;
             x_msg.is_reply = 1;
 
-            xl4bus_send_ll_message(conn, &x_msg, 0);
+            xl4bus_send_ll_message(conn, &x_msg, 0, 0);
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
                 !strcmp(type, "xl4bus.registration-confirmation") && msg->is_final) {
 
             i_clt->state = CS_RUNNING;
-
             clt->conn_notify(clt, XL4BCC_RUNNING);
+
 
         } else {
 
@@ -857,7 +862,9 @@ void xl4bus_stop_client(xl4bus_client_t * clt) {
 
     drop_client(clt, XL4BCC_CLIENT_STOPPED);
     client_internal_t * i_clt = clt->_private;
+#if XL4_PROVIDE_THREADS
     i_clt->stop = 1;
+#endif
 
 }
 
@@ -881,7 +888,6 @@ static void process_message_out(xl4bus_client_t * clt, message_internal_t * msg)
     client_internal_t * i_clt = clt->_private;
 
     if (i_clt->state != CS_RUNNING) {
-        msg->mis = MIS_VIRGIN;
         return;
     }
 
@@ -904,7 +910,7 @@ static void process_message_out(xl4bus_client_t * clt, message_internal_t * msg)
         x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
         x_msg.stream_id = msg->stream_id;
 
-        xl4bus_send_ll_message(i_clt->ll, &x_msg, 0);
+        xl4bus_send_ll_message(i_clt->ll, &x_msg, 0, 0);
 
         json_object_put(json);
 

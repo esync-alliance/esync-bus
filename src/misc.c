@@ -117,7 +117,7 @@ uint32_t crcTable[] = {
 int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
     memcpy(&cfg, in_cfg, sizeof(xl4bus_ll_cfg_t));
 
-#ifdef HAVE_STD_MALLOC
+#if XL4_HAVE_STD_MALLOC
 
     if (!cfg.malloc) {
         cfg.malloc = malloc;
@@ -143,24 +143,27 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
     do {
 
-        connection_internal_t * i_conn =
-                f_malloc(sizeof(connection_internal_t));
-        if (!i_conn) {
-            err = E_XL4BUS_MEMORY;
-            break;
-        }
+        connection_internal_t * i_conn;
+        BOLT_MALLOC(i_conn, sizeof(connection_internal_t));
 
         conn->_private = i_conn;
-        if (pf_set_nonblocking(conn->fd)) {
-            err = E_XL4BUS_SYS;
-            break;
-        }
+        BOLT_SYS(pf_set_nonblocking(conn->fd), "setting non-blocking");
 
         if (!conn->is_client) {
             i_conn->stream_seq_out = 1;
         }
 
-        err = check_conn_io(conn);
+#if XL4_SUPPORT_THREADS
+        if (conn->mt_support) {
+            int pair[2];
+            BOLT_SYS(pf_dgram_pair(pair), "creating DGRAM pair");
+            BOLT_SYS(pf_set_nonblocking(i_conn->mt_read_socket = pair[0]), "setting non-blocking");
+            BOLT_SUB(conn->set_poll(conn, conn->mt_write_socket = pair[1], XL4BUS_POLL_READ));
+        } else {
+            i_conn->mt_read_socket = -1;
+        }
+#endif
+        BOLT_SUB(check_conn_io(conn));
 
     } while(0);
 
@@ -236,6 +239,10 @@ void free_dbuf(dbuf_t * dbuf, int and_self) {
 
 void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
 
+    if (conn->is_shutdown) { return; }
+
+    conn->is_shutdown = 1;
+
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
 
     chunk_t * c = i_conn->out_queue;
@@ -254,6 +261,13 @@ void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
     HASH_ITER(hh, i_conn->streams, stream, aux) {
         cleanup_stream(i_conn, &stream);
     }
+
+#if XL4_SUPPORT_THREADS
+    if (conn->mt_support) {
+        pf_close(i_conn->mt_read_socket);
+        pf_close(conn->mt_write_socket);
+    }
+#endif
 
 }
 

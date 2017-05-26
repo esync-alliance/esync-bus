@@ -65,10 +65,10 @@ struct xl4bus_connection;
 #define E_XL4BUS_CLIENT     (-7) // client code reported an error
 
 typedef int (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_ll_message_t *);
-typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, void *);
+typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
 typedef char * (*xl4bus_password_callback_t) (struct xl4bus_X509v3_Identity *);
-typedef int (*xl4bus_set_ll_poll) (struct xl4bus_connection*, int);
+typedef int (*xl4bus_set_ll_poll) (struct xl4bus_connection*, int, int);
 typedef int (*xl4bus_stream_callback) (struct xl4bus_connection *, uint16_t stream);
 // No need to support close - as long as valued returned from
 // xl4bus_process_connection() is ERR, the caller can assume connection is
@@ -122,6 +122,11 @@ typedef struct xl4bus_connection {
     xl4bus_ll_send_callback send_callback;
     xl4bus_stream_callback on_stream_abort;
     // xl4bus_notify_close notify_close;
+    int is_shutdown;
+#if XL4_SUPPORT_THREADS
+    int mt_support;
+    int mt_write_socket;
+#endif
 
     void * custom;
     void * _private;
@@ -154,6 +159,10 @@ typedef struct xl4bus_client {
     xl4bus_message_info message_notify;
     xl4bus_handle_message handle_message;
     xl4bus_identity_t identity;
+
+#if XL4_SUPPORT_THREADS
+    int mt_support;
+#endif
 
     void * custom;
     void * _private;

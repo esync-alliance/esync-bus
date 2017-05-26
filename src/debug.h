@@ -7,7 +7,7 @@
 
 #if XL4BUS_PROVIDE_DEBUG
 
-#if !HAVE_GETTIMEOFDAY
+#if !XL4_HAVE_GETTIMEOFDAY
 #define _ltime_ \
     char now[1]; \
     now[0] = 0

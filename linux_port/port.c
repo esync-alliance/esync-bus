@@ -280,3 +280,31 @@ void * thread_runner(void * arg) {
     return 0;
 }
 #endif
+
+void pf_close(int fd) {
+    close(fd);
+}
+
+#if XL4_NEED_DGRAM
+ssize_t pf_recv_dgram(int sockfd, void ** addr, pf_malloc_fun _malloc) {
+
+    unsigned char test;
+    ssize_t s = recv(sockfd, &test, 1, MSG_PEEK|MSG_TRUNC);
+    if (s <= 0) {
+        return s;
+    }
+    *addr = _malloc((size_t) s);
+    if (!*addr) {
+        pf_set_errno(ENOMEM);
+        return -1;
+    }
+
+    return recv(sockfd, *addr, (size_t) s, 0);
+}
+#endif
+
+#if XL4_SUPPORT_UNIX_DGRAM_PAIR
+int pf_dgram_pair(int sv[2]) {
+    return socketpair(PF_UNIX, SOCK_DGRAM, 0, sv);
+}
+#endif

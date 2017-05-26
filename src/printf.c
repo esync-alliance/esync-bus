@@ -31,7 +31,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 #include "internal.h"
 
-#if NEED_PRINTF
+#if XL4_PROVIDE_PRINTF
 
 typedef void (*putcf) (void*,char);
 static putcf stdout_putf;
@@ -389,4 +389,4 @@ int tfp_asprintf(char** s, char * fmt, ...) {
 
 #endif /* SELF_TEST */
 
-#endif /* NEED_PRINTF */
+#endif /* XL4_PROVIDE_PRINTF */

@@ -51,6 +51,8 @@ void * f_malloc(size_t t) {
         abort();
     }
 
+    memset(r, 0, t);
+
     return r;
 
 }
