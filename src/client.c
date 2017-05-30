@@ -38,9 +38,7 @@ static int process_message_out(xl4bus_client_t *, message_internal_t *);
 static int get_xl4bus_message(xl4bus_message_t const *, json_object **, char const **);
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
 
-#if 0
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
-#endif
 
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
@@ -655,9 +653,7 @@ static int create_ll_connection(xl4bus_client_t * clt) {
         i_clt->ll->custom = clt;
         i_clt->ll->is_client = 1;
         i_clt->ll->on_message = ll_msg_cb;
-#if 0
         i_clt->ll->send_callback = ll_send_cb;
-#endif
 
 #if XL4_SUPPORT_THREADS
 
@@ -734,12 +730,12 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                     // so we can skip on to sending the actual message.
                     // mint->mis = MIS_WAIT_DETAILS;
 
-                    xl4bus_ll_message_t x_msg;
-                    memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+                    xl4bus_ll_message_t * x_msg;
+                    BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
 
-                    memcpy(&x_msg.message, &msg->message, sizeof(msg->message));
-                    x_msg.stream_id = msg->stream_id;
-                    BOLT_SUB(SEND_LL(i_clt->ll, &x_msg, 0));
+                    memcpy(&x_msg->message, &msg->message, sizeof(msg->message));
+                    x_msg->stream_id = msg->stream_id;
+                    BOLT_SUB(SEND_LL(i_clt->ll, x_msg, 0));
                     mint->mis = MIS_WAIT_CONFIRM;
 
                 } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", type)) {
@@ -797,18 +793,18 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             }
 #endif
 
-            xl4bus_ll_message_t x_msg;
-            memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+            xl4bus_ll_message_t * x_msg;
+            BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
 
             const char * bux = json_object_get_string(json);
-            x_msg.message.data = bux;
-            x_msg.message.data_len = strlen(bux) + 1;
-            x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
+            x_msg->message.data = bux;
+            x_msg->message.data_len = strlen(bux) + 1;
+            x_msg->message.content_type = "application/vnd.xl4.busmessage+json";
 
-            x_msg.stream_id = msg->stream_id;
-            x_msg.is_reply = 1;
+            x_msg->stream_id = msg->stream_id;
+            x_msg->is_reply = 1;
 
-            BOLT_SUB(SEND_LL(conn, &x_msg, 0));
+            BOLT_SUB(SEND_LL(conn, x_msg, 0));
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
                 !strcmp(type, "xl4bus.registration-confirmation") && msg->is_final) {
@@ -907,16 +903,16 @@ static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) 
         json_object_object_add(json, "body", body = json_object_new_object());
         json_object_object_add(body, "destination", json_object_get(msg->addr));
 
-        xl4bus_ll_message_t x_msg;
-        memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+        xl4bus_ll_message_t * x_msg;
+        BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
 
         const char * bux = json_object_get_string(json);
-        x_msg.message.data = bux;
-        x_msg.message.data_len = strlen(bux) + 1;
-        x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
-        x_msg.stream_id = msg->stream_id;
+        x_msg->message.data = bux;
+        x_msg->message.data_len = strlen(bux) + 1;
+        x_msg->message.content_type = "application/vnd.xl4.busmessage+json";
+        x_msg->stream_id = msg->stream_id;
 
-        BOLT_SUB(SEND_LL(i_clt->ll, &x_msg, 0));
+        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, 0));
 
         json_object_put(json);
 
@@ -973,12 +969,6 @@ static void release_message(xl4bus_client_t * clt, message_internal_t * mint, in
 
 }
 
-#if 0
 void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
-    xl4bus_client_t * clt = conn->custom;
-    if (err != E_XL4BUS_OK) {
-        DBG("Previously sent message failed with %s, shutting down", xl4bus_strerr(err));
-        drop_client(clt, XL4BCC_CONNECTION_BROKE);
-    }
+    cfg.free(msg);
 }
-#endif
