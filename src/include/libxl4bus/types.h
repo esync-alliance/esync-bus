@@ -50,10 +50,10 @@ typedef struct xl4bus_ll_message {
 struct xl4bus_X509v3_Identity;
 struct xl4bus_connection;
 
-#define XL4BUS_POLL_READ   (1<<1)
-#define XL4BUS_POLL_WRITE  (1<<2)
-#define XL4BUS_POLL_ERR    (1<<3)
-#define XL4BUS_POLL_REMOVE (1<<4)
+#define XL4BUS_POLL_READ   (1<<0)
+#define XL4BUS_POLL_WRITE  (1<<1)
+#define XL4BUS_POLL_ERR    (1<<2)
+#define XL4BUS_POLL_REMOVE (1<<3)
 
 #define E_XL4BUS_OK         (0)
 #define E_XL4BUS_MEMORY     (-1) // malloc failed
@@ -74,11 +74,6 @@ typedef int (*xl4bus_stream_callback) (struct xl4bus_connection *, uint16_t stre
 #if XL4_SUPPORT_THREADS
 typedef int (*xl4bus_mt_message_callback) (struct xl4bus_connection *, void *, size_t);
 #endif
-
-// No need to support close - as long as valued returned from
-// xl4bus_process_connection() is ERR, the caller can assume connection is
-// closed.
-// typedef void (*xl4bus_notify_close) (struct xl4bus_connection*);
 
 typedef struct xl4bus_X509v3_Identity {
 
@@ -126,7 +121,6 @@ typedef struct xl4bus_connection {
     xl4bus_handle_ll_message on_message;
     xl4bus_ll_send_callback send_callback;
     xl4bus_stream_callback on_stream_abort;
-    // xl4bus_notify_close notify_close;
     int is_shutdown;
 #if XL4_SUPPORT_THREADS
     int mt_support;

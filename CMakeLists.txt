@@ -152,6 +152,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/printf.h
     src/printf.c
     src/client.c
+    src/itc.h
     src/include/libxl4bus/low_level.h
     src/include/libxl4bus/high_level.h
     src/include/libxl4bus/types.h

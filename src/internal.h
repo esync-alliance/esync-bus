@@ -3,6 +3,7 @@
 
 #include "config.h"
 #include "porting.h"
+#include "itc.h"
 #include <libxl4bus/low_level.h>
 
 #if XL4_PROVIDE_PRINTF
@@ -197,5 +198,6 @@ void free_dbuf(dbuf_t *, int);
 void cleanup_stream(connection_internal_t *, stream_t **);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
+void shutdown_connection_ts(xl4bus_connection_t *);
 
 #endif

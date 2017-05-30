@@ -38,6 +38,10 @@ static int process_message_out(xl4bus_client_t *, message_internal_t *);
 static int get_xl4bus_message(xl4bus_message_t const *, json_object **, char const **);
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
 
+#if 0
+static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
+#endif
+
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
     int err = E_XL4BUS_OK;
@@ -651,6 +655,9 @@ static int create_ll_connection(xl4bus_client_t * clt) {
         i_clt->ll->custom = clt;
         i_clt->ll->is_client = 1;
         i_clt->ll->on_message = ll_msg_cb;
+#if 0
+        i_clt->ll->send_callback = ll_send_cb;
+#endif
 
 #if XL4_SUPPORT_THREADS
 
@@ -965,3 +972,13 @@ static void release_message(xl4bus_client_t * clt, message_internal_t * mint, in
     cfg.free(mint);
 
 }
+
+#if 0
+void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
+    xl4bus_client_t * clt = conn->custom;
+    if (err != E_XL4BUS_OK) {
+        DBG("Previously sent message failed with %s, shutting down", xl4bus_strerr(err));
+        drop_client(clt, XL4BCC_CONNECTION_BROKE);
+    }
+}
+#endif

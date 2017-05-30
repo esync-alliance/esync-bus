@@ -8,15 +8,7 @@ static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8
 static void set_frame_size(void * frame_body, uint32_t size);
 static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc);
 static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t len);
-static void send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg);
-
-#define ITC_MESSAGE_MAGIC 0xda8de347
-
-typedef struct itc_message {
-    uint32_t magic;
-    xl4bus_ll_message_t * msg;
-    void * ref;
-} itc_message_t;
+static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg);
 
 int check_conn_io(xl4bus_connection_t * conn) {
 
@@ -34,6 +26,10 @@ int check_conn_io(xl4bus_connection_t * conn) {
 }
 
 int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags, int * timeout) {
+
+    if (conn->is_shutdown) {
+        return E_XL4BUS_CLIENT;
+    }
 
     int err = E_XL4BUS_OK;
 
@@ -58,13 +54,13 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags, int
 
 #if XL4_SUPPORT_THREADS
 
-        if (is_ctl_fd && XL4BUS_POLL_ERR) {
+        if (is_ctl_fd && (flags & XL4BUS_POLL_ERR)) {
             pf_set_errno(pf_get_socket_error(fd));
             err = E_XL4BUS_SYS;
             break;
         }
 
-        if (is_ctl_fd && XL4BUS_POLL_READ) {
+        if (is_ctl_fd && (flags & XL4BUS_POLL_READ)) {
             ssize_t buf_read = pf_recv_dgram(fd, &ctl_buf, f_malloc);
             if (buf_read <= 0) {
                 err = E_XL4BUS_SYS;
@@ -72,9 +68,11 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags, int
             }
 
             if (buf_read == sizeof(itc_message_t) && ((itc_message_t*)ctl_buf)->magic == ITC_MESSAGE_MAGIC) {
-                send_message_ts(conn, ((itc_message_t *) ctl_buf)->msg, ((itc_message_t *) ctl_buf)->ref);
+                BOLT_SUB(send_message_ts(conn, ((itc_message_t *) ctl_buf)->msg, ((itc_message_t *) ctl_buf)->ref));
+            } else if (buf_read == sizeof(itc_shutdown_t) && ((itc_shutdown_t*)ctl_buf)->magic == ITC_SHUTDOWN_MAGIC) {
+                BOLT_SAY(E_XL4BUS_CLIENT, "Shutdown message received");
             } else if (conn->on_mt_message) {
-                conn->on_mt_message(conn, ctl_buf, (size_t) buf_read);
+                BOLT_SUB(conn->on_mt_message(conn, ctl_buf, (size_t) buf_read));
             }
 
         }
@@ -386,7 +384,7 @@ do {} while(0)
 
         if (err != E_XL4BUS_OK) { break; }
 
-        err = check_conn_io(conn);
+        BOLT_SUB(check_conn_io(conn));
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -394,7 +392,7 @@ do {} while(0)
 #pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
-        xl4bus_shutdown_connection(conn);
+        shutdown_connection_ts(conn);
     }
 
 #if XL4_SUPPORT_THREADS
@@ -513,7 +511,7 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 
 }
 
-static void send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg) {
+static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg) {
 
     uint8_t * frame = 0;
     int err;
@@ -583,8 +581,10 @@ static void send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg,
     if (err == E_XL4BUS_OK) {
         err = check_conn_io(conn);
         if (err != E_XL4BUS_OK) {
-            xl4bus_shutdown_connection(conn);
+            shutdown_connection_ts(conn);
         }
     }
+
+    return err;
 
 }

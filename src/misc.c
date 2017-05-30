@@ -170,7 +170,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
     } while(0);
 
     if (err != E_XL4BUS_OK) {
-        xl4bus_shutdown_connection(conn);
+        shutdown_connection_ts(conn);
     }
 
     return err;
@@ -239,7 +239,28 @@ void free_dbuf(dbuf_t * dbuf, int and_self) {
 
 }
 
-void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
+int xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
+
+#if XL4_SUPPORT_THREADS
+
+    itc_shutdown_t itc;
+    itc.magic = ITC_SHUTDOWN_MAGIC;
+
+    if (pf_send(conn->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc)) {
+        return E_XL4BUS_SYS;
+    }
+
+#else
+
+    shutdown_connection_ts(conn);
+
+#endif
+
+    return E_XL4BUS_OK;
+
+}
+
+void shutdown_connection_ts(xl4bus_connection_t * conn) {
 
     if (conn->is_shutdown) { return; }
 
