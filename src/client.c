@@ -22,13 +22,19 @@ static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
 static char * state_str(client_state_t);
 #endif
 
+#if XL4_SUPPORT_THREADS
+#define SEND_LL(a,b,c) xl4bus_send_ll_message(a,b,c,(a)->mt_support)
+#else
+#define SEND_LL(a,b,c) xl4bus_send_ll_message(a,b,c)
+#endif
+
 static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
 static int min_timeout(int a, int b);
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
-static int ll_poll_cb(struct xl4bus_connection*, int);
+static int ll_poll_cb(struct xl4bus_connection*, int, int);
 static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
 static int create_ll_connection(xl4bus_client_t *);
-static void process_message_out(xl4bus_client_t *, message_internal_t *);
+static int process_message_out(xl4bus_client_t *, message_internal_t *);
 static int get_xl4bus_message(xl4bus_message_t const *, json_object **, char const **);
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
 
@@ -65,6 +71,7 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 #if XL4_PROVIDE_THREADS
         if (clt->use_internal_thread) {
             clt->set_poll = internal_set_poll;
+            clt->mt_support = 1;
             BOLT_SYS(pf_start_thread(client_thread, clt), "starting client thread");
         }
 #endif
@@ -173,10 +180,8 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
         FD_ZERO(&read);
         FD_ZERO(&write);
 
-        int ll_conn_reason = 0;
-
         known_fd_t * fdi;
-        known_fd_t * ll_fdi = 0;
+        int ll_called = 0;
 
         for (int i=0; i<i_clt->pending_len; i++) {
 
@@ -184,8 +189,44 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             HASH_FIND_INT(i_clt->known_fd, &pfd->fd, fdi);
 
             if (fdi && fdi->is_ll_conn) {
-                ll_fdi = fdi;
-                ll_conn_reason = pfd->flags;
+
+                if (i_clt->state == CS_CONNECTING) {
+                    if (pfd->flags & XL4BUS_POLL_READ) {
+                        // this should not happen.
+                        BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_WRITE));
+                    }
+
+                    if (pfd->flags & XL4BUS_POLL_WRITE) {
+
+                        // no matter what, we should remove that
+                        // socket. When needed, the poll request from the low-level
+                        // will put it back.
+                        BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_REMOVE));
+                        HASH_DEL(i_clt->known_fd, fdi);
+                        cfg.free(fdi);
+
+                        // the read event came, since there is no clt, this must
+                        // be connection event.
+                        if (pf_get_socket_error(i_clt->tcp_fd)) {
+                            pf_close(i_clt->tcp_fd);
+                            i_clt->tcp_fd = -1;
+                        } else {
+                            create_ll_connection(clt);
+                        }
+                    }
+                } else if (i_clt->ll) {
+
+                    int ll_timeout;
+                    ll_called = 1;
+                    if (xl4bus_process_connection(i_clt->ll, pfd->fd, pfd->flags, &ll_timeout) != E_XL4BUS_OK) {
+                        cfg.free(i_clt->ll);
+                        i_clt->ll = 0;
+                        drop_client(clt, XL4BCC_CONNECTION_BROKE);
+                        continue;
+                    }
+                    *timeout = min_timeout(*timeout, ll_timeout);
+                }
+
             } else {
                 if (pfd->flags & XL4BUS_POLL_READ) {
                     FD_SET(pfd->fd, &read);
@@ -199,48 +240,9 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
         }
 
+        BOLT_SUB(err);
+
         ares_process(i_clt->ares, &read, &write);
-        if (i_clt->ll) {
-            int ll_timeout;
-            if (xl4bus_process_connection(i_clt->ll, ll_fdi->fd, ll_conn_reason, &ll_timeout) != E_XL4BUS_OK) {
-                cfg.free(i_clt->ll);
-                i_clt->ll = 0;
-                drop_client(clt, XL4BCC_CONNECTION_BROKE);
-                continue;
-            }
-            *timeout = min_timeout(*timeout, ll_timeout);
-
-        } else if (ll_conn_reason) {
-
-            if (i_clt->state == CS_CONNECTING) {
-
-                if (ll_conn_reason & XL4BUS_POLL_READ) {
-                    // this should not happen.
-                    BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_WRITE));
-                }
-
-                if (ll_conn_reason & XL4BUS_POLL_WRITE) {
-
-                    // no matter what, we should remove that
-                    // socket. When needed, the poll request from the low-level
-                    // will put it back.
-                    BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_REMOVE));
-                    HASH_DEL(i_clt->known_fd, ll_fdi);
-                    cfg.free(ll_fdi);
-
-                    // the read event came, since there is no clt, this must
-                    // be connection event.
-                    if (pf_get_socket_error(i_clt->tcp_fd)) {
-                        pf_close(i_clt->tcp_fd);
-                        i_clt->tcp_fd = -1;
-                    } else {
-                        create_ll_connection(clt);
-                    }
-                }
-
-            }
-
-        }
 
         // reset any polled events.
         i_clt->pending_len = 0;
@@ -344,7 +346,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 }
 #endif
                 int async;
-                i_clt->tcp_fd = pf_connect_tcp(ip_addr, ip_len, i_clt->port, &async);
+                i_clt->tcp_fd = pf_connect_tcp(ip_addr, ip_len, (uint16_t) i_clt->port, &async);
 
                 if (i_clt->tcp_fd < 0) {
                     // failed right away, ugh. Let's move on then.
@@ -364,15 +366,9 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             }
         }
 
-        if (i_clt->ll) {
+        if (i_clt->ll && !ll_called) {
             int ll_timeout;
-            int fd;
-            if (fdi) {
-                fd = fdi->fd;
-            } else {
-                fd = -1;
-            }
-            BOLT_SUB(xl4bus_process_connection(i_clt->ll, fd, ll_conn_reason, &ll_timeout));
+            BOLT_SUB(xl4bus_process_connection(i_clt->ll, -1, 0, &ll_timeout));
             *timeout = min_timeout(*timeout, ll_timeout);
         }
 
@@ -564,8 +560,7 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
             break;
         }
 
-        size_t aux;
-        BOLT_REALLOC(i_clt->addresses, ip_addr_t, addr_start + addr_count + 1, aux);
+        BOLT_REALLOC_NS(i_clt->addresses, ip_addr_t, addr_start + addr_count + 1);
         for (int i=0; i <= addr_count; i++) {
             ip_addr_t * ip = i_clt->addresses + i + addr_start;
             if (i == addr_count) {
@@ -657,6 +652,12 @@ static int create_ll_connection(xl4bus_client_t * clt) {
         i_clt->ll->is_client = 1;
         i_clt->ll->on_message = ll_msg_cb;
 
+#if XL4_SUPPORT_THREADS
+
+        i_clt->ll->mt_support = clt->mt_support;
+
+#endif
+
         memcpy(&i_clt->ll->identity, &clt->identity, sizeof(clt->identity));
 
         BOLT_SUB(xl4bus_init_connection(i_clt->ll));
@@ -669,7 +670,7 @@ static int create_ll_connection(xl4bus_client_t * clt) {
 
 }
 
-int ll_poll_cb(struct xl4bus_connection* conn, int modes) {
+int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
 
     int err = E_XL4BUS_OK;
     do {
@@ -679,15 +680,12 @@ int ll_poll_cb(struct xl4bus_connection* conn, int modes) {
 
         DBG("Clt %p: set poll to %x", conn, modes);
 
-        BOLT_IF(conn->fd != i_clt->tcp_fd, E_XL4BUS_INTERNAL,
-                "connection FD doesn't match client FD");
-
         known_fd_t * fdi;
 
-        HASH_FIND_INT(i_clt->known_fd, &conn->fd, fdi);
+        HASH_FIND_INT(i_clt->known_fd, &fd, fdi);
         if (!fdi && modes) {
             BOLT_MALLOC(fdi, sizeof(known_fd_t));
-            fdi->fd = conn->fd;
+            fdi->fd = fd;
             fdi->is_ll_conn = 1;
             HASH_ADD_INT(i_clt->known_fd, fd, fdi);
         }
@@ -734,7 +732,7 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
                     memcpy(&x_msg.message, &msg->message, sizeof(msg->message));
                     x_msg.stream_id = msg->stream_id;
-                    xl4bus_send_ll_message(i_clt->ll, &x_msg, 0, 0);
+                    BOLT_SUB(SEND_LL(i_clt->ll, &x_msg, 0));
                     mint->mis = MIS_WAIT_CONFIRM;
 
                 } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", type)) {
@@ -803,7 +801,7 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             x_msg.stream_id = msg->stream_id;
             x_msg.is_reply = 1;
 
-            xl4bus_send_ll_message(conn, &x_msg, 0, 0);
+            BOLT_SUB(SEND_LL(conn, &x_msg, 0));
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
                 !strcmp(type, "xl4bus.registration-confirmation") && msg->is_final) {
@@ -850,7 +848,7 @@ int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * ar
 
         DL_APPEND(i_clt->message_list, mint);
 
-        process_message_out(clt, mint);
+        BOLT_SUB(process_message_out(clt, mint));
 
     } while(0);
 
@@ -883,15 +881,16 @@ char * state_str(client_state_t state) {
 }
 #endif
 
-static void process_message_out(xl4bus_client_t * clt, message_internal_t * msg) {
+static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) {
 
     client_internal_t * i_clt = clt->_private;
+    int err = E_XL4BUS_OK;
 
     if (i_clt->state != CS_RUNNING) {
-        return;
+        return err;
     }
 
-    if (msg->mis == MIS_VIRGIN) {
+    while (msg->mis == MIS_VIRGIN) {
         // request destinations
         // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
         json_object * json = json_object_new_object();
@@ -910,12 +909,14 @@ static void process_message_out(xl4bus_client_t * clt, message_internal_t * msg)
         x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
         x_msg.stream_id = msg->stream_id;
 
-        xl4bus_send_ll_message(i_clt->ll, &x_msg, 0, 0);
+        BOLT_SUB(SEND_LL(i_clt->ll, &x_msg, 0));
 
         json_object_put(json);
 
         msg->mis = MIS_WAIT_DESTINATIONS;
     }
+
+    return err;
 
 }
 

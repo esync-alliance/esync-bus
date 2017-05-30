@@ -1,4 +1,5 @@
 
+#include "build_config.h"
 #include "config.h"
 #include "porting.h"
 #include "debug.h"
@@ -181,12 +182,12 @@ int pf_get_socket_error(int fd) {
 int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
 
     int family = AF_UNSPEC;
-#if XL4_PROVIDE_IPV4
+#if XL4_SUPPORT_IPV4
     if (ip_len == 4) {
         family = AF_INET;
     }
 #endif
-#if XL4_PROVIDE_IPV6
+#if XL4_SUPPORT_IPV6
     if (ip_len == 16) {
         family = AF_INET6;
     }
@@ -203,7 +204,7 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
 
     int rc;
 
-#if XL4_PROVIDE_IPV4
+#if XL4_SUPPORT_IPV4
     if (family == AF_INET) {
         struct sockaddr_in sin;
         sin.sin_family = AF_INET;
@@ -212,7 +213,7 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
         rc = connect(fd, &sin, sizeof(struct sockaddr_in));
     }
 #endif
-#if XL4_PROVIDE_IPV6
+#if XL4_SUPPORT_IPV6
     if (family == AF_INET6) {
         struct sockaddr_in6 sin6;
         sin6.sin6_family = AF_INET6;

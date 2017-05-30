@@ -17,7 +17,7 @@ static inline void crcFast(void * data, size_t len, uint32_t * crc) {
      */
     for (int i = 0; i < len; i++) {
 #if DEBUG_CRC
-#if XL4BUS_PROVIDE_DEBUG
+#if XL4_PROVIDE_DEBUG
         uint32_t old_crc = remainder;
 #endif
 #endif

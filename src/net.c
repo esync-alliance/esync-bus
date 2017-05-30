@@ -8,7 +8,7 @@ static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8
 static void set_frame_size(void * frame_body, uint32_t size);
 static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc);
 static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t len);
-static void ts_send_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void * arg);
+static void send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg);
 
 #define ITC_MESSAGE_MAGIC 0xda8de347
 
@@ -72,7 +72,9 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags, int
             }
 
             if (buf_read == sizeof(itc_message_t) && ((itc_message_t*)ctl_buf)->magic == ITC_MESSAGE_MAGIC) {
-                ts_send_message(conn, ((itc_message_t*)ctl_buf)->msg, ((itc_message_t*)ctl_buf)->ref);
+                send_message_ts(conn, ((itc_message_t *) ctl_buf)->msg, ((itc_message_t *) ctl_buf)->ref);
+            } else if (conn->on_mt_message) {
+                conn->on_mt_message(conn, ctl_buf, (size_t) buf_read);
             }
 
         }
@@ -482,7 +484,7 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     }
 
     if (!is_mt) {
-        ts_send_message(conn, msg, ref);
+        send_message_ts(conn, msg, ref);
         return E_XL4BUS_OK;
     }
 
@@ -497,7 +499,7 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
 #else
 
-    ts_send_message(conn, msg, ref);
+    send_message(conn, msg, ref);
 
 #endif
 
@@ -511,7 +513,7 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 
 }
 
-static void ts_send_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void * arg) {
+static void send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg) {
 
     uint8_t * frame = 0;
     int err;
@@ -574,7 +576,9 @@ static void ts_send_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * ms
 
     free(frame);
 
-    conn->send_callback(conn, msg, arg, err);
+    if (conn->send_callback) {
+        conn->send_callback(conn, msg, arg, err);
+    }
 
     if (err == E_XL4BUS_OK) {
         err = check_conn_io(conn);

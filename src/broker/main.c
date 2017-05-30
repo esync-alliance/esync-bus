@@ -64,8 +64,6 @@ typedef struct poll_info {
 
 } poll_info_t;
 
-
-
 typedef struct conn_info {
 
     struct pollfd pfd;
@@ -99,7 +97,7 @@ typedef struct conn_info_hash_list {
 
 static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
-static int set_poll(xl4bus_connection_t *, int);
+static int set_poll(xl4bus_connection_t *, int, int);
 static int pick_timeout(int t1, int t2);
 static void dismiss_connection(conn_info_t * ci, int need_shutdown);
 
@@ -397,7 +395,12 @@ int main(int argc, char ** argv) {
 
 }
 
-int set_poll(xl4bus_connection_t * conn, int flg) {
+int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
+
+    // $TODO: because we use non-mt only, fd is bound to
+    // only be fd for the network connection. However, there is
+    // no promise it is, which means that conn_info must support
+    // multiple poll_info entries.
 
 #if 0
     conn_info_t * ci = conn->custom;

@@ -158,12 +158,14 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             int pair[2];
             BOLT_SYS(pf_dgram_pair(pair), "creating DGRAM pair");
             BOLT_SYS(pf_set_nonblocking(i_conn->mt_read_socket = pair[0]), "setting non-blocking");
-            BOLT_SUB(conn->set_poll(conn, conn->mt_write_socket = pair[1], XL4BUS_POLL_READ));
+            conn->mt_write_socket = pair[1];
+            BOLT_SUB(conn->set_poll(conn, i_conn->mt_read_socket, XL4BUS_POLL_READ));
         } else {
             i_conn->mt_read_socket = -1;
         }
 #endif
         BOLT_SUB(check_conn_io(conn));
+
 
     } while(0);
 
@@ -262,8 +264,11 @@ void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
         cleanup_stream(i_conn, &stream);
     }
 
+    conn->set_poll(conn, conn->fd, XL4BUS_POLL_REMOVE);
+
 #if XL4_SUPPORT_THREADS
     if (conn->mt_support) {
+        conn->set_poll(conn, i_conn->mt_read_socket, XL4BUS_POLL_REMOVE);
         pf_close(i_conn->mt_read_socket);
         pf_close(conn->mt_write_socket);
     }

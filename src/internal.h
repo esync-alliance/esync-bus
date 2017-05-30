@@ -174,10 +174,6 @@ typedef struct client_internal {
     int stop;
 #endif
 
-#if XL4_SUPPORT_THREADS
-    int mt_read_socket;
-#endif
-
 #if XL4_SUPPORT_IPV4 && XL4_SUPPORT_IPV6
     int dual_ip;
 #endif

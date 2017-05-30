@@ -70,6 +70,11 @@ typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, xl4bus_ll_me
 typedef char * (*xl4bus_password_callback_t) (struct xl4bus_X509v3_Identity *);
 typedef int (*xl4bus_set_ll_poll) (struct xl4bus_connection*, int, int);
 typedef int (*xl4bus_stream_callback) (struct xl4bus_connection *, uint16_t stream);
+
+#if XL4_SUPPORT_THREADS
+typedef int (*xl4bus_mt_message_callback) (struct xl4bus_connection *, void *, size_t);
+#endif
+
 // No need to support close - as long as valued returned from
 // xl4bus_process_connection() is ERR, the caller can assume connection is
 // closed.
@@ -126,11 +131,12 @@ typedef struct xl4bus_connection {
 #if XL4_SUPPORT_THREADS
     int mt_support;
     int mt_write_socket;
+    // int mt_read_socket;
+    xl4bus_mt_message_callback on_mt_message;
 #endif
 
     void * custom;
     void * _private;
-
 
 } xl4bus_connection_t;
 

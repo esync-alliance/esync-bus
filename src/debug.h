@@ -5,7 +5,7 @@
 #include "config.h"
 #include "internal.h"
 
-#if XL4BUS_PROVIDE_DEBUG
+#if XL4_PROVIDE_DEBUG
 
 #if !XL4_HAVE_GETTIMEOFDAY
 #define _ltime_ \
@@ -63,6 +63,13 @@
     if (!__aux) { err = E_XL4BUS_MEMORY; DBG("out of memory, realloc %d", __size); break; } \
     ptr = (type*)__aux; \
     newsize = __size; \
+} do{}while(0)
+
+#define BOLT_REALLOC_NS(ptr,type,size) { \
+    int __size = size; \
+    void * __aux = cfg.realloc(ptr, (__size)*sizeof(type)); \
+    if (!__aux) { err = E_XL4BUS_MEMORY; DBG("out of memory, realloc %d", __size); break; } \
+    ptr = (type*)__aux; \
 } do{}while(0)
 
 #define SAFE_STR(s) (s?s:"(null)")
