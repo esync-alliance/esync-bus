@@ -211,6 +211,8 @@ do {} while(0)
                         uint16_t stream_id = ntohs(*(uint16_t*)frm.data.data);
                         HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
 
+                        DBG("LL: recv frame stream %d, opened stream=%s", stream_id, stream?"yes":"no");
+
                         int is_not_first;
 
                         if (!stream) {
@@ -477,31 +479,41 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 ) {
 
 #if XL4_SUPPORT_THREADS
-    if (is_mt && !conn->mt_support) {
-        return E_XL4BUS_ARG;
+
+    int err = E_XL4BUS_OK;
+
+    do {
+
+        BOLT_IF(is_mt && !conn->mt_support, E_XL4BUS_ARG, "m/t send is requested, but no m/t on conn");
+
+        if (!is_mt) {
+            err = send_message_ts(conn, msg, ref);
+            break;
+        }
+
+        itc_message_t itc;
+        itc.msg = msg;
+        itc.ref = ref;
+        itc.magic = ITC_MESSAGE_MAGIC;
+
+        BOLT_SYS(pf_send(conn->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
+
+    } while (0);
+
+    if (err != E_XL4BUS_OK) {
+        if (conn->send_callback) {
+            conn->send_callback(conn, msg, ref, err);
+        }
     }
 
-    if (!is_mt) {
-        send_message_ts(conn, msg, ref);
-        return E_XL4BUS_OK;
-    }
-
-    itc_message_t itc;
-    itc.msg = msg;
-    itc.ref = ref;
-    itc.magic = ITC_MESSAGE_MAGIC;
-
-    if (pf_send(conn->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc)) {
-        return E_XL4BUS_SYS;
-    }
+    return err;
 
 #else
 
-    send_message(conn, msg, ref);
+    return send_message_ts(conn, msg, ref);
 
 #endif
 
-    return E_XL4BUS_OK;
 
 }
 
@@ -531,8 +543,9 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
             BOLT_IF(stream, E_XL4BUS_INTERNAL, "Stream %d already exists", msg->stream_id);
             stream = f_malloc(sizeof(stream_t));
             if (!stream) { err = E_XL4BUS_MEMORY; break; }
-            stream->stream_id = msg->stream_id = i_conn->stream_seq_out;
-            i_conn->stream_seq_out += 2;
+            // stream->stream_id = msg->stream_id = i_conn->stream_seq_out;
+            // i_conn->stream_seq_out += 2;
+            stream->stream_id = msg->stream_id;
 
             // $TODO: HASH mem check!
             HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);

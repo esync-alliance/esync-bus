@@ -64,6 +64,11 @@ typedef struct poll_info {
 
 } poll_info_t;
 
+typedef struct stream_info {
+    UT_hash_handle hh;
+    uint16_t stream_id;
+} stream_info_t;
+
 typedef struct conn_info {
 
     struct pollfd pfd;
@@ -83,12 +88,11 @@ typedef struct conn_info {
 
     struct poll_info pit;
 
-} conn_info_t;
+    stream_info_t * open_streams;
 
-typedef struct stream_info {
-    UT_hash_handle hh;
-    uint16_t stream_id;
-} stream_info_t;
+    uint16_t out_stream_id;
+
+} conn_info_t;
 
 typedef struct conn_info_hash_list {
     UT_hash_handle hh;
@@ -115,7 +119,6 @@ int debug = 1;
 static conn_info_hash_list_t * ci_by_name = 0;
 static conn_info_hash_list_t * ci_by_group = 0;
 static UT_array dm_clients;
-static stream_info_t * open_streams = 0;
 static int poll_fd;
 conn_info_t * connections;
 
@@ -283,6 +286,7 @@ int main(int argc, char ** argv) {
                     ci->pit.ci = ci;
                     ci->pit.type = PIT_XL4;
                     ci->pit.fd = fd2;
+                    ci->out_stream_id = 1;
 
                     DBG("Created connection %p/%p fd %d", ci, ci->conn, fd2);
 
@@ -315,6 +319,7 @@ int main(int argc, char ** argv) {
                         msg.message.data = bux;
                         msg.message.data_len = strlen(bux) + 1;
                         msg.message.content_type = "application/vnd.xl4.busmessage+json";
+                        msg.stream_id = ci->out_stream_id += 2;
 
                         if ((err = xl4bus_send_ll_message(conn, &msg, 0, 0)) != E_XL4BUS_OK) {
                             printf("failed to send a message : %s\n", xl4bus_strerr(err));
@@ -482,6 +487,8 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             const char * type = json_object_get_string(aux);
 
+            DBG("LLP message type %s", type);
+
             if (!strcmp(type, "xl4bus.registration-request")) {
 
                 BOLT_IF(ci->reg_req, E_XL4BUS_CLIENT, "already registered");
@@ -556,18 +563,18 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             } else if (!strcmp("xl4bus.request-destinations", type)) {
 
                 stream_info_t * si;
-                HASH_FIND(hh, open_streams, &msg->stream_id, 2, si);
+                HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
                 if (si) {
                     // one shall not request destinations on existing stream.
                     DBG("request-destinations on existing stream %d", msg->stream_id);
-                    HASH_DEL(open_streams, si);
+                    HASH_DEL(ci->open_streams, si);
                     xl4bus_abort_stream(conn, msg->stream_id);
                     break;
                 }
 
                 si = f_malloc(sizeof(stream_info_t));
                 si->stream_id = msg->stream_id;
-                HASH_ADD(hh, open_streams, stream_id, 2, si);
+                HASH_ADD(hh, ci->open_streams, stream_id, 2, si);
 
                 // send destination list
                 // https://gitlab.excelfore.com/schema/json/xl4bus/destination-info.json
@@ -592,6 +599,8 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 json_object_put(json);
 
+                break;
+
             }
 
             BOLT_SAY(E_XL4BUS_CLIENT, "Don't know what to do with message %s", type);
@@ -599,7 +608,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         } else {
 
             stream_info_t * si;
-            HASH_FIND(hh, open_streams, &msg->stream_id, 2, si);
+            HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
             if (!si) {
                 DBG("Message of c/t %s ignored", msg->message.content_type);
                 break;

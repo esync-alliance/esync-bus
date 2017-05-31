@@ -717,6 +717,8 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
         if (i_clt->state == CS_RUNNING) {
 
+            DBG("XCHG: Incoming stream %d", msg->stream_id);
+
             message_internal_t * mint;
             HASH_FIND(hh, i_clt->stream_hash, &msg->stream_id, 2, mint);
             if (mint) {
@@ -724,6 +726,8 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                 BOLT_SUB(get_xl4bus_message(&msg->message, &root, &type));
 
                 if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", type)) {
+
+                    DBG("XCHG: got destination info");
 
                     // here we would request certificate details, but since
                     // we are using trust, there is nothing to request,
@@ -733,12 +737,15 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                     xl4bus_ll_message_t * x_msg;
                     BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
 
-                    memcpy(&x_msg->message, &msg->message, sizeof(msg->message));
+                    memcpy(&x_msg->message, &mint->msg, sizeof(msg->message));
+
                     x_msg->stream_id = msg->stream_id;
                     BOLT_SUB(SEND_LL(i_clt->ll, x_msg, 0));
                     mint->mis = MIS_WAIT_CONFIRM;
 
                 } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", type)) {
+
+                    DBG("XCHG: got confirmation");
 
                     if (!msg->is_final) {
                         DBG("Message confirmation was not a final stream message!");
@@ -748,10 +755,11 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
                 }
 
+            } else {
+                clt->handle_message(clt, &msg->message);
+                break;
             }
 
-            clt->handle_message(clt, &msg->message);
-            break;
         }
 
         BOLT_SUB(get_xl4bus_message(&msg->message, &root, &type));
@@ -804,7 +812,7 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             x_msg->stream_id = msg->stream_id;
             x_msg->is_reply = 1;
 
-            BOLT_SUB(SEND_LL(conn, x_msg, 0));
+            BOLT_SUB(SEND_LL(conn, x_msg, json));
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
                 !strcmp(type, "xl4bus.registration-confirmation") && msg->is_final) {
@@ -812,6 +820,13 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             i_clt->state = CS_RUNNING;
             clt->conn_notify(clt, XL4BCC_RUNNING);
 
+            // if there are any pending messages, let's
+            // kick them off.
+
+            message_internal_t * mit;
+            DL_FOREACH(i_clt->message_list, mit) {
+                process_message_out(clt, mit);
+            }
 
         } else {
 
@@ -830,7 +845,7 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
 int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg) {
 
-    int err = E_XL4BUS_OK;
+    int err /* = E_XL4BUS_OK*/;
 
     do {
 
@@ -850,6 +865,7 @@ int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * ar
         mint->custom = arg;
 
         DL_APPEND(i_clt->message_list, mint);
+        HASH_ADD(hh, i_clt->stream_hash, stream_id, 2, mint);
 
         BOLT_SUB(process_message_out(clt, mint));
 
@@ -912,9 +928,11 @@ static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) 
         x_msg->message.content_type = "application/vnd.xl4.busmessage+json";
         x_msg->stream_id = msg->stream_id;
 
-        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, 0));
+        DBG("XCGH: sending request-destinations on stream %d", x_msg->stream_id);
 
-        json_object_put(json);
+        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, json));
+
+        // json_object_put(json);
 
         msg->mis = MIS_WAIT_DESTINATIONS;
     }
@@ -971,4 +989,5 @@ static void release_message(xl4bus_client_t * clt, message_internal_t * mint, in
 
 void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
     cfg.free(msg);
+    json_object_put(ref);
 }

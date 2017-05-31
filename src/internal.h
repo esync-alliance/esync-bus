@@ -85,7 +85,8 @@ typedef struct connection_internal {
     int pending_connection_test;
     uint8_t connection_test_request[32];
     uint64_t connectivity_test_ts;
-    uint16_t stream_seq_out;
+    // let the LL caller manage the outgoing stream IDs.
+    // uint16_t stream_seq_out;
 
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;
@@ -141,6 +142,7 @@ typedef struct message_internal {
     message_info_state_t mis;
     json_object * addr;
     void * custom;
+    int in_hash;
 
 } message_internal_t;
 

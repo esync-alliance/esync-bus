@@ -149,9 +149,11 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
         conn->_private = i_conn;
         BOLT_SYS(pf_set_nonblocking(conn->fd), "setting non-blocking");
 
+        /*
         if (!conn->is_client) {
             i_conn->stream_seq_out = 1;
         }
+        */
 
 #if XL4_SUPPORT_THREADS
         if (conn->mt_support) {

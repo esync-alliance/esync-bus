@@ -18,6 +18,7 @@ int debug = 1;
 
 static void conn_info(struct xl4bus_client *, xl4bus_client_condition_t);
 static void msg_info(struct xl4bus_client *, xl4bus_message_t *, void *, int);
+static void handle_message(struct xl4bus_client *, xl4bus_message_t *);
 
 static void help(void);
 
@@ -76,6 +77,7 @@ int main(int argc, char ** argv) {
     clt.use_internal_thread = 1;
     clt.conn_notify = conn_info;
     clt.message_notify = msg_info;
+    clt.handle_message = handle_message;
 
     clt.identity.type = XL4BIT_TRUST;
     clt.identity.trust.groups = groups;
@@ -121,5 +123,13 @@ static void msg_info(struct xl4bus_client * clt, xl4bus_message_t * msg, void * 
 
     // we don't have to do any clean up.
     printf("Message %p delivered %s", msg, ok?"OK":"NOT OK");
+
+}
+
+void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
+
+    char * fmt = f_asprintf("And the message %s has come : %%%ds\n", msg->content_type, msg->data_len);
+    printf(fmt, msg->data);
+    free(fmt);
 
 }
