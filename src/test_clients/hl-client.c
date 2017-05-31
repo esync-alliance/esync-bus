@@ -122,7 +122,7 @@ void help() {
 static void msg_info(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok) {
 
     // we don't have to do any clean up.
-    printf("Message %p delivered %s", msg, ok?"OK":"NOT OK");
+    printf("Message %p delivered %s\n", msg, ok?"OK":"NOT OK");
 
 }
 

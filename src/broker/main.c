@@ -67,6 +67,7 @@ typedef struct poll_info {
 typedef struct stream_info {
     UT_hash_handle hh;
     uint16_t stream_id;
+    json_object * destinations;
 } stream_info_t;
 
 typedef struct conn_info {
@@ -104,6 +105,7 @@ static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int, int);
 static int pick_timeout(int t1, int t2);
 static void dismiss_connection(conn_info_t * ci, int need_shutdown);
+static void cleanup_stream(conn_info_t * ci, stream_info_t * si);
 
 static inline int void_cmp_fun(const void * a, const void * b) {
     if ((uintptr_t)b > (uintptr_t)a) {
@@ -468,10 +470,10 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     int err = E_XL4BUS_OK;
     json_object * root = 0;
+    conn_info_t * ci = conn->custom;
 
     do {
 
-        conn_info_t * ci = conn->custom;
 
         if (!strcmp("application/vnd.xl4.busmessage+json", msg->message.content_type)) {
 
@@ -479,7 +481,8 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             BOLT_IF(((uint8_t*)msg->message.data)[msg->message.data_len-1], E_XL4BUS_CLIENT,
                     "Incoming message is not ASCIIZ");
 
-            BOLT_IF(!(root = json_tokener_parse(msg->message.data)), E_XL4BUS_CLIENT, "Not valid json: %s", msg->message.data);
+            BOLT_IF(!(root = json_tokener_parse(msg->message.data)),
+                    E_XL4BUS_CLIENT, "Not valid json: %s", msg->message.data);
 
             json_object * aux;
             BOLT_IF(!json_object_object_get_ex(root, "type", &aux) || !json_object_is_type(aux, json_type_string),
@@ -567,14 +570,22 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 if (si) {
                     // one shall not request destinations on existing stream.
                     DBG("request-destinations on existing stream %d", msg->stream_id);
-                    HASH_DEL(ci->open_streams, si);
                     xl4bus_abort_stream(conn, msg->stream_id);
+                    cleanup_stream(ci, si);
                     break;
                 }
 
                 si = f_malloc(sizeof(stream_info_t));
                 si->stream_id = msg->stream_id;
                 HASH_ADD(hh, ci->open_streams, stream_id, 2, si);
+
+                if (json_object_object_get_ex(root, "body", &aux) && json_object_is_type(aux, json_type_object)) {
+                    json_object * bux;
+                    if (json_object_object_get_ex(root, "destinations", &bux) && json_object_is_type(aux, json_type_array) &&
+                            json_object_array_length(bux) > 0) {
+                        si->destinations = json_object_get(bux);
+                    }
+                }
 
                 // send destination list
                 // https://gitlab.excelfore.com/schema/json/xl4bus/destination-info.json
@@ -591,6 +602,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 x_msg.stream_id = msg->stream_id;
                 x_msg.is_reply = 1;
+                x_msg.is_final = !si->destinations;
 
                 if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
@@ -645,6 +657,16 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     } while (0);
 
+    if (msg->is_final) {
+        // if there is a final message on stream we track,
+        // make sure to clean up.
+        stream_info_t * si;
+        HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
+        if (si) {
+            cleanup_stream(ci, si);
+        }
+    }
+
     json_object_put(root);
 
     return err;
@@ -671,7 +693,21 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
     shutdown(ci->conn->fd, SHUT_RDWR);
     close(ci->conn->fd);
 
+    stream_info_t *si, *aux;
+
+    HASH_ITER(hh, ci->open_streams, si, aux) {
+        cleanup_stream(ci, si);
+    }
+
     free(ci);
     free(ci->conn);
+
+}
+
+static void cleanup_stream(conn_info_t * ci, stream_info_t * si) {
+
+    HASH_DEL(ci->open_streams, si);
+    json_object_put(si->destinations);
+    free(si);
 
 }

@@ -727,21 +727,31 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
                 if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", type)) {
 
-                    DBG("XCHG: got destination info");
+                    if (msg->is_final) {
+                        // the broker saying it's not deliverable.
+                        DBG("XCHG: no destinations");
+                        release_message(clt, mint, 0);
+                    } else {
 
-                    // here we would request certificate details, but since
-                    // we are using trust, there is nothing to request,
-                    // so we can skip on to sending the actual message.
-                    // mint->mis = MIS_WAIT_DETAILS;
+                        DBG("XCHG: got destination info");
 
-                    xl4bus_ll_message_t * x_msg;
-                    BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
+                        // here we would request certificate details, but since
+                        // we are using trust, there is nothing to request,
+                        // so we can skip on to sending the actual message.
+                        // mint->mis = MIS_WAIT_DETAILS;
 
-                    memcpy(&x_msg->message, &mint->msg, sizeof(msg->message));
+                        xl4bus_ll_message_t * x_msg;
+                        BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
 
-                    x_msg->stream_id = msg->stream_id;
-                    BOLT_SUB(SEND_LL(i_clt->ll, x_msg, 0));
-                    mint->mis = MIS_WAIT_CONFIRM;
+                        memcpy(&x_msg->message, mint->msg, sizeof(msg->message));
+
+                        x_msg->stream_id = msg->stream_id;
+                        x_msg->is_reply = 1;
+                        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, 0));
+                        mint->mis = MIS_WAIT_CONFIRM;
+
+                    }
+
 
                 } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", type)) {
 
@@ -757,8 +767,9 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
             } else {
                 clt->handle_message(clt, &msg->message);
-                break;
             }
+
+            break;
 
         }
 
