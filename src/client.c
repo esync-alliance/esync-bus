@@ -826,10 +826,12 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             BOLT_SUB(SEND_LL(conn, x_msg, json));
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
-                !strcmp(type, "xl4bus.registration-confirmation") && msg->is_final) {
+                !strcmp(type, "xl4bus.presence") && msg->is_final) {
 
             i_clt->state = CS_RUNNING;
             clt->conn_notify(clt, XL4BCC_RUNNING);
+
+            DBG("Presence contents : %s", json_object_get_string(root));
 
             // if there are any pending messages, let's
             // kick them off.

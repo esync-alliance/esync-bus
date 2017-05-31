@@ -2,7 +2,6 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <stdio.h>
 #include <netinet/in.h>
 #include <stdlib.h>
 #include <poll.h>
@@ -13,6 +12,7 @@
 #include <stdarg.h>
 #include <sys/epoll.h>
 #include <errno.h>
+#include <stdio.h>
 #include "json.h"
 
 #include <libxl4bus/low_level.h>
@@ -562,10 +562,43 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
 #endif
 
-                // send registration response
-                // https://gitlab.excelfore.com/schema/json/xl4bus/registration-confirmation.json
+                // send current presence
+                // https://gitlab.excelfore.com/schema/json/xl4bus/presence.json
                 json_object * json = json_object_new_object();
-                json_object_object_add(json, "type", json_object_new_string("xl4bus.registration-confirmation"));
+
+                {
+                    json_object_object_add(json, "type", json_object_new_string("xl4bus.presence"));
+                    aux = json_object_new_object();
+                    json_object_object_add(json, "body", aux);
+                    json_object * bux = json_object_new_array();
+                    json_object_object_add(aux, "connected", bux);
+
+                    if (utarray_len(&dm_clients)) {
+                        json_object * cux = json_object_new_object();
+                        json_object_object_add(cux, "special", json_object_new_string("dmclient"));
+                        json_object_array_add(bux, cux);
+                    }
+
+                    conn_info_hash_list_t * tmp;
+                    conn_info_hash_list_t * cti;
+
+                    HASH_ITER(hh, ci_by_name, cti, tmp) {
+                        if (utarray_len(&cti->items) > 0) {
+                            json_object * cux = json_object_new_object();
+                            json_object_object_add(cux, "update-agent", json_object_new_string(cti->hh.key));
+                            json_object_array_add(bux, cux);
+                        }
+                    }
+
+                    HASH_ITER(hh, ci_by_group, cti, tmp) {
+                        if (utarray_len(&cti->items) > 0) {
+                            json_object * cux = json_object_new_object();
+                            json_object_object_add(cux, "group", json_object_new_string(cti->hh.key));
+                            json_object_array_add(bux, cux);
+                        }
+                    }
+
+                }
 
                 xl4bus_ll_message_t x_msg;
                 memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
@@ -726,10 +759,15 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 for (int j=0; j<l2; j++) {
                     conn_info_t * ci2 = (conn_info_t *) utarray_eltptr(send_list, j);
+                    if (ci2 == ci) {
+                        // prevent loopback
+                        continue;
+                    }
                     if (xl4bus_send_ll_message(ci2->conn, msg, 0, 0)) {
                         printf("failed to send a message : %s\n", xl4bus_strerr(err));
                         dismiss_connection(ci2, 1);
                         j--;
+                        l2--;
                     }
                 }
 
