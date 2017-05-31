@@ -863,7 +863,11 @@ int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * ar
         client_internal_t * i_clt = clt->_private;
 
         json_object * addr;
-        BOLT_IF(!(addr = json_tokener_parse(msg->xl4bus_address)), E_XL4BUS_ARG, "Can't parse address");
+        int l;
+        BOLT_IF(!(addr = json_tokener_parse(msg->xl4bus_address)) ||
+                !json_object_is_type(addr, json_type_array) ||
+                !(l = json_object_array_length(addr)),
+                E_XL4BUS_ARG, "Can't parse address");
 
         message_internal_t * mint;
 
@@ -928,7 +932,7 @@ static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) 
 
         json_object_object_add(json, "type", json_object_new_string("xl4bus.request-destinations"));
         json_object_object_add(json, "body", body = json_object_new_object());
-        json_object_object_add(body, "destination", json_object_get(msg->addr));
+        json_object_object_add(body, "destinations", json_object_get(msg->addr));
 
         xl4bus_ll_message_t * x_msg;
         BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
@@ -939,7 +943,7 @@ static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) 
         x_msg->message.content_type = "application/vnd.xl4.busmessage+json";
         x_msg->stream_id = msg->stream_id;
 
-        DBG("XCGH: sending request-destinations on stream %d", x_msg->stream_id);
+        DBG("XCGH: sending request-destinations on stream %d : %s", x_msg->stream_id, json_object_get_string(json));
 
         BOLT_SUB(SEND_LL(i_clt->ll, x_msg, json));
 

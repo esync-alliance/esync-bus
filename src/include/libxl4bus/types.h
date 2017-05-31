@@ -31,8 +31,8 @@ typedef struct xl4bus_ll_cfg {
 } xl4bus_ll_cfg_t;
 
 typedef struct xl4bus_message {
-    char * content_type;
-    char * xl4bus_address;
+    char const * content_type;
+    char const * xl4bus_address;
     void const * data;
     size_t data_len;
 } xl4bus_message_t;

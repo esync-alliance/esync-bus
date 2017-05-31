@@ -91,7 +91,7 @@ int main(int argc, char ** argv) {
     xl4bus_message_t msg;
     memset(&msg, 0, sizeof(msg));
 
-    msg.xl4bus_address = "{\"update-agent\":\"/test1\"}";
+    msg.xl4bus_address = "[{\"update-agent\":\"test1\"}]";
     msg.content_type = "application/json";
     msg.data = "{\"say\":\"hello\"}";
     msg.data_len = strlen(msg.data) + 1;

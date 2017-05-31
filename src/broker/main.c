@@ -28,6 +28,32 @@ typedef enum terminal_type {
     TT_UPDATE_AGENT
 } terminal_type_t;
 
+#define REMOVE_FROM_ARRAY(array, item, msg, x...) do { \
+    void * __addr = utarray_find(array, item, void_cmp_fun); \
+    if (__addr) { \
+        long idx = (long)utarray_eltidx(array, __addr); \
+        if (idx >= 0) { \
+            utarray_erase(&dm_clients, idx, 1); \
+        } else {\
+            DBG(msg " : index not found for array %p elt %p, addr %p", ##x, array, item, __addr); \
+        } \
+    } else { \
+        DBG(msg " : address not found for array %p elt %p", ##x, array, item); \
+    }\
+} while(0)
+
+#define REMOVE_FROM_HASH(root, obj, key_fld, msg, x...) do { \
+    conn_info_hash_list_t * __list; \
+    const char * __keyval = (obj)->key_fld; \
+    size_t __keylen = strlen(__keyval) + 1; \
+    HASH_FIND(hh, root, __keyval, __keylen, __list); \
+    if (__list) { \
+        REMOVE_FROM_ARRAY(&__list->items, obj, msg " - key %s", ##x, __keyval); \
+    } else {\
+        DBG(msg " : no entry for %s", ##x, __keyval); \
+    } \
+} while(0)
+
 #define ADD_TO_ARRAY_ONCE(array, item) do {\
     if (!utarray_find(array, item, void_cmp_fun)) { \
         utarray_push_back(array, item); \
@@ -474,7 +500,6 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     do {
 
-
         if (!strcmp("application/vnd.xl4.busmessage+json", msg->message.content_type)) {
 
             // the json must be ASCIIZ.
@@ -581,7 +606,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 if (json_object_object_get_ex(root, "body", &aux) && json_object_is_type(aux, json_type_object)) {
                     json_object * bux;
-                    if (json_object_object_get_ex(root, "destinations", &bux) && json_object_is_type(aux, json_type_array) &&
+                    if (json_object_object_get_ex(aux, "destinations", &bux) && json_object_is_type(bux, json_type_array) &&
                             json_object_array_length(bux) > 0) {
                         si->destinations = json_object_get(bux);
                     }
@@ -652,6 +677,63 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             // let's send to all possible destinations.
 
+            int l = json_object_array_length(si->destinations);
+
+            DBG("BRK: %d destinations", l);
+
+            for (int i=0; i<l; i++) {
+
+                json_object * el = json_object_array_get_idx(si->destinations, i);
+                if (!json_object_is_type(el, json_type_object)) {
+                    DBG("BRK : skipping destination - not an object");
+                    continue;
+                }
+                json_object * aux;
+                conn_info_hash_list_t * use_hl = 0;
+                char const * key;
+                UT_array * send_list = 0;
+
+                if (json_object_object_get_ex(el, "update-agent", &aux) &&
+                        json_object_is_type(aux, json_type_string)) {
+                    use_hl = ci_by_name;
+                    key = json_object_get_string(aux);
+                } else if (json_object_object_get_ex(el, "group", &aux) &&
+                        json_object_is_type(aux, json_type_string)) {
+                    use_hl = ci_by_group;
+                    key = json_object_get_string(aux);
+                } else if (json_object_object_get_ex(el, "special", &aux) &&
+                        json_object_is_type(aux, json_type_string) &&
+                        !strcmp("dmclient",json_object_get_string(aux))) {
+                    send_list = &dm_clients;
+                }
+
+                if (use_hl) {
+                    conn_info_hash_list_t * val;
+                    HASH_FIND(hh, use_hl, key, strlen(key), val);
+                    if (val) {
+                        send_list = &val->items;
+                    }
+                }
+
+                if (!send_list) {
+                    DBG("BRK: Skipping destination : no send_list");
+                    continue;
+                }
+
+                int l2 = utarray_len(send_list);
+
+                DBG("BRK: Sending to %d conns", l2);
+
+                for (int j=0; j<l2; j++) {
+                    conn_info_t * ci2 = (conn_info_t *) utarray_eltptr(send_list, j);
+                    if (xl4bus_send_ll_message(ci2->conn, msg, 0, 0)) {
+                        printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                        dismiss_connection(ci2, 1);
+                        j--;
+                    }
+                }
+
+            }
 
         }
 
@@ -698,6 +780,17 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
     HASH_ITER(hh, ci->open_streams, si, aux) {
         cleanup_stream(ci, si);
     }
+
+    if (ci->terminal == TT_DM_CLIENT) {
+        REMOVE_FROM_ARRAY(&dm_clients, ci, "Removing CI from DM Client list");
+    } else {
+        REMOVE_FROM_HASH(ci_by_name, ci, ua_name, "Removing by UA name");
+    }
+
+    for (int i=0; i<ci->group_count; i++) {
+        REMOVE_FROM_HASH(ci_by_group, ci, groups[i], "Removing by group name");
+    }
+
 
     free(ci);
     free(ci->conn);
