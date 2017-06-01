@@ -143,10 +143,14 @@ static int pick_timeout(int t1, int t2);
 static void dismiss_connection(conn_info_t * ci, int need_shutdown);
 static void cleanup_stream(conn_info_t * ci, stream_info_t * si);
 
-static inline int void_cmp_fun(const void ** a, const void ** b) {
-    if ((uintptr_t)*b > (uintptr_t)*a) {
+static inline int void_cmp_fun(void const * a, void const * b) {
+
+    void * const * ls = a;
+    void * const * rs = b;
+
+    if ((uintptr_t)*ls > (uintptr_t)*rs) {
         return 1;
-    } else if (*a == *b) {
+    } else if (*ls == *rs) {
         return 0;
     }
     return -1;
@@ -570,7 +574,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         BOLT_SAY(E_XL4BUS_CLIENT, "Can't accept/identify terminal type");
                     }
 
-                    if (json_object_object_get_ex(root, "groups", &bux) &&
+                    if (json_object_object_get_ex(aux, "groups", &bux) &&
                             json_object_is_type(bux, json_type_array)) {
 
                         int l = json_object_array_length(bux);
@@ -795,6 +799,11 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         // prevent loopback
                         continue;
                     }
+
+                    msg->is_final = 1;
+                    msg->is_reply = 0;
+                    msg->stream_id = ci2->out_stream_id+=2;
+
                     if (xl4bus_send_ll_message(ci2->conn, msg, 0, 0)) {
                         printf("failed to send a message : %s\n", xl4bus_strerr(err));
                         dismiss_connection(ci2, 1);
