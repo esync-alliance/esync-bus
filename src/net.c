@@ -149,7 +149,10 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags, int
             ptr += res; \
         } \
         if (err != E_XL4BUS_OK) { break; } \
-        if (_stop) { DBG("Read of %s blocks, breaking until poll", why); break; } \
+        if (_stop) { \
+            /* DBG("Read of %s blocks, breaking until poll", why); */ \
+            break; \
+        } \
     } \
 } \
 do {} while(0)
@@ -211,7 +214,7 @@ do {} while(0)
                         uint16_t stream_id = ntohs(*(uint16_t*)frm.data.data);
                         HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
 
-                        DBG("LL: recv frame stream %d, opened stream=%s", stream_id, stream?"yes":"no");
+                        // DBG("LL: recv frame stream %d, opened stream=%s", stream_id, stream?"yes":"no");
 
                         int is_not_first;
 

@@ -186,7 +186,7 @@ int validate_jws(void *bin, size_t jws_len, int ct, uint16_t *stream_id, cjose_j
 
         BOLT_IF(((char*)bin)[--jws_len], E_XL4BUS_DATA, "Compact serialization is not ASCISZ");
 
-        DBG("Verifying serialized JWS (len %d, strlen %d) %s", jws_len, strlen(bin), bin);
+        // DBG("Verifying serialized JWS (len %d, strlen %d) %s", jws_len, strlen(bin), bin);
 
         BOLT_CJOSE(jws = cjose_jws_import(bin, jws_len, &c_err));
 
@@ -271,7 +271,7 @@ int sign_jws(const void *data, size_t data_len, char const * ct, int pad, int of
             break;
         }
 
-        DBG("Serialized JWS(%d bytes) %s, ", l-1, jws_export);
+        // DBG("Serialized JWS(%d bytes) %s, ", l-1, jws_export);
 
         memcpy((*jws_data) + offset, jws_export, *jws_len = l);
 

@@ -44,7 +44,7 @@ typedef enum terminal_type {
 
 #define UTCOUNT_WITHOUT(array, item, to) do { \
     unsigned long __a = utarray_len(array); \
-    if (__a) { \
+    if (__a && item) { \
         if (utarray_find(array, &item, void_cmp_fun)) { \
             __a--; \
         } \
@@ -59,7 +59,10 @@ typedef enum terminal_type {
     HASH_FIND(hh, root, __keyval, __keylen, __list); \
     if (__list) { \
         REMOVE_FROM_ARRAY(&__list->items, obj, msg " - key %s", ##x, __keyval); \
-        n_len = utarray_len(&__list->items); \
+        if (!(n_len = utarray_len(&__list->items))) { \
+            HASH_DEL(root, __list); \
+            free(__list); \
+        } \
     } else { \
         DBG(msg " : no entry for %s", ##x, __keyval); \
         n_len = 0; \
@@ -144,7 +147,7 @@ static int set_poll(xl4bus_connection_t *, int, int);
 static int pick_timeout(int t1, int t2);
 static void dismiss_connection(conn_info_t * ci, int need_shutdown);
 static void cleanup_stream(conn_info_t * ci, stream_info_t * si);
-static void send_presence(json_object * connected, json_object * disconnected);
+static void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except);
 
 static inline int void_cmp_fun(void const * a, void const * b) {
 
@@ -348,7 +351,7 @@ int main(int argc, char ** argv) {
                     ci->pit.fd = fd2;
                     ci->out_stream_id = 1;
 
-                    DBG("Created connection %p/%p fd %d", ci, ci->conn, fd2);
+                    // DBG("Created connection %p/%p fd %d", ci, ci->conn, fd2);
 
                     int err = xl4bus_init_connection(conn);
 
@@ -529,6 +532,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     int err = E_XL4BUS_OK;
     json_object * root = 0;
     conn_info_t * ci = conn->custom;
+    json_object * connected = 0;
 
     do {
 
@@ -554,15 +558,26 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 BOLT_IF(ci->reg_req, E_XL4BUS_CLIENT, "already registered");
                 ci->reg_req = 1;
 
+
 #if 1 /* throw this code out the window, must use x-509 ID only */
                 BOLT_IF(!json_object_object_get_ex(root, "xxx-id", &aux) || !json_object_is_type(aux, json_type_object),
                         E_XL4BUS_CLIENT, "Missing xxx-id property");
                 {
+
+                    connected = json_object_new_array();
+
                     json_object * bux;
                     if (json_object_object_get_ex(aux, "is_dmclient", &bux) &&
                             json_object_is_type(bux, json_type_boolean) && json_object_get_boolean(bux)) {
+
                         ci->terminal = TT_DM_CLIENT;
+
                         ADD_TO_ARRAY_ONCE(&dm_clients, ci);
+
+                        json_object * cel = json_object_new_object();
+                        json_object_object_add(cel, "special", json_object_new_string("dmclient"));
+                        json_object_array_add(connected, cel);
+
                     } else if (json_object_object_get_ex(aux, "is_update_agent", &bux) &&
                             json_object_is_type(bux, json_type_boolean) && json_object_get_boolean(bux)) {
                         ci->terminal = TT_UPDATE_AGENT;
@@ -573,6 +588,11 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         BOLT_IF(!*ci->ua_name, E_XL4BUS_CLIENT, "empty update agent name");
 
                         HASH_LIST_ADD(ci_by_name, ci, ua_name);
+
+                        json_object * cel= json_object_new_object();
+                        json_object_object_add(cel, "update-agent", json_object_new_string(ci->ua_name));
+                        json_object_array_add(connected, bux);
+
                     } else {
                         BOLT_SAY(E_XL4BUS_CLIENT, "Can't accept/identify terminal type");
                     }
@@ -588,6 +608,11 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                             ci->groups[ci->group_count] = f_strdup(json_object_get_string(cux));
                             HASH_LIST_ADD(ci_by_group, ci, groups[ci->group_count]);
                             ci->group_count++;
+
+                            json_object * cel = json_object_new_object();
+                            json_object_object_add(cel, "group", json_object_new_string(ci->groups[i]));
+                            json_object_array_add(connected, bux);
+
                         }
                     }
                 }
@@ -653,6 +678,12 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
                     dismiss_connection(ci, 1);
+                } else {
+                    // tell everybody else this client arrived.
+
+                    send_presence(connected, 0, ci);
+                    connected = 0; // connected is consumed
+
                 }
 
                 json_object_put(json);
@@ -832,6 +863,8 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     }
 
     json_object_put(root);
+    json_object_put(connected);
+
 
     return err;
 
@@ -889,7 +922,7 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
 
         if (!n_len) {
             json_object * bux = json_object_new_object();
-            json_object_object_add(bux, "update-agent", json_object_new_string(ci->groups[i]));
+            json_object_object_add(bux, "group", json_object_new_string(ci->groups[i]));
             json_object_array_add(disconnected, bux);
         }
 
@@ -897,7 +930,7 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
 
     }
 
-    send_presence(0, disconnected); // this consumes disconnected.
+    send_presence(0, disconnected, 0); // this consumes disconnected.
 
     free(ci->groups);
     free(ci->ua_name);
@@ -914,7 +947,7 @@ static void cleanup_stream(conn_info_t * ci, stream_info_t * si) {
 
 }
 
-void send_presence(json_object * connected, json_object * disconnected) {
+void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except) {
 
     int err;
 
@@ -942,12 +975,14 @@ void send_presence(json_object * connected, json_object * disconnected) {
     conn_info_t * ci;
     conn_info_t * aux;
     DL_FOREACH_SAFE(connections, ci, aux) {
+        if (ci == except) { continue; }
         msg.stream_id = ci->out_stream_id += 2;
         if ((err = xl4bus_send_ll_message(ci->conn, &msg, 0, 0)) != E_XL4BUS_OK) {
             printf("failed to send a message : %s\n", xl4bus_strerr(err));
             dismiss_connection(ci, 1);
         }
-        json_object_put(json);
     }
+
+    json_object_put(json);
 
 }

@@ -127,7 +127,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
     while (1) {
 
-        DBG("Run processing state %s", state_str(i_clt->state));
+        // DBG("Run processing state %s", state_str(i_clt->state));
 
         int old_state = i_clt->state;
 
@@ -388,7 +388,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
     }
 
-    DBG("Run exited, state %s, err %d", state_str(i_clt->state), err);
+    // DBG("Run exited, state %s, err %d", state_str(i_clt->state), err);
 
     if (err != E_XL4BUS_OK) {
         xl4bus_client_condition_t reason;
@@ -430,20 +430,22 @@ void client_thread(void * arg) {
 
     while (1) {
 
+        /*
         DBG("Clt %p: after run : poll requested timeout %d, poll_info has %d entries", clt, timeout,
                 poll_info.polls_len);
+        */
 
-        int err = pf_poll(poll_info.polls, poll_info.polls_len, timeout);
-        if (err < 0) {
+        int res = pf_poll(poll_info.polls, poll_info.polls_len, timeout);
+        if (res < 0) {
             xl4bus_stop_client(clt);
             return;
         }
 
-        for (int i=0; err && i<poll_info.polls_len; i++) {
+        for (int i=0; res && i<poll_info.polls_len; i++) {
             pf_poll_t * pp = poll_info.polls + i;
             if (pp->revents) {
-                err--;
-                DBG("Clt %p : flagging %x for fd %d", clt, pp->revents, pp->fd);
+                res--;
+                // DBG("Clt %p : flagging %x for fd %d", clt, pp->revents, pp->fd);
                 if (xl4bus_flag_poll(clt, pp->fd, pp->revents) != E_XL4BUS_OK) {
                     xl4bus_stop_client(clt);
                     return;
@@ -463,7 +465,7 @@ int internal_set_poll(xl4bus_client_t *clt, int fd, int modes) {
     client_internal_t * i_clt = clt->_private;
     poll_info_t * poll_info = i_clt->xl4_thread_space;
 
-    DBG("Clt %p requested to set poll %x for fd %d", clt, modes, fd);
+    // DBG("Clt %p requested to set poll %x for fd %d", clt, modes, fd);
 
     if (modes & XL4BUS_POLL_REMOVE) {
 
@@ -683,7 +685,7 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
 
-        DBG("Clt %p: set poll to %x", conn, modes);
+        // DBG("Clt %p: set poll to %x", conn, modes);
 
         known_fd_t * fdi;
 

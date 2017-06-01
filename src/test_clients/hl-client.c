@@ -16,9 +16,12 @@
 
 int debug = 1;
 
+static char *addr_to_string(xl4bus_address_t *);
+
 static void conn_info(struct xl4bus_client *, xl4bus_client_condition_t);
 static void msg_info(struct xl4bus_client *, xl4bus_message_t *, void *, int);
 static void handle_message(struct xl4bus_client *, xl4bus_message_t *);
+static void handle_presence(struct xl4bus_client *, xl4bus_address_t * connected, xl4bus_address_t * disconnected);
 
 static void help(void);
 
@@ -78,6 +81,7 @@ int main(int argc, char ** argv) {
     clt.on_connection = conn_info;
     clt.on_delivered = msg_info;
     clt.on_message = handle_message;
+    clt.on_presence = handle_presence;
 
     clt.identity.type = XL4BIT_TRUST;
     clt.identity.trust.groups = groups;
@@ -138,5 +142,47 @@ void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
     char * fmt = f_asprintf("And the message %s has come : %%%ds\n", msg->content_type, msg->data_len);
     printf(fmt, msg->data);
     free(fmt);
+
+}
+
+void handle_presence(struct xl4bus_client * clt, xl4bus_address_t * connected, xl4bus_address_t * disconnected) {
+
+    for (xl4bus_address_t * a = connected; a; a=a->next) {
+        char * as = addr_to_string(a);
+        printf("CONNECTED: %s\n", as);
+        free(as);
+    }
+    for (xl4bus_address_t * a = disconnected; a; a=a->next) {
+        char * as = addr_to_string(a);
+        printf("DISCONNECTED: %s\n", as);
+        free(as);
+    }
+
+}
+
+char *addr_to_string(xl4bus_address_t * addr) {
+
+    switch (addr->type) {
+
+        case XL4BAT_SPECIAL:
+
+            switch (addr->special) {
+
+                case XL4BAS_DM_CLIENT:
+                    return f_strdup("<DM-CLIENT>");
+                case XL4BAS_DM_BROKER:
+                    return f_strdup("<BROKER>");
+                default:
+                    return f_asprintf("<UNKNOWN SPECIAL %d>", addr->special);
+            }
+
+            break;
+        case XL4BAT_UPDATE_AGENT:
+            return f_asprintf("<UA: %s>", addr->update_agent);
+        case XL4BAT_GROUP:
+            return f_asprintf("<GRP: %s>", addr->group);
+        default:
+            return f_asprintf("<UNKNOWN TYPE %d>", addr->type);
+    }
 
 }
