@@ -29,17 +29,27 @@ typedef enum terminal_type {
 } terminal_type_t;
 
 #define REMOVE_FROM_ARRAY(array, item, msg, x...) do { \
-    void * __addr = utarray_find(array, item, void_cmp_fun); \
+    void * __addr = utarray_find(array, &item, void_cmp_fun); \
     if (__addr) { \
         long idx = (long)utarray_eltidx(array, __addr); \
         if (idx >= 0) { \
-            utarray_erase(&dm_clients, idx, 1); \
+            utarray_erase(array, idx, 1); \
         } else {\
             DBG(msg " : index not found for array %p elt %p, addr %p", ##x, array, item, __addr); \
         } \
     } else { \
         DBG(msg " : address not found for array %p elt %p", ##x, array, item); \
     }\
+} while(0)
+
+#define UTCOUNT_WITHOUT(array, item, to) do { \
+    unsigned long __a = utarray_len(array); \
+    if (__a) { \
+        if (utarray_find(array, &item, void_cmp_fun)) { \
+            __a--; \
+        } \
+    } \
+    (to) = __a; \
 } while(0)
 
 #define REMOVE_FROM_HASH(root, obj, key_fld, msg, x...) do { \
@@ -55,8 +65,8 @@ typedef enum terminal_type {
 } while(0)
 
 #define ADD_TO_ARRAY_ONCE(array, item) do {\
-    if (!utarray_find(array, item, void_cmp_fun)) { \
-        utarray_push_back(array, item); \
+    if (!utarray_find(array, &item, void_cmp_fun)) { \
+        utarray_push_back(array, &item); \
         utarray_sort(array, void_cmp_fun); \
     } \
 } while(0)
@@ -133,14 +143,29 @@ static int pick_timeout(int t1, int t2);
 static void dismiss_connection(conn_info_t * ci, int need_shutdown);
 static void cleanup_stream(conn_info_t * ci, stream_info_t * si);
 
-static inline int void_cmp_fun(const void * a, const void * b) {
-    if ((uintptr_t)b > (uintptr_t)a) {
+static inline int void_cmp_fun(const void ** a, const void ** b) {
+    if ((uintptr_t)*b > (uintptr_t)*a) {
         return 1;
-    } else if (a == b) {
+    } else if (*a == *b) {
         return 0;
     }
     return -1;
 }
+
+#if 0
+static int void_cmp_fun2(const void * a, const void * b) {
+    int r;
+    if ((uintptr_t)b > (uintptr_t)a) {
+        r = 1;
+    } else if (a == b) {
+        r = 0;
+    } else {
+        r = -1;
+    }
+    DBG("%p <!> %p => %d", a, b, r);
+    return r;
+}
+#endif
 
 int debug = 1;
 
@@ -573,7 +598,11 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     json_object * bux = json_object_new_array();
                     json_object_object_add(aux, "connected", bux);
 
-                    if (utarray_len(&dm_clients)) {
+                    unsigned long lc;
+
+                    UTCOUNT_WITHOUT(&dm_clients, ci, lc);
+
+                    if (lc) {
                         json_object * cux = json_object_new_object();
                         json_object_object_add(cux, "special", json_object_new_string("dmclient"));
                         json_object_array_add(bux, cux);
@@ -583,7 +612,8 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     conn_info_hash_list_t * cti;
 
                     HASH_ITER(hh, ci_by_name, cti, tmp) {
-                        if (utarray_len(&cti->items) > 0) {
+                        UTCOUNT_WITHOUT(&cti->items, ci, lc);
+                        if (lc > 0) {
                             json_object * cux = json_object_new_object();
                             json_object_object_add(cux, "update-agent", json_object_new_string(cti->hh.key));
                             json_object_array_add(bux, cux);
@@ -591,7 +621,8 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     }
 
                     HASH_ITER(hh, ci_by_group, cti, tmp) {
-                        if (utarray_len(&cti->items) > 0) {
+                        UTCOUNT_WITHOUT(&cti->items, ci, lc);
+                        if (lc > 0) {
                             json_object * cux = json_object_new_object();
                             json_object_object_add(cux, "group", json_object_new_string(cti->hh.key));
                             json_object_array_add(bux, cux);
@@ -742,7 +773,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 if (use_hl) {
                     conn_info_hash_list_t * val;
-                    HASH_FIND(hh, use_hl, key, strlen(key), val);
+                    HASH_FIND(hh, use_hl, key, strlen(key)+1, val);
                     if (val) {
                         send_list = &val->items;
                     }
@@ -758,8 +789,9 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 DBG("BRK: Sending to %d conns", l2);
 
                 for (int j=0; j<l2; j++) {
-                    conn_info_t * ci2 = (conn_info_t *) utarray_eltptr(send_list, j);
+                    conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(send_list, j);
                     if (ci2 == ci) {
+                        DBG("Ignored one sender - loopback");
                         // prevent loopback
                         continue;
                     }
@@ -829,9 +861,8 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
         REMOVE_FROM_HASH(ci_by_group, ci, groups[i], "Removing by group name");
     }
 
-
-    free(ci);
     free(ci->conn);
+    free(ci);
 
 }
 
