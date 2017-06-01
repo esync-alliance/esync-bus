@@ -37,6 +37,8 @@ static int create_ll_connection(xl4bus_client_t *);
 static int process_message_out(xl4bus_client_t *, message_internal_t *);
 static int get_xl4bus_message(xl4bus_message_t const *, json_object **, char const **);
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
+static int build_address_list(json_object *, xl4bus_address_t **);
+static int handle_presence(xl4bus_client_t * clt, json_object*);
 
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
@@ -766,7 +768,25 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                 }
 
             } else {
-                clt->on_message(clt, &msg->message);
+
+                if (!strcmp(msg->message.content_type, "application/vnd.xl4.busmessage+json")) {
+
+                    BOLT_SUB(get_xl4bus_message(&msg->message, &root, &type));
+
+                    if (!strcmp(type, "xl4bus.presence")) {
+                        handle_presence(clt, root);
+                    } else {
+
+                        DBG("Unknown message type %s received : %s", type, json_object_get_string(root));
+
+                    }
+
+                } else {
+
+                    clt->on_message(clt, &msg->message);
+
+                }
+
             }
 
             break;
@@ -832,6 +852,8 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             clt->on_connection(clt, XL4BCC_RUNNING);
 
             DBG("Presence contents : %s", json_object_get_string(root));
+
+            handle_presence(clt, root);
 
             // if there are any pending messages, let's
             // kick them off.
@@ -1057,4 +1079,108 @@ static void release_message(xl4bus_client_t * clt, message_internal_t * mint, in
 void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
     cfg.free(msg);
     json_object_put(ref);
+}
+
+int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
+
+    int l = json_object_array_length(j_list);
+    xl4bus_address_t * last = 0;
+    xl4bus_address_t * next = 0;
+
+    for (int i=0; i<l; i++) {
+
+        if (!next) {
+            next = f_malloc(sizeof(xl4bus_address_t));
+            if (!next) { return E_XL4BUS_MEMORY; }
+        }
+
+        json_object * el = json_object_array_get_idx(j_list, i);
+        json_object * aux;
+        if (json_object_object_get_ex(el, "update-agent", &aux) && json_object_is_type(aux, json_type_string)) {
+            next->type = XL4BAT_UPDATE_AGENT;
+            next->update_agent = f_strdup(json_object_get_string(aux));
+        } else if (json_object_object_get_ex(el, "group", &aux) && json_object_is_type(aux, json_type_string)) {
+            next->type = XL4BAT_GROUP;
+            next->group = f_strdup(json_object_get_string(aux));
+        } else if (json_object_object_get_ex(el, "group", &aux) && json_object_is_type(aux, json_type_string)) {
+
+            char const * bux = json_object_get_string(aux);
+            next->type = XL4BAT_SPECIAL;
+
+            if (!strcmp("dmclient", bux)) {
+                next->special = XL4BAS_DM_CLIENT;
+            } else if (!strcmp("broker", bux)) {
+                next->special = XL4BAS_DM_BROKER;
+            } else {
+                continue;
+            }
+
+        } else {
+            continue;
+        }
+
+        if (!last) {
+            *new_list = last;
+        } else {
+            last->next = next;
+        }
+        last = next;
+        next = 0;
+
+    }
+
+    cfg.free(next);
+
+    return E_XL4BUS_OK;
+
+}
+
+static int handle_presence(xl4bus_client_t * clt, json_object * root) {
+
+    int err = E_XL4BUS_OK;
+
+    if (!clt->on_presence) { return err; }
+
+    xl4bus_address_t *connected_top = 0;
+    xl4bus_address_t *disconnected_top = 0;
+
+    do {
+
+        if (clt->on_presence) {
+
+            json_object *body;
+
+            BOLT_IF(!json_object_object_get_ex(root, "body", &body) ||
+                    !json_object_is_type(body, json_type_object), E_XL4BUS_CLIENT, "");
+
+            json_object *list;
+            if (json_object_object_get_ex(body, "connected", &list) && json_object_is_type(list, json_type_array)) {
+                BOLT_SUB(build_address_list(list, &connected_top));
+            }
+
+            if (json_object_object_get_ex(body, "disconnected", &list) && json_object_is_type(list, json_type_array)) {
+                BOLT_SUB(build_address_list(list, &disconnected_top));
+            }
+
+            clt->on_presence(clt, connected_top, disconnected_top);
+
+        }
+
+    } while (0);
+
+#define FREE_LIST(a) do { \
+    while (a) { \
+        xl4bus_address_t * aux = a->next; \
+        if (aux->type == XL4BAT_UPDATE_AGENT) { cfg.free(aux->update_agent); } \
+        if (aux->type == XL4BAT_GROUP) { cfg.free(aux->group); } \
+        cfg.free(a); \
+        a = aux; \
+    } \
+} while(0)
+
+    FREE_LIST(connected_top);
+    FREE_LIST(disconnected_top);
+
+    return err;
+
 }

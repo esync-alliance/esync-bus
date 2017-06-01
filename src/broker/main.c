@@ -52,15 +52,17 @@ typedef enum terminal_type {
     (to) = __a; \
 } while(0)
 
-#define REMOVE_FROM_HASH(root, obj, key_fld, msg, x...) do { \
+#define REMOVE_FROM_HASH(root, obj, key_fld, n_len, msg, x...) do { \
     conn_info_hash_list_t * __list; \
     const char * __keyval = (obj)->key_fld; \
     size_t __keylen = strlen(__keyval) + 1; \
     HASH_FIND(hh, root, __keyval, __keylen, __list); \
     if (__list) { \
         REMOVE_FROM_ARRAY(&__list->items, obj, msg " - key %s", ##x, __keyval); \
-    } else {\
+        n_len = utarray_len(&__list->items); \
+    } else { \
         DBG(msg " : no entry for %s", ##x, __keyval); \
+        n_len = 0; \
     } \
 } while(0)
 
@@ -142,6 +144,7 @@ static int set_poll(xl4bus_connection_t *, int, int);
 static int pick_timeout(int t1, int t2);
 static void dismiss_connection(conn_info_t * ci, int need_shutdown);
 static void cleanup_stream(conn_info_t * ci, stream_info_t * si);
+static void send_presence(json_object * connected, json_object * disconnected);
 
 static inline int void_cmp_fun(void const * a, void const * b) {
 
@@ -860,16 +863,44 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
         cleanup_stream(ci, si);
     }
 
+    json_object * disconnected = json_object_new_array();
+
     if (ci->terminal == TT_DM_CLIENT) {
         REMOVE_FROM_ARRAY(&dm_clients, ci, "Removing CI from DM Client list");
+        if (!utarray_len(&dm_clients)) {
+            // no more dmclients :(
+            json_object * bux = json_object_new_object();
+            json_object_object_add(bux, "special", json_object_new_string("dmclient"));
+            json_object_array_add(disconnected, bux);
+        }
     } else {
-        REMOVE_FROM_HASH(ci_by_name, ci, ua_name, "Removing by UA name");
+        int n_len;
+        REMOVE_FROM_HASH(ci_by_name, ci, ua_name, n_len, "Removing by UA name");
+        if (!n_len) {
+            json_object * bux = json_object_new_object();
+            json_object_object_add(bux, "update-agent", json_object_new_string(ci->ua_name));
+            json_object_array_add(disconnected, bux);
+        }
     }
 
     for (int i=0; i<ci->group_count; i++) {
-        REMOVE_FROM_HASH(ci_by_group, ci, groups[i], "Removing by group name");
+        int n_len;
+        REMOVE_FROM_HASH(ci_by_group, ci, groups[i], n_len, "Removing by group name");
+
+        if (!n_len) {
+            json_object * bux = json_object_new_object();
+            json_object_object_add(bux, "update-agent", json_object_new_string(ci->groups[i]));
+            json_object_array_add(disconnected, bux);
+        }
+
+        free(ci->groups[i]);
+
     }
 
+    send_presence(0, disconnected); // this consumes disconnected.
+
+    free(ci->groups);
+    free(ci->ua_name);
     free(ci->conn);
     free(ci);
 
@@ -880,5 +911,43 @@ static void cleanup_stream(conn_info_t * ci, stream_info_t * si) {
     HASH_DEL(ci->open_streams, si);
     json_object_put(si->destinations);
     free(si);
+
+}
+
+void send_presence(json_object * connected, json_object * disconnected) {
+
+    int err;
+
+    json_object *json = json_object_new_object();
+
+    json_object *body;
+    json_object_object_add(json, "body", body = json_object_new_object());
+    json_object_object_add(json, "type", json_object_new_string("xl4bus.presence"));
+    if (connected) {
+        json_object_object_add(body, "connected", connected);
+    }
+    if (disconnected) {
+        json_object_object_add(body, "disconnected", disconnected);
+    }
+
+    xl4bus_ll_message_t msg;
+    memset(&msg, 0, sizeof(xl4bus_ll_message_t));
+
+    const char *bux = json_object_get_string(json);
+    msg.message.data = bux;
+    msg.message.data_len = strlen(bux) + 1;
+    msg.message.content_type = "application/vnd.xl4.busmessage+json";
+    msg.is_final = 1;
+
+    conn_info_t * ci;
+    conn_info_t * aux;
+    DL_FOREACH_SAFE(connections, ci, aux) {
+        msg.stream_id = ci->out_stream_id += 2;
+        if ((err = xl4bus_send_ll_message(ci->conn, &msg, 0, 0)) != E_XL4BUS_OK) {
+            printf("failed to send a message : %s\n", xl4bus_strerr(err));
+            dismiss_connection(ci, 1);
+        }
+        json_object_put(json);
+    }
 
 }
