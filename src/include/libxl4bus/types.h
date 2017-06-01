@@ -6,13 +6,28 @@
 
 struct xl4bus_client;
 
+/**
+ * Used as a general buffer, when variably sized
+ * data needs to be exchanged.
+ */
 typedef struct xl4bus_buf {
     uint8_t * data;
     size_t len;
 } xl4bus_buf_t;
 
+/**
+ * Function type for allocation memory.
+ */
 typedef void * (*xl4bus_malloc)(size_t);
+
+/**
+ * Function type for reallocating memory
+ */
 typedef void * (*xl4bus_realloc)(void *, size_t);
+
+/**
+ * Function type for releasing allocated memory
+ */
 typedef void (*xl4bus_free)(void*);
 
 #if XL4_PROVIDE_DEBUG
@@ -30,9 +45,32 @@ typedef struct xl4bus_ll_cfg {
 
 } xl4bus_ll_cfg_t;
 
+typedef enum xl4bus_address_special {
+    XL4BAS_DM_CLIENT,
+    XL4BAS_DM_BROKER,
+} xl4bus_address_special_t;
+
+typedef enum xl4bus_address_type {
+    XL4BAT_SPECIAL,
+    XL4BAT_UPDATE_AGENT,
+    XL4BAT_GROUP
+} xl4bus_address_type_t;
+
+typedef struct xl4bus_address {
+
+    xl4bus_address_type_t type;
+    union {
+        xl4bus_address_special_t special;
+        char * update_agent;
+        char * group;
+    };
+    struct xl4bus_address * next;
+
+} xl4bus_address_t;
+
 typedef struct xl4bus_message {
     char const * content_type;
-    char const * xl4bus_address;
+    xl4bus_address_t * address;
     void const * data;
     size_t data_len;
 } xl4bus_message_t;
@@ -55,7 +93,7 @@ struct xl4bus_connection;
 #define XL4BUS_POLL_ERR    (1<<2)
 #define XL4BUS_POLL_REMOVE (1<<3)
 
-#define E_XL4BUS_OK         (0)
+#define E_XL4BUS_OK         ( 0)
 #define E_XL4BUS_MEMORY     (-1) // malloc failed
 #define E_XL4BUS_SYS        (-2) // syscall failed, check errno
 #define E_XL4BUS_INTERNAL   (-3) // internal error
@@ -119,8 +157,9 @@ typedef struct xl4bus_connection {
 
     xl4bus_set_ll_poll set_poll;
     xl4bus_handle_ll_message on_message;
-    xl4bus_ll_send_callback send_callback;
+    xl4bus_ll_send_callback on_sent_message;
     xl4bus_stream_callback on_stream_abort;
+
     int is_shutdown;
 #if XL4_SUPPORT_THREADS
     int mt_support;
@@ -147,6 +186,7 @@ typedef int (*xl4bus_set_poll) (struct xl4bus_client *, int fd, int modes);
 typedef void (*xl4bus_handle_message)(struct xl4bus_client *, xl4bus_message_t *);
 typedef void (*xl4bus_conn_info)(struct xl4bus_client *, xl4bus_client_condition_t);
 typedef void (*xl4bus_message_info)(struct xl4bus_client *, xl4bus_message_t *, void *, int);
+typedef void (*xl4bus_presence_info)(struct xl4bus_client *, xl4bus_address_t * connected, xl4bus_address_t * disconnected);
 
 typedef struct xl4bus_client {
 
@@ -154,11 +194,13 @@ typedef struct xl4bus_client {
     int use_internal_thread;
 #endif
 
-    xl4bus_set_poll set_poll;
-    xl4bus_conn_info conn_notify;
-    xl4bus_message_info message_notify;
-    xl4bus_handle_message handle_message;
     xl4bus_identity_t identity;
+
+    xl4bus_presence_info on_presence;
+    xl4bus_conn_info on_connection;
+    xl4bus_message_info on_delivered;
+    xl4bus_handle_message on_message;
+    xl4bus_set_poll set_poll;
 
 #if XL4_SUPPORT_THREADS
     int mt_support;

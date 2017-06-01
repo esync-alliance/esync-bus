@@ -635,7 +635,7 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
         i_clt->addresses = 0;
     }
 
-    clt->conn_notify(clt, how);
+    clt->on_connection(clt, how);
 
 }
 static int create_ll_connection(xl4bus_client_t * clt) {
@@ -653,7 +653,7 @@ static int create_ll_connection(xl4bus_client_t * clt) {
         i_clt->ll->custom = clt;
         i_clt->ll->is_client = 1;
         i_clt->ll->on_message = ll_msg_cb;
-        i_clt->ll->send_callback = ll_send_cb;
+        i_clt->ll->on_sent_message = ll_send_cb;
 
 #if XL4_SUPPORT_THREADS
 
@@ -766,7 +766,7 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                 }
 
             } else {
-                clt->handle_message(clt, &msg->message);
+                clt->on_message(clt, &msg->message);
             }
 
             break;
@@ -829,7 +829,7 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                 !strcmp(type, "xl4bus.presence") && msg->is_final) {
 
             i_clt->state = CS_RUNNING;
-            clt->conn_notify(clt, XL4BCC_RUNNING);
+            clt->on_connection(clt, XL4BCC_RUNNING);
 
             DBG("Presence contents : %s", json_object_get_string(root));
 
@@ -858,20 +858,65 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
 
 int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg) {
 
-    int err /* = E_XL4BUS_OK*/;
+    int err = E_XL4BUS_OK;
+    json_object * addr = 0;
+    message_internal_t * mint = 0;
 
     do {
 
         client_internal_t * i_clt = clt->_private;
 
-        json_object * addr;
-        int l;
-        BOLT_IF(!(addr = json_tokener_parse(msg->xl4bus_address)) ||
-                !json_object_is_type(addr, json_type_array) ||
-                !(l = json_object_array_length(addr)),
-                E_XL4BUS_ARG, "Can't parse address");
+        BOLT_IF(!msg->address, E_XL4BUS_ARG, "No message address");
+        BOLT_IF(!(addr = json_object_new_array()), E_XL4BUS_MEMORY, "");
 
-        message_internal_t * mint;
+
+        for (xl4bus_address_t * ma = msg->address; ma; ma = ma->next) {
+
+            char * key = 0;
+            char * val = 0;
+
+            switch (ma->type) {
+
+                case XL4BAT_SPECIAL:
+                {
+                    key = "special";
+                    switch (ma->special) {
+                        case XL4BAS_DM_CLIENT:
+                            val = "dmclient";
+                            break;
+                        case XL4BAS_DM_BROKER:
+                            val = "broker";
+                            break;
+                        default:
+                            BOLT_SAY(E_XL4BUS_ARG, "Unknown special type %d", msg->address);
+                    }
+                }
+                    break;
+                case XL4BAT_UPDATE_AGENT:
+                    key = "update-agent";
+                    val = ma->update_agent;
+                    break;
+                case XL4BAT_GROUP:
+                    key = "group";
+                    val = ma->group;
+                    break;
+                default:
+                    BOLT_SAY(E_XL4BUS_ARG, "Unknown addr type %d", msg->address);
+
+            }
+
+            BOLT_SUB(err);
+
+            json_object * aux;
+            json_object * bux;
+            BOLT_IF(!(aux = json_object_new_object()), E_XL4BUS_MEMORY, "");
+            json_object_array_add(addr, aux);
+            BOLT_IF(!(bux = json_object_new_string(val)), E_XL4BUS_MEMORY, "");
+            json_object_object_add(aux, key, bux);
+
+        }
+
+        BOLT_SUB(err);
 
         BOLT_MALLOC(mint, sizeof(message_internal_t));
 
@@ -887,6 +932,11 @@ int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * ar
         BOLT_SUB(process_message_out(clt, mint));
 
     } while(0);
+
+    if (err != E_XL4BUS_OK) {
+        free(mint);
+        json_object_put(addr);
+    }
 
     return err;
 
@@ -993,7 +1043,7 @@ int get_xl4bus_message(xl4bus_message_t const * msg, json_object ** json, char c
 
 static void release_message(xl4bus_client_t * clt, message_internal_t * mint, int ok) {
 
-    clt->message_notify(clt, mint->msg, mint->custom, ok);
+    clt->on_delivered(clt, mint->msg, mint->custom, ok);
 
     client_internal_t * i_clt = clt->_private;
     HASH_DEL(i_clt->stream_hash, mint);

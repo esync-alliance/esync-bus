@@ -7,7 +7,12 @@
 #define XL4_PUB __attribute__((visibility ("default")))
 #endif
 
-XL4_PUB int xl4bus_init_ll(xl4bus_ll_cfg_t *);
+/**
+ * Initializes the library.
+ * @param cfg
+ * @return
+ */
+XL4_PUB int xl4bus_init_ll(xl4bus_ll_cfg_t * cfg);
 XL4_PUB int xl4bus_init_connection(xl4bus_connection_t *);
 XL4_PUB int xl4bus_process_connection(xl4bus_connection_t *, int fd, int flags, int *);
 XL4_PUB int xl4bus_shutdown_connection(xl4bus_connection_t *);

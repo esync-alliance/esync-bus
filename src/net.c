@@ -501,8 +501,8 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     } while (0);
 
     if (err != E_XL4BUS_OK) {
-        if (conn->send_callback) {
-            conn->send_callback(conn, msg, ref, err);
+        if (conn->on_sent_message) {
+            conn->on_sent_message(conn, msg, ref, err);
         }
     }
 
@@ -587,8 +587,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
     free(frame);
 
-    if (conn->send_callback) {
-        conn->send_callback(conn, msg, arg, err);
+    if (conn->on_sent_message) {
+        conn->on_sent_message(conn, msg, arg, err);
     }
 
     if (err == E_XL4BUS_OK) {

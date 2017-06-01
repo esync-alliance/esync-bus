@@ -75,9 +75,9 @@ int main(int argc, char ** argv) {
     xl4bus_init_ll(&ll_cfg);
 
     clt.use_internal_thread = 1;
-    clt.conn_notify = conn_info;
-    clt.message_notify = msg_info;
-    clt.handle_message = handle_message;
+    clt.on_connection = conn_info;
+    clt.on_delivered = msg_info;
+    clt.on_message = handle_message;
 
     clt.identity.type = XL4BIT_TRUST;
     clt.identity.trust.groups = groups;
@@ -91,7 +91,14 @@ int main(int argc, char ** argv) {
     xl4bus_message_t msg;
     memset(&msg, 0, sizeof(msg));
 
-    msg.xl4bus_address = "[{\"update-agent\":\"test1\"}]";
+    xl4bus_address_t addr = {
+            .type = XL4BAT_UPDATE_AGENT,
+            .update_agent = "test1",
+            .next = 0
+    };
+
+    msg.address = &addr;
+    // msg.xl4bus_address = "[{\"update-agent\":\"test1\"}]";
     msg.content_type = "application/json";
     msg.data = "{\"say\":\"hello\"}";
     msg.data_len = strlen(msg.data) + 1;
