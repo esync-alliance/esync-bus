@@ -591,7 +591,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                         json_object * cel= json_object_new_object();
                         json_object_object_add(cel, "update-agent", json_object_new_string(ci->ua_name));
-                        json_object_array_add(connected, bux);
+                        json_object_array_add(connected, cel);
 
                     } else {
                         BOLT_SAY(E_XL4BUS_CLIENT, "Can't accept/identify terminal type");
@@ -611,7 +611,7 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             json_object * cel = json_object_new_object();
                             json_object_object_add(cel, "group", json_object_new_string(ci->groups[i]));
-                            json_object_array_add(connected, bux);
+                            json_object_array_add(connected, cel);
 
                         }
                     }
@@ -974,6 +974,9 @@ void send_presence(json_object * connected, json_object * disconnected, conn_inf
 
     conn_info_t * ci;
     conn_info_t * aux;
+
+    DBG("Broadcasting presence change %s", bux);
+
     DL_FOREACH_SAFE(connections, ci, aux) {
         if (ci == except) { continue; }
         msg.stream_id = ci->out_stream_id += 2;

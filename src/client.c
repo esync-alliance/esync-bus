@@ -1096,7 +1096,9 @@ int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
             if (!next) { return E_XL4BUS_MEMORY; }
         }
 
+
         json_object * el = json_object_array_get_idx(j_list, i);
+        DBG("BAL: Processing el %s", json_object_get_string(el));
         json_object * aux;
         if (json_object_object_get_ex(el, "update-agent", &aux) && json_object_is_type(aux, json_type_string)) {
             next->type = XL4BAT_UPDATE_AGENT;
@@ -1104,7 +1106,7 @@ int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
         } else if (json_object_object_get_ex(el, "group", &aux) && json_object_is_type(aux, json_type_string)) {
             next->type = XL4BAT_GROUP;
             next->group = f_strdup(json_object_get_string(aux));
-        } else if (json_object_object_get_ex(el, "group", &aux) && json_object_is_type(aux, json_type_string)) {
+        } else if (json_object_object_get_ex(el, "special", &aux) && json_object_is_type(aux, json_type_string)) {
 
             char const * bux = json_object_get_string(aux);
             next->type = XL4BAT_SPECIAL;
@@ -1122,7 +1124,7 @@ int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
         }
 
         if (!last) {
-            *new_list = last;
+            *new_list = next;
         } else {
             last->next = next;
         }
@@ -1141,6 +1143,8 @@ static int handle_presence(xl4bus_client_t * clt, json_object * root) {
 
     int err = E_XL4BUS_OK;
 
+    DBG("Handling incoming presence");
+
     if (!clt->on_presence) { return err; }
 
     xl4bus_address_t *connected_top = 0;
@@ -1148,33 +1152,29 @@ static int handle_presence(xl4bus_client_t * clt, json_object * root) {
 
     do {
 
-        if (clt->on_presence) {
+        json_object *body;
 
-            json_object *body;
+        BOLT_IF(!json_object_object_get_ex(root, "body", &body) ||
+                !json_object_is_type(body, json_type_object), E_XL4BUS_CLIENT, "");
 
-            BOLT_IF(!json_object_object_get_ex(root, "body", &body) ||
-                    !json_object_is_type(body, json_type_object), E_XL4BUS_CLIENT, "");
-
-            json_object *list;
-            if (json_object_object_get_ex(body, "connected", &list) && json_object_is_type(list, json_type_array)) {
-                BOLT_SUB(build_address_list(list, &connected_top));
-            }
-
-            if (json_object_object_get_ex(body, "disconnected", &list) && json_object_is_type(list, json_type_array)) {
-                BOLT_SUB(build_address_list(list, &disconnected_top));
-            }
-
-            clt->on_presence(clt, connected_top, disconnected_top);
-
+        json_object *list;
+        if (json_object_object_get_ex(body, "connected", &list) && json_object_is_type(list, json_type_array)) {
+            BOLT_SUB(build_address_list(list, &connected_top));
         }
+
+        if (json_object_object_get_ex(body, "disconnected", &list) && json_object_is_type(list, json_type_array)) {
+            BOLT_SUB(build_address_list(list, &disconnected_top));
+        }
+
+        clt->on_presence(clt, connected_top, disconnected_top);
 
     } while (0);
 
 #define FREE_LIST(a) do { \
     while (a) { \
         xl4bus_address_t * aux = a->next; \
-        if (aux->type == XL4BAT_UPDATE_AGENT) { cfg.free(aux->update_agent); } \
-        if (aux->type == XL4BAT_GROUP) { cfg.free(aux->group); } \
+        if (a->type == XL4BAT_UPDATE_AGENT) { cfg.free(a->update_agent); } \
+        if (a->type == XL4BAT_GROUP) { cfg.free(a->group); } \
         cfg.free(a); \
         a = aux; \
     } \
