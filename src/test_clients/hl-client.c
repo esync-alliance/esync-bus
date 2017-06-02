@@ -78,7 +78,7 @@ int main(int argc, char ** argv) {
     xl4bus_init_ll(&ll_cfg);
 
     clt.use_internal_thread = 1;
-    clt.on_connection = conn_info;
+    clt.on_status = conn_info;
     clt.on_delivered = msg_info;
     clt.on_message = handle_message;
     clt.on_presence = handle_presence;

@@ -639,7 +639,9 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
         i_clt->addresses = 0;
     }
 
-    clt->on_connection(clt, how);
+    if (clt->on_status) {
+        clt->on_status(clt, how);
+    }
 
 }
 static int create_ll_connection(xl4bus_client_t * clt) {
@@ -851,7 +853,9 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                 !strcmp(type, "xl4bus.presence") && msg->is_final) {
 
             i_clt->state = CS_RUNNING;
-            clt->on_connection(clt, XL4BCC_RUNNING);
+            if (clt->on_status) {
+                clt->on_status(clt, XL4BCC_RUNNING);
+            }
 
             DBG("Presence contents : %s", json_object_get_string(root));
 

@@ -229,4 +229,30 @@ if (BUILD_BINS)
     endif()
 endif()
 
+find_package(Doxygen)
+
+if (NOT DOXYGEN_FOUND)
+
+    message(WARNING "Doxygen is needed to build the documentation, skipping documentation build now")
+
+else ()
+
+    set(doxyfile_in ${CMAKE_HOME_DIRECTORY}/doc/doxyfile.in)
+    set(doxyfile ${CMAKE_CURRENT_BINARY_DIR}/doxyfile)
+
+    configure_file(${doxyfile_in} ${doxyfile} @ONLY)
+
+    add_custom_target(doc ALL
+            COMMAND ${DOXYGEN_EXECUTABLE} ${doxyfile}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/doc
+            SOURCES
+                ${doxyfile_in} ${doxyfile}
+                ${PORT}/build_config.h
+                src/include/libxl4bus/high_level.h
+                src/include/libxl4bus/low_level.h
+                src/include/libxl4bus/types.h
+            VERBATIM)
+
+endif ()
+
 include(${LOAD_CFG})
