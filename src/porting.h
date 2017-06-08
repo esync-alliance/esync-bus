@@ -1,6 +1,14 @@
 #ifndef _XL4BUS_PORTING_H_
 #define _XL4BUS_PORTING_H_
 
+// all symbols are prefixed with __xl4bus_internal
+// to avoid clashing when used in a static library.
+#ifdef HIDE_SYM
+#define XI(x) __xl4bus_internal_##x
+#else
+#define XI(x) x
+#endif
+
 #include "build_config.h"
 #include "config.h"
 
@@ -17,6 +25,22 @@
 #if XL4_SUPPORT_UNIX_DGRAM_PAIR && !XL4_NEED_DGRAM
 #define XL4_NEED_DGRAM 1
 #endif
+
+#define pf_send XI(pf_send)
+#define pf_recv XI(pf_recv)
+#define pf_recv_dgram XI(pf_recv_dgram)
+#define pf_set_nonblocking XI(pf_set_nonblocking)
+#define pf_set_errno XI(pf_set_errno)
+#define pf_get_errno XI(pf_get_errno)
+#define pf_msvalue XI(pf_msvalue)
+#define pf_random XI(pf_random)
+#define pf_start_thread XI(pf_start_thread)
+#define pf_connect_tcp XI(pf_connect_tcp)
+#define pf_get_socket_error XI(pf_get_socket_error)
+#define pf_poll XI(pf_poll)
+#define pf_shutdown_rdwr XI(pf_shutdown_rdwr)
+#define pf_close XI(pf_close)
+#define pf_dgram_pair XI(pf_dgram_pair)
 
 /*
  * This file contains headers for

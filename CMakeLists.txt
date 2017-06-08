@@ -101,7 +101,6 @@ if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
         message(FATAL_ERROR "${PORT} must contain types_base.h or types_base.h.default file")
     endif()
     # can't use COPY because it only copies to dirs.
-    # file(COPY ${PORT}/config.h.default ${PORT}/config.h)
     # so the input file better not have any makefile macros.
     file(GENERATE OUTPUT ${PORT}/types_base.h INPUT ${PORT}/types_base.h.default)
 endif()
@@ -130,7 +129,10 @@ set_empty(XL4_SUPPORT_UNIX_DGRAM_PAIR 1)
 set_empty(XL4_HAVE_GETTIMEOFDAY 1)
 set_empty(XL4_HAVE_STD_MALLOC 1)
 
-configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${PORT}/build_config.h)
+set(BCH ${CMAKE_BINARY_DIR}/build_config.h)
+
+configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${BCH})
+configure_file(${PORT}/types_base.h ${CMAKE_BINARY_DIR}/types_base.h)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/json-c)
@@ -138,7 +140,8 @@ include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${PORT})
 
 set(LIB_SOURCE ${LIB_SOURCE}
-    ${PORT}/build_config.h
+    ${BCH}
+    ${CMAKE_BINARY_DIR}/types_base.h
     src/identity.c
     src/misc.c
     src/net.c
@@ -160,7 +163,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
 
 set(JSON_C_LIB ${CMAKE_SOURCE_DIR}/json-c/.libs/libjson-c.a)
 if (NOT EXISTS ${JSON_C_LIB})
-    message(FATAL_ERROR You must build json-c sources first!)
+    message(FATAL_ERROR "You must build json-c sources first!")
 endif()
 
 if (XL4_PROVIDE_THREADS)
@@ -176,6 +179,7 @@ if (BUILD_SHARED)
     endif()
     set(USE_LIB xl4bus-shared)
     target_link_libraries(xl4bus-shared ${JSON_C_LIB})
+    install(TARGETS xl4bus-shared LIBRARY DESTINATION lib)
 endif()
 
 if (BUILD_STATIC)
@@ -188,6 +192,8 @@ if (BUILD_STATIC)
         set(USE_LIB xl4bus-static)
     endif()
     target_link_libraries(xl4bus-static ${JSON_C_LIB})
+    target_compile_definitions(xl4bus-static PUBLIC HIDE_SYM)
+    install(TARGETS xl4bus-static ARCHIVE DESTINATION lib)
 endif()
 
 if (BUILD_BINS)
@@ -206,6 +212,8 @@ if (BUILD_BINS)
             src/broker/common.h
             src/broker/common.c
     )
+
+    install(TARGETS xl4bus-broker RUNTIME DESTINATION bin)
 
     include(FindPkgConfig)
 
@@ -229,6 +237,10 @@ if (BUILD_BINS)
     endif()
 endif()
 
+install(DIRECTORY src/include/libxl4bus DESTINATION include/libxl4bus)
+install(FILES ${BCH} DESTINATION include/libxl4bus)
+install(FILES ${CMAKE_BINARY_DIR}/types_base.h DESTINATION include/libxl4bus)
+
 find_package(Doxygen)
 
 if (NOT DOXYGEN_FOUND)
@@ -247,11 +259,13 @@ else ()
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/doc
             SOURCES
                 ${doxyfile_in} ${doxyfile}
-                ${PORT}/build_config.h
+                ${BCH}
                 src/include/libxl4bus/high_level.h
                 src/include/libxl4bus/low_level.h
                 src/include/libxl4bus/types.h
             VERBATIM)
+
+    install(DIRECTORY ${CMAKE_BINARY_DIR}/html DESTINATION share/doc/libxl4bus)
 
 endif ()
 

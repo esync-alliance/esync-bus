@@ -4,6 +4,7 @@
 #include "internal.h"
 #include "debug.h"
 
+#define crcTable XI(crcTable)
 extern uint32_t crcTable[];
 
 // Credit : https://barrgroup.com/Embedded-Systems/How-To/CRC-Calculation-C-Code

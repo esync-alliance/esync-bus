@@ -186,14 +186,24 @@ typedef struct client_internal {
 extern xl4bus_ll_cfg_t cfg;
 
 /* net.c */
+#define check_conn_io XI(check_conn_io)
 int check_conn_io(xl4bus_connection_t*);
 
 /* secure.c */
 // $TODO: validate incoming JWS message
+#define validate_jws XI(validate_jws)
+#define sign_jws XI(sign_jws)
 int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, cjose_jws_t ** exp_jws);
 int sign_jws(const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 
 /* misc.c */
+#define consume_dbuf XI(consume_dbuf)
+#define add_to_dbuf XI(add_to_dbuf)
+#define free_dbuf XI(free_dbuf)
+#define cleanup_stream XI(cleanup_stream)
+#define cjose_to_err XI(cjose_to_err)
+#define f_asprintf XI(f_asprintf)
+#define shutdown_connection_ts XI(shutdown_connection_ts)
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
 void free_dbuf(dbuf_t *, int);
