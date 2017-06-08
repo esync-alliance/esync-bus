@@ -6,6 +6,15 @@
 #include "itc.h"
 #include <libxl4bus/low_level.h>
 
+#define cfg XI(cfg)
+#define consume_dbuf XI(consume_dbuf)
+#define add_to_dbuf XI(add_to_dbuf)
+#define free_dbuf XI(free_dbuf)
+#define cleanup_stream XI(cleanup_stream)
+#define cjose_to_err XI(cjose_to_err)
+#define f_asprintf XI(f_asprintf)
+#define shutdown_connection_ts XI(shutdown_connection_ts)
+
 #if XL4_PROVIDE_PRINTF
 #define vasprintf tft_vasprintf
 #include "printf.h"
@@ -197,13 +206,6 @@ int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, cjose
 int sign_jws(const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 
 /* misc.c */
-#define consume_dbuf XI(consume_dbuf)
-#define add_to_dbuf XI(add_to_dbuf)
-#define free_dbuf XI(free_dbuf)
-#define cleanup_stream XI(cleanup_stream)
-#define cjose_to_err XI(cjose_to_err)
-#define f_asprintf XI(f_asprintf)
-#define shutdown_connection_ts XI(shutdown_connection_ts)
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
 void free_dbuf(dbuf_t *, int);
