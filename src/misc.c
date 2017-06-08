@@ -360,3 +360,74 @@ char * f_asprintf(char * fmt, ...) {
     return ret;
 
 }
+
+xl4bus_address_t * xl4bus_make_address(xl4bus_address_t * prev, xl4bus_address_type_t type, ...) {
+
+    va_list ap;
+    va_start(ap, type);
+
+    xl4bus_address_t * addr = f_malloc(sizeof(xl4bus_address_t));
+    if (prev) {
+        prev->next = addr;
+    }
+    addr->type = type;
+    switch (type) {
+
+        case XL4BAT_SPECIAL:
+            addr->special = va_arg(ap, xl4bus_address_special_t);
+            break;
+
+        case XL4BAT_UPDATE_AGENT:
+        {
+            char * ua = va_arg(ap, char*);
+            int copy = va_arg(ap, int);
+            if (copy) {
+                addr->update_agent = f_strdup(ua);
+            } else {
+                addr->update_agent = ua;
+            }
+        }
+            break;
+        case XL4BAT_GROUP:
+        {
+            char * ua = va_arg(ap, char*);
+            int copy = va_arg(ap, int);
+            if (copy) {
+                addr->update_agent = f_strdup(ua);
+            } else {
+                addr->update_agent = ua;
+            }
+        }
+            break;
+    }
+
+    return addr;
+
+}
+
+void xl4bus_free_address(xl4bus_address_t * addr, int chain) {
+
+    while (addr) {
+
+        xl4bus_address_t * next;
+        if (chain) {
+            next = addr->next;
+        } else {
+            next = 0;
+        }
+
+        switch (addr->type) {
+            case XL4BAT_SPECIAL:break;
+            case XL4BAT_UPDATE_AGENT:
+                cfg.free(addr->update_agent);
+                break;
+            case XL4BAT_GROUP:
+                cfg.free(addr->group);
+                break;
+        }
+
+        addr = next;
+
+    }
+
+}

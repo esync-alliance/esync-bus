@@ -20,7 +20,10 @@
 XL4_PUB
 /**
  * Initializes a high level client.
- * Note that the low level (using ::xl4bus_init_ll) must be initialized
+ * Note that the low level (using ::xl4bus_init_ll) must be initialized.
+ * This also starts client operations, and the client will start
+ * issuing poll requests, etc. If the use of internal thread
+ * is turned on, then the internal thread is started right away.
  * @param clt client structure, with handler information filled in.
  * @param url URL of the broker. The only supported connection URL
  * at this point is in form of `tcp://hostname:port`.
