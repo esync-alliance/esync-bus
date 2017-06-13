@@ -91,7 +91,9 @@ if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
     # can't use COPY because it only copies to dirs.
     # file(COPY ${PORT}/config.h.default ${PORT}/config.h)
     # so the input file better not have any makefile macros.
-    file(GENERATE OUTPUT ${PORT}/config.h INPUT ${PORT}/config.h.default)
+    # can't use GENERATE because it creates a make target, and we need it now
+    # file(GENERATE OUTPUT ${PORT}/config.h INPUT ${PORT}/config.h.default)
+    configure_file(${PORT}/config.h.default ${PORT}/config.h COPYONLY)
 endif()
 
 set(LOAD_CFG ${PORT}/types_base.h)
@@ -100,9 +102,9 @@ if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
     if ((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
         message(FATAL_ERROR "${PORT} must contain types_base.h or types_base.h.default file")
     endif()
-    # can't use COPY because it only copies to dirs.
-    # so the input file better not have any makefile macros.
-    file(GENERATE OUTPUT ${PORT}/types_base.h INPUT ${PORT}/types_base.h.default)
+    # see comments for above section
+    # file(GENERATE OUTPUT ${PORT}/types_base.h INPUT ${PORT}/types_base.h.default)
+    configure_file(${PORT}/types_base.h.default ${PORT}/types_base.h COPYONLY)
 endif()
 
 
