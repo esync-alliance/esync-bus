@@ -2,6 +2,6 @@
 include(FindPkgConfig)
 
 pkg_check_modules(CJOSE REQUIRED cjose)
-pkg_check_modules(CARES REQUIRED libcares)
+pkg_check_modules(CARES REQUIRED libcares>=1.12.0)
 influence_pkg("CJOSE")
 influence_pkg("CARES")
