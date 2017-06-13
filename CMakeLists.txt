@@ -140,6 +140,7 @@ include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/json-c)
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${PORT})
+include_directories(${CMAKE_BINARY_DIR})
 
 set(LIB_SOURCE ${LIB_SOURCE}
     ${BCH}
