@@ -14,7 +14,7 @@
 
 static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
-static int set_poll(xl4bus_connection_t *, int);
+static int set_poll(xl4bus_connection_t *, int, int);
 static void print_out(const char *);
 
 int main(int argc, char ** argv) {
@@ -145,7 +145,7 @@ void * run_conn(void * _arg) {
 
 }
 
-int set_poll(xl4bus_connection_t * conn, int flg) {
+int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
     struct pollfd * pfd = conn->custom;
     pfd->events = 0;
