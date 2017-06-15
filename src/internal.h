@@ -12,6 +12,7 @@
 #include <mbedtls/platform.h>
 #include <mbedtls/rsa.h>
 #include <mbedtls/error.h>
+#include <mbedtls/pk.h>
 
 #define cfg XI(cfg)
 
@@ -97,6 +98,8 @@ typedef struct connection_internal {
     mbedtls_x509_crt trust;
     mbedtls_x509_crt chain;
     mbedtls_x509_crl crl;
+
+    cjose_jwk_t * private_key;
 
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;

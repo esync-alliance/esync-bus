@@ -237,11 +237,11 @@ typedef int (*xl4bus_mt_message_callback) (struct xl4bus_connection *, void *, s
 
 typedef struct xl4bus_X509v3_Identity {
 
-    xl4bus_buf_t certificate;
+    xl4bus_buf_t ** chain;
     xl4bus_buf_t private_key;
     xl4bus_password_callback_t password;
-    size_t trust_len;
-    xl4bus_buf_t * trust;
+    xl4bus_buf_t ** trust;
+    void * custom;
 
 } xl4bus_X509v3_Identity_t;
 

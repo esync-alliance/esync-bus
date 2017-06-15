@@ -1,10 +1,15 @@
 
 #include <config.h>
+#include <mbedtls/bignum.h>
+#include <mbedtls/rsa.h>
+#include <cjose/jwk.h>
 #include "internal.h"
 #include "porting.h"
 #include "misc.h"
 
 xl4bus_ll_cfg_t cfg;
+
+static int mpi2jwk(mbedtls_mpi *, uint8_t **, size_t *);
 
 #if 0
 // the table below was generated with the following code:
@@ -140,7 +145,13 @@ int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
 
 int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
-    int err;
+    int err = E_XL4BUS_OK;
+    char * pwd = 0;
+
+    mbedtls_pk_context prk;
+    mbedtls_pk_init(&prk);
+    cjose_jwk_rsa_keyspec rsa_ks;
+    memset(&rsa_ks, 0, sizeof(rsa_ks));
 
     do {
 
@@ -161,6 +172,51 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
         mbedtls_x509_crt_init(&i_conn->trust);
 
         if (conn->identity.type == XL4BIT_X509) {
+
+            cjose_err c_err;
+
+            // load trust
+            for (xl4bus_buf_t ** buf = conn->identity.x509.trust; *buf; buf++) {
+                BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->trust, (*buf)->data, (*buf)->len));
+            }
+
+            BOLT_IF(!*conn->identity.x509.chain, E_XL4BUS_ARG,
+                    "At least one certificate must be present in the chain");
+
+            // load chain
+            for (xl4bus_buf_t ** buf = conn->identity.x509.chain; *buf; buf++) {
+                BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->data, (*buf)->len));
+            }
+
+            // $TODO: do we verify that the provided cert checks out against the provided trust?
+            // realistically there are no rules to say it should.
+
+            size_t pwd_len = 0;
+
+            if (conn->identity.x509.password) {
+                pwd = conn->identity.x509.password(&conn->identity.x509);
+                pwd_len = strlen(pwd);
+            }
+
+            BOLT_MTLS(mbedtls_pk_parse_key(&prk, conn->identity.x509.private_key.data,
+                    conn->identity.x509.private_key.len, (char unsigned const *)pwd, pwd_len));
+
+            BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA certs are supported");
+
+            BOLT_MTLS(mbedtls_pk_check_pair(&i_conn->chain.pk, &prk));
+
+            mbedtls_rsa_context * prk_rsa = mbedtls_pk_rsa(prk);
+
+            BOLT_SUB(mpi2jwk(&prk_rsa->E, &rsa_ks.e, &rsa_ks.elen));
+            BOLT_SUB(mpi2jwk(&prk_rsa->N, &rsa_ks.n, &rsa_ks.nlen));
+            BOLT_SUB(mpi2jwk(&prk_rsa->D, &rsa_ks.d, &rsa_ks.dlen));
+            BOLT_SUB(mpi2jwk(&prk_rsa->P, &rsa_ks.p, &rsa_ks.plen));
+            BOLT_SUB(mpi2jwk(&prk_rsa->Q, &rsa_ks.q, &rsa_ks.qlen));
+            BOLT_SUB(mpi2jwk(&prk_rsa->DP, &rsa_ks.dp, &rsa_ks.dplen));
+            BOLT_SUB(mpi2jwk(&prk_rsa->DQ, &rsa_ks.dq, &rsa_ks.dqlen));
+            BOLT_SUB(mpi2jwk(&prk_rsa->QP, &rsa_ks.qi, &rsa_ks.qilen));
+
+            BOLT_CJOSE(i_conn->private_key = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
 
         }
 
@@ -183,6 +239,17 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
     if (err != E_XL4BUS_OK) {
         shutdown_connection_ts(conn);
     }
+
+    free(pwd);
+    mbedtls_pk_free(&prk);
+    free(rsa_ks.e);
+    free(rsa_ks.n);
+    free(rsa_ks.d);
+    free(rsa_ks.p);
+    free(rsa_ks.q);
+    free(rsa_ks.dp);
+    free(rsa_ks.dq);
+    free(rsa_ks.qi);
 
     return err;
 
@@ -305,6 +372,10 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
         pf_close(conn->mt_write_socket);
     }
 #endif
+
+    mbedtls_x509_crl_free(&i_conn->crl);
+    mbedtls_x509_crt_free(&i_conn->trust);
+    mbedtls_x509_crt_free(&i_conn->chain);
 
 }
 
@@ -436,6 +507,34 @@ void xl4bus_free_address(xl4bus_address_t * addr, int chain) {
         }
 
         addr = next;
+
+    }
+
+}
+
+int mpi2jwk(mbedtls_mpi * mpi, uint8_t ** dst , size_t * dst_len) {
+
+    *dst = 0;
+    *dst_len = mpi->n * sizeof(mbedtls_mpi_uint) + 1;
+
+    while (1) {
+
+        void * aux = cfg.realloc(*dst, *dst_len);
+        if (!aux) {
+            cfg.free(*dst);
+            *dst = 0;
+            return E_XL4BUS_MEMORY;
+        }
+
+        *dst = aux;
+
+        if (mbedtls_mpi_write_binary(mpi, *dst, *dst_len) == MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL) {
+            DBG("MPI %p, size %d failed to fit into %d raw", mpi, mpi->n, *dst_len);
+            *dst_len += 20;
+            continue;
+        }
+
+        return 0;
 
     }
 

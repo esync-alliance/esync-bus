@@ -93,7 +93,7 @@
             DBG("%s failed with (%x) %s", #a, __mtls_err, e_buf); \
         } \
         err = E_XL4BUS_SYS; \
-        pf_seterrno(EINVAL); \
+        pf_set_errno(EINVAL); \
     } \
 } while(0); \
 if (err) { break; } \
