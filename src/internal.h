@@ -6,14 +6,14 @@
 #include "itc.h"
 #include <libxl4bus/low_level.h>
 
+#include <json.h>
+#include <mbedtls/x509.h>
+#include <mbedtls/x509_crt.h>
+#include <mbedtls/platform.h>
+#include <mbedtls/rsa.h>
+#include <mbedtls/error.h>
+
 #define cfg XI(cfg)
-#define consume_dbuf XI(consume_dbuf)
-#define add_to_dbuf XI(add_to_dbuf)
-#define free_dbuf XI(free_dbuf)
-#define cleanup_stream XI(cleanup_stream)
-#define cjose_to_err XI(cjose_to_err)
-#define f_asprintf XI(f_asprintf)
-#define shutdown_connection_ts XI(shutdown_connection_ts)
 
 #if XL4_PROVIDE_PRINTF
 #define vasprintf tft_vasprintf
@@ -22,11 +22,8 @@
 
 #define uthash_malloc(c) cfg.malloc(c)
 #define uthash_free(c,d) cfg.free(c)
-
 #include "uthash.h"
 #include "utlist.h"
-
-#include <json.h>
 
 #define FRAME_TYPE_MASK 0x7
 #define FRAME_TYPE_NORMAL 0x0
@@ -96,6 +93,10 @@ typedef struct connection_internal {
     uint64_t connectivity_test_ts;
     // let the LL caller manage the outgoing stream IDs.
     // uint16_t stream_seq_out;
+
+    mbedtls_x509_crt trust;
+    mbedtls_x509_crt chain;
+    mbedtls_x509_crl crl;
 
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;
@@ -206,6 +207,15 @@ int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, cjose
 int sign_jws(const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 
 /* misc.c */
+
+#define consume_dbuf XI(consume_dbuf)
+#define add_to_dbuf XI(add_to_dbuf)
+#define free_dbuf XI(free_dbuf)
+#define cleanup_stream XI(cleanup_stream)
+#define cjose_to_err XI(cjose_to_err)
+#define f_asprintf XI(f_asprintf)
+#define shutdown_connection_ts XI(shutdown_connection_ts)
+
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
 void free_dbuf(dbuf_t *, int);

@@ -131,6 +131,7 @@ int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
 
     cjose_set_alloc_funcs(cfg.malloc, cfg.realloc, cfg.free);
     ares_library_init_mem(ARES_LIB_INIT_ALL, cfg.malloc, cfg.free, cfg.realloc);
+    mbedtls_platform_set_calloc_free(f_calloc, cfg.free);
 
 #endif
 
@@ -154,6 +155,14 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             i_conn->stream_seq_out = 1;
         }
         */
+
+        mbedtls_x509_crl_init(&i_conn->crl);
+        mbedtls_x509_crt_init(&i_conn->chain);
+        mbedtls_x509_crt_init(&i_conn->trust);
+
+        if (conn->identity.type == XL4BIT_X509) {
+
+        }
 
 #if XL4_SUPPORT_THREADS
         if (conn->mt_support) {

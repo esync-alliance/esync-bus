@@ -30,5 +30,6 @@ LINUX
 * Build your json-c:
   - ( cd json-c && autoreconf -f -i && CFLAGS="-fPIC -fvisibility=hidden" ./configure --enable-static --disable-shared && make -j )
 * Build your mbedtls:
-  - ( mkdir -p mbedtls/build && cd mbedtls && ./scripts/config.pl set MBEDTLS_PLATFORM_MEMORY && cd build && cmake .. && make -j )
+  - ( mkdir -p mbedtls/build && cd mbedtls && ./scripts/config.pl set MBEDTLS_PLATFORM_MEMORY && cd build && \
+         cmake -DCMAKE_C_FLAGS="-fPIC -fvisibility=hidden" .. && make -j )
 

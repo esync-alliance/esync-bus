@@ -84,4 +84,19 @@
 #define BOLT_ARES(a) { int __err = (a); if (__err != ARES_SUCCESS) { if (__err == ARES_ENOMEM) { __err = E_XL4BUS_MEMORY; } else { __err = E_XL4BUS_INTERNAL; } BOLT_SAY(__err, "%s", #a); } } do{} while(0)
 #define BOLT_MALLOC(var, how_much) { if (!((var) = f_malloc(how_much))) { BOLT_SAY(E_XL4BUS_MEMORY, "failed to alloc %d for %s", how_much, #var); } } do{}while(0)
 
+#define BOLT_MTLS(a) do { \
+    int __mtls_err = (a); \
+    if (__mtls_err) { \
+        if (XL4_PROVIDE_DEBUG) { \
+            char e_buf[512]; \
+            mbedtls_strerror(__mtls_err, e_buf, 512); \
+            DBG("%s failed with (%x) %s", #a, __mtls_err, e_buf); \
+        } \
+        err = E_XL4BUS_SYS; \
+        pf_seterrno(EINVAL); \
+    } \
+} while(0); \
+if (err) { break; } \
+do {} while(0)
+
 #endif // _XL4BUS_DEBUG_H_

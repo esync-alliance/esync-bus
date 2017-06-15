@@ -48,6 +48,12 @@ static inline void * f_malloc(size_t size) {
 
 }
 
+static inline void * f_calloc(size_t n_mem_b, size_t size) {
+
+    return f_malloc(n_mem_b * size);
+
+}
+
 static inline char * f_strdup(const char *s) {
 
     if (!s) { return 0; }
