@@ -28,7 +28,7 @@ extern int debug;
 } } while(0)
 
 #define DBG_SYS(a,b...) do { if (debug) { \
-    int _errno = pf_get_errno(); \
+    int _errno = errno; \
     _ltime_; \
     char * _str = f_asprintf("[%s] %s:%d error %s(%d): " a, now, __FILE__, __LINE__, strerror(_errno), _errno, ## b); \
     if (_str) { \

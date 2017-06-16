@@ -344,6 +344,9 @@ int main(int argc, char ** argv) {
                     conn->fd = fd2;
                     conn->set_poll = set_poll;
 
+                    load_simple_x509_creds(&conn->identity, "../test_certs/cip/private.pem",
+                            "../test_certs/cip/cert.pem", "../test_certs/ca/ca.pem", 0);
+
                     conn->custom = ci;
                     ci->conn = conn;
                     ci->pit.ci = ci;

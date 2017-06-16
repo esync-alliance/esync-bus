@@ -198,8 +198,8 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
                 pwd_len = strlen(pwd);
             }
 
-            BOLT_MTLS(mbedtls_pk_parse_key(&prk, conn->identity.x509.private_key.data,
-                    conn->identity.x509.private_key.len, (char unsigned const *)pwd, pwd_len));
+            BOLT_MTLS(mbedtls_pk_parse_key(&prk, conn->identity.x509.private_key->data,
+                    conn->identity.x509.private_key->len, (char unsigned const *)pwd, pwd_len));
 
             BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA certs are supported");
 
