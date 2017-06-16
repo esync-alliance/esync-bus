@@ -13,6 +13,7 @@
 #include <sys/epoll.h>
 #include <errno.h>
 #include <stdio.h>
+#include "json-c-rename.h"
 #include "json.h"
 
 #include <libxl4bus/low_level.h>

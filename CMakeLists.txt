@@ -170,6 +170,7 @@ set(BCH ${CMAKE_BINARY_DIR}/build_config.h)
 
 configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${BCH})
 configure_file(${PORT}/types_base.h ${CMAKE_BINARY_DIR}/types_base.h)
+configure_file(${CMAKE_SOURCE_DIR}/json-c-rename.h ${CMAKE_BINARY_DIR} COPYONLY)
 
 set(JSON_C ${CMAKE_SOURCE_DIR}/json-c)
 set(MBEDTLS ${CMAKE_SOURCE_DIR}/mbedtls)

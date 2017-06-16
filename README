@@ -28,7 +28,8 @@ LINUX
   - git submodule init
   - git submodule update
 * Build your json-c:
-  - ( cd json-c && autoreconf -f -i && CFLAGS="-fPIC -fvisibility=hidden" ./configure --enable-static --disable-shared && make -j )
+  - ( cd json-c && ( make distclean || true) && autoreconf -f -i && CFLAGS="-fPIC -fvisibility=hidden" \
+         CPPFLAGS="-include $(pwd)/../json-c-rename.h" ./configure --enable-static --disable-shared && make -j )
 * Build your mbedtls:
   - ( mkdir -p mbedtls/build && cd mbedtls && ./scripts/config.pl set MBEDTLS_PLATFORM_MEMORY && cd build && \
          cmake -DCMAKE_C_FLAGS="-fPIC -fvisibility=hidden" .. && make -j )

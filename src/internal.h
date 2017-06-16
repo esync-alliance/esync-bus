@@ -26,6 +26,7 @@
 #include "uthash.h"
 #include "utlist.h"
 
+#include "json-c-rename.h"
 #define FRAME_TYPE_MASK 0x7
 #define FRAME_TYPE_NORMAL 0x0
 #define FRAME_TYPE_CTEST 0x1
