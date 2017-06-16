@@ -26,5 +26,6 @@ LINUX
 * Build your json-c:
   - git submodule init
   - git submodule update
-  - ( cd json-c && autoreconf -f -i && CFLAGS="-fPIC -fvisibility=hidden" ./configure --enable-static --disable-shared && make -j )
+  - ( cd json-c && ( make distclean || true) && autoreconf -f -i && CFLAGS="-fPIC -fvisibility=hidden" \
+         CPPFLAGS="-include $(pwd)/../json-c-rename.h" ./configure --enable-static --disable-shared && make -j )
 

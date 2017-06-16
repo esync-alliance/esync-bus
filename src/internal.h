@@ -26,6 +26,7 @@
 #include "uthash.h"
 #include "utlist.h"
 
+#include "json-c-rename.h"
 #include <json.h>
 
 #define FRAME_TYPE_MASK 0x7
