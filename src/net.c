@@ -279,7 +279,7 @@ do {} while(0)
 
                             do {
 
-                                cjose_err c_err = {.code = CJOSE_ERR_NONE};
+                                cjose_err c_err;
 
                                 // the message is completed! Let's purge it.
                                 xl4bus_ll_message_t message;
@@ -559,10 +559,27 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
-        if ((err = sign_jws(msg->message.data, msg->message.data_len, msg->message.content_type, 13, 9,
-                (char **) &frame, &ser_len)) != E_XL4BUS_OK) {
-            break;
+        // if we can encrypt, then : encrypt + sign
+        // if we can't encrypt (no remote key), then : sign
+
+        void const * bytes_to_sign;
+        size_t bytes_to_sign_sz;
+        char const * ct;
+
+        if (i_conn->remote_key) {
+
+            BOLT_SUB(encrypt_jwe(msg->message.data, msg->message.data_len, msg->message.content_type, 0, 0, &bytes_to_sign, &bytes_to_sign_sz));
+            // $TODO: this should change to +json
+            ct = "application/jose+json";
+
+        } else {
+            bytes_to_sign = msg->message.data;
+            bytes_to_sign_sz = msg->message.data_len;
+            ct = msg->message.content_type;
         }
+
+        BOLT_SUB(sign_jws(bytes_to_sign, bytes_to_sign_sz, ct, 13, 9,
+                (char **) &frame, &ser_len));
 
         // $TODO: support large messages!
         if (ser_len > 65000) { break; }

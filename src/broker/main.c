@@ -184,7 +184,8 @@ static conn_info_hash_list_t * ci_by_name = 0;
 static conn_info_hash_list_t * ci_by_group = 0;
 static UT_array dm_clients;
 static int poll_fd;
-conn_info_t * connections;
+static conn_info_t * connections;
+static xl4bus_identity_t broker_identity;
 
 int main(int argc, char ** argv) {
 
@@ -212,6 +213,9 @@ int main(int argc, char ** argv) {
     b_addr.sin_family = AF_INET;
     b_addr.sin_port = htons(9133);
     b_addr.sin_addr.s_addr = INADDR_ANY;
+
+    load_simple_x509_creds(&broker_identity, "../test_certs/cip/private.pem",
+            "../test_certs/cip/cert.pem", "../test_certs/ca/ca.pem", 0);
 
     int reuse = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0) {
@@ -345,8 +349,7 @@ int main(int argc, char ** argv) {
                     conn->fd = fd2;
                     conn->set_poll = set_poll;
 
-                    load_simple_x509_creds(&conn->identity, "../test_certs/cip/private.pem",
-                            "../test_certs/cip/cert.pem", "../test_certs/ca/ca.pem", 0);
+                    memcpy(&conn->identity, &broker_identity, sizeof(broker_identity));
 
                     conn->custom = ci;
                     ci->conn = conn;

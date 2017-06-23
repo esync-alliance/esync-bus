@@ -274,7 +274,7 @@ if (BUILD_BINS)
     target_link_libraries(xl4bus-broker ${JSON_C_LIB})
 
     if (WITH_EFENCE)
-
+        targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES -lefence)
     endif()
 
     targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES ${USE_LIB})

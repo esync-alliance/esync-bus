@@ -6,7 +6,9 @@
 #include "itc.h"
 #include <libxl4bus/low_level.h>
 
+#include "json-c-rename.h"
 #include <json.h>
+
 #include <mbedtls/x509.h>
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/platform.h>
@@ -26,7 +28,6 @@
 #include "uthash.h"
 #include "utlist.h"
 
-#include "json-c-rename.h"
 #define FRAME_TYPE_MASK 0x7
 #define FRAME_TYPE_NORMAL 0x0
 #define FRAME_TYPE_CTEST 0x1
@@ -101,6 +102,7 @@ typedef struct connection_internal {
     mbedtls_x509_crl crl;
 
     cjose_jwk_t * private_key;
+    cjose_jwk_t * remote_key;
 
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;
@@ -207,8 +209,10 @@ int check_conn_io(xl4bus_connection_t*);
 // $TODO: validate incoming JWS message
 #define validate_jws XI(validate_jws)
 #define sign_jws XI(sign_jws)
+#define encrypt_jwe XI(encrypt_jwe)
 int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, cjose_jws_t ** exp_jws);
-int sign_jws(const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
+int sign_jws(cjose_jwk_t * key, char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
+int encrypt_jwe(cjose_jwk_t *, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 
 /* misc.c */
 

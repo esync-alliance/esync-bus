@@ -5,8 +5,8 @@
 #include "misc.h"
 #include "debug.h"
 
-static cjose_jwk_t *test_jwk_priv;
-static cjose_jwk_t *test_jwk_pub;
+// static cjose_jwk_t *test_jwk_priv;
+// static cjose_jwk_t *test_jwk_pub;
 
 // $TODO: this must be thrown out.
 static __attribute__((constructor)) void my_init() {
@@ -145,7 +145,7 @@ static __attribute__((constructor)) void my_init() {
     };
 
     c_err.code = CJOSE_ERR_NONE;
-    test_jwk_priv = cjose_jwk_create_RSA_spec(&ks_priv, &c_err);
+    // test_jwk_priv = cjose_jwk_create_RSA_spec(&ks_priv, &c_err);
     if (c_err.code != CJOSE_ERR_NONE) {
         printf("Failed to make private key : %s\n", c_err.message);
         exit(1);
@@ -160,7 +160,7 @@ static __attribute__((constructor)) void my_init() {
     ks_pub.nlen = sizeof(n);
 
     c_err.code = CJOSE_ERR_NONE;
-    test_jwk_pub = cjose_jwk_create_RSA_spec(&ks_pub, &c_err);
+    // test_jwk_pub = cjose_jwk_create_RSA_spec(&ks_pub, &c_err);
     if (c_err.code != CJOSE_ERR_NONE) {
         printf("Failed to make pub key : %s\n", c_err.message);
         exit(1);
@@ -176,7 +176,7 @@ int validate_jws(void *bin, size_t jws_len, int ct, uint16_t *stream_id, cjose_j
         return E_XL4BUS_DATA;
     }
 
-    cjose_err c_err = {.code = CJOSE_ERR_NONE};
+    cjose_err c_err;
 
     cjose_jws_t *jws = 0;
     json_object *hdr = 0;
@@ -238,9 +238,10 @@ int validate_jws(void *bin, size_t jws_len, int ct, uint16_t *stream_id, cjose_j
 
 }
 
-int sign_jws(const void *data, size_t data_len, char const * ct, int pad, int offset, char **jws_data, size_t *jws_len) {
+int sign_jws(cjose_jwk_t * key, char * x5t, const void *data, size_t data_len,
+        char const * ct, int pad, int offset, char **jws_data, size_t *jws_len) {
 
-    cjose_err c_err = { .code = CJOSE_ERR_NONE};
+    cjose_err c_err;
     cjose_jws_t *jws = 0;
     cjose_header_t *j_hdr = 0;
     int err = E_XL4BUS_OK;
@@ -252,14 +253,13 @@ int sign_jws(const void *data, size_t data_len, char const * ct, int pad, int of
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, "RS256", &c_err));
 
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, ct, &c_err));
+        BOLT_CJOSE(cjose_header_set(j_hdr, "x5t#S256", x5t, &c_err));
 
         json_object * obj = json_object_new_object();
 
         BOLT_CJOSE(cjose_header_set(j_hdr, "x-xl4bus", json_object_get_string(obj), &c_err));
 
-        // $TODO: use proper key
-
-        BOLT_CJOSE(jws = cjose_jws_sign(test_jwk_priv, j_hdr, data, data_len, &c_err));
+        BOLT_CJOSE(jws = cjose_jws_sign(key, j_hdr, data, data_len, &c_err));
 
         const char *jws_export;
 
@@ -278,6 +278,56 @@ int sign_jws(const void *data, size_t data_len, char const * ct, int pad, int of
     } while (0);
 
     cjose_jws_release(jws);
+    cjose_header_release(j_hdr);
+
+    return err;
+
+}
+
+int encrypt_jwe(cjose_jwk_t * key, const void *data, size_t data_len,
+        char const * ct, int pad, int offset, char **jws_data, size_t *jws_len) {
+
+    cjose_err c_err;
+    cjose_jwe_t *jwe = 0;
+    cjose_header_t *j_hdr = 0;
+    int err = E_XL4BUS_OK;
+
+    do {
+
+        BOLT_CJOSE(j_hdr = cjose_header_new(&c_err));
+
+        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_RSA_OAEP, &c_err));
+        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A256CBC_HS512, &c_err));
+        // x5t#S256 must be in the key.
+        // BOLT_CJOSE(cjose_header_set(j_hdr, "x5t#S256", x5t, &c_err));
+
+        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, ct, &c_err));
+
+        json_object * obj = json_object_new_object();
+
+        BOLT_CJOSE(cjose_header_set(j_hdr, "x-xl4bus", json_object_get_string(obj), &c_err));
+
+        // $TODO: use proper key
+
+        BOLT_CJOSE(jwe = cjose_jwe_encrypt(key, j_hdr, data, data_len, &c_err));
+
+        const char *jwe_export;
+
+        BOLT_CJOSE(jwe_export = cjose_jwe_export(jwe, &c_err));
+
+        size_t l = strlen(jwe_export) + 1;
+        if (!(*jws_data = f_malloc(l + pad))) {
+            err = E_XL4BUS_MEMORY;
+            break;
+        }
+
+        // DBG("Serialized JWS(%d bytes) %s, ", l-1, jws_export);
+
+        memcpy((*jws_data) + offset, jwe_export, *jws_len = l);
+
+    } while (0);
+
+    cjose_jwe_release(jwe);
     cjose_header_release(j_hdr);
 
     return err;
