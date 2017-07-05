@@ -174,6 +174,7 @@ configure_file(${CMAKE_SOURCE_DIR}/json-c-rename.h ${CMAKE_BINARY_DIR} COPYONLY)
 
 set(JSON_C ${CMAKE_SOURCE_DIR}/json-c)
 set(MBEDTLS ${CMAKE_SOURCE_DIR}/mbedtls)
+set(CJOSE ${CMAKE_SOURCE_DIR}/cjose)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${JSON_C})
@@ -212,6 +213,11 @@ set(MBEDTLS_LIB ${MBEDTLS}/build/library/libmbedx509.a ${MBEDTLS}/build/library/
 exists_all(TEST ${MBEDTLS_LIB})
 if (NOT ${TEST})
     message(FATAL_ERROR "You must build mbedtls sources first!")
+endif()
+set(CJOSE_LIB ${CJOSE}/lib/libcjose.a)
+exists_all(TEST ${CJOSE_LIB})
+if (NOT ${TEST})
+    message(FATAL_ERROR "You must build cjose sources first!")
 endif()
 
 if (XL4_PROVIDE_THREADS)

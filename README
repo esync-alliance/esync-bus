@@ -18,8 +18,10 @@ ALL
 LINUX
 =====
 
-* Make sure you installed CJose library (https://github.com/cisco/cjose)
-* Install development packages for C Ares library (cares)
+* Install development packages for:
+  - C Ares library (cares)
+  - Jansson
+  - OpenSSL
 * Install autoconf package (autoreconf is needed)
 * If your CJose directory is not at a standard location,
   copy linux_port/config.cmk.default to linux_port/config.cmk, and
@@ -27,10 +29,12 @@ LINUX
 * Initialize submodules:
   - git submodule init
   - git submodule update
-* Build your json-c:
+* Build json-c:
   - ( cd json-c && ( make distclean || true) && autoreconf -f -i && CFLAGS="-fPIC -fvisibility=hidden" \
          CPPFLAGS="-include $(pwd)/../json-c-rename.h" ./configure --enable-static --disable-shared && make -j )
-* Build your mbedtls:
+* Build mbedtls:
   - ( mkdir -p mbedtls/build && cd mbedtls && ./scripts/config.pl set MBEDTLS_PLATFORM_MEMORY && cd build && \
          cmake -DCMAKE_C_FLAGS="-fPIC -fvisibility=hidden" .. && make -j )
+* Build cjose:
+  - ( cd cjose && ./configure --with-openssl=/usr --with-jansson=/usr --enable-static --disable-shared && make -j )
 

@@ -1,7 +1,4 @@
 
-# if your CJose is not in default location:
-# set(ENV{CMAKE_APPBUNDLE_PATH} "/opt/soft/cjose")
-
 set(XL4_PROVIDE_DEBUG 1)
 
 # uncomment to link executables against ElectricFence

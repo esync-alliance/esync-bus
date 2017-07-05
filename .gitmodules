@@ -4,3 +4,7 @@
 [submodule "mbedtls"]
 	path = mbedtls
 	url = https://github.com/ARMmbed/mbedtls.git
+[submodule "cjose"]
+	path = cjose
+	url = https://github.com/veselov/cjose
+	branch = json_ser
