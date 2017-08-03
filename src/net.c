@@ -5,7 +5,7 @@
 #include "debug.h"
 
 static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes);
-static void set_frame_size(void * frame_body, uint32_t size);
+static void set_frame_size(void *, uint32_t);
 static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc);
 static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t len);
 static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg);
@@ -120,15 +120,15 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags, int
         if (is_data_fd && (flags & XL4BUS_POLL_READ)) {
 
 #define RDP(pos, where, len, why) {\
-    size_t _len = len; \
-    size_t _lim = pos + _len; \
+    size_t _len = (len); \
+    size_t _lim = (pos) + _len; \
     ssize_t delta = _lim - i_conn->current_frame.total_read; \
     /* printf("From %d, read %d to %d, missing %d\n", pos, len, _lim, delta); */ \
     if ((delta > 0)) {\
         int _stop = 0; \
-        delta = i_conn->current_frame.total_read - pos; \
+        delta = i_conn->current_frame.total_read - (pos); \
         _len = _len - delta; \
-        void * ptr = where + delta; \
+        void * ptr = (where) + delta; \
         while (_len) { \
             ssize_t res = pf_recv(fd, ptr, _len); \
             if (res < 0) { \
@@ -284,9 +284,16 @@ do {} while(0)
                                 // the message is completed! Let's purge it.
                                 xl4bus_ll_message_t message;
 
-                                BOLT_SUB(validate_jws(stream->incoming_message_data.data,
+                                BOLT_SUB(validate_jws(
+                                        stream->incoming_message_data.data,
                                         stream->incoming_message_data.len,
-                                        stream->incoming_message_ct, 0, &jws));
+                                        stream->incoming_message_ct,
+                                        0,
+                                        &i_conn->trust,
+                                        &i_conn->crl,
+                                        lookup_x509_conn,
+                                        i_conn,
+                                        &jws));
 
                                 BOLT_CJOSE(cjose_jws_get_plaintext(jws, (uint8_t**)&message.message.data,
                                         &message.message.data_len, &c_err));
@@ -353,7 +360,7 @@ do {} while(0)
 
                         uint16_t stream_id;
                         if (validate_jws(frm.data.data + 1, frm.data.len - 1,
-                                (int)frm.data.data[0], &stream_id, 0) == E_XL4BUS_OK) {
+                                (int)frm.data.data[0], &stream_id, &i_conn->trust, &i_conn->crl, lookup_x509_conn, i_conn, 0) == E_XL4BUS_OK) {
                             stream_t * stream;
                             HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
                             if (stream) {
@@ -530,6 +537,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
     uint8_t * frame = 0;
     int err;
+    json_object * x5c = 0;
+    char * base64 = 0;
 
     do {
 
@@ -568,18 +577,82 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         if (i_conn->remote_key) {
 
-            BOLT_SUB(encrypt_jwe(msg->message.data, msg->message.data_len, msg->message.content_type, 0, 0, &bytes_to_sign, &bytes_to_sign_sz));
+            BOLT_SUB(encrypt_jwe(i_conn->remote_key, i_conn->remote_x5t, msg->message.data, msg->message.data_len,
+                    msg->message.content_type, 0, 0, (char**)&bytes_to_sign, &bytes_to_sign_sz));
             // $TODO: this should change to +json
             ct = "application/jose+json";
 
         } else {
+
             bytes_to_sign = msg->message.data;
             bytes_to_sign_sz = msg->message.data_len;
             ct = msg->message.content_type;
         }
 
-        BOLT_SUB(sign_jws(bytes_to_sign, bytes_to_sign_sz, ct, 13, 9,
-                (char **) &frame, &ser_len));
+        if (!i_conn->sent_full_x5) {
+
+            i_conn->sent_full_x5 = 1;
+
+            x5c = json_object_new_array();
+
+            // $TODO: it's *really* tedious to get mbedtls to convert a loaded certificate
+            // into a DER buffer, see x509.c for comments.
+
+            for (xl4bus_asn1_t ** cin = conn->identity.x509.chain; *cin; cin++) {
+
+                size_t base64_len;
+
+                if ((*cin)->enc == XL4BUS_ANS1ENC_DER) {
+                    cjose_err c_err;
+                    BOLT_CJOSE(cjose_base64_encode((*cin)->buf.data, (*cin)->buf.len, &base64, &base64_len, &c_err));
+                } else {
+
+                    // encoding must be PEM, we already have the base64 data,
+                    // but we need to remove PEM headers and join the lines.
+
+                    base64 = f_malloc((*cin)->buf.len);
+                    base64_len = 0;
+
+                    int skipping_comment = 0;
+
+                    for (int i=0; i<(*cin)->buf.len; i++) {
+
+                        char c = (*cin)->buf.data[i];
+                        if (c == '\n') {
+                            skipping_comment = 0;
+                            continue;
+                        }
+
+                        if (skipping_comment) {
+                            continue;
+                        }
+
+                        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                                (c == '+') || (c == '/') || (c == '=')) {
+
+                            base64[base64_len++] = c;
+
+                        }
+                    }
+
+                }
+
+                json_object_array_add(x5c, json_object_new_string_len(base64, (int) base64_len));
+                cfg.free(base64);
+                base64 = 0;
+
+            }
+
+
+            BOLT_SUB(sign_jws(i_conn->private_key, json_object_get_string(x5c), 1, bytes_to_sign, bytes_to_sign_sz, ct, 13, 9,
+                    (char **) &frame, &ser_len));
+
+        } else {
+
+            BOLT_SUB(sign_jws(i_conn->private_key, i_conn->my_x5t, 0, bytes_to_sign, bytes_to_sign_sz, ct, 13, 9,
+                    (char **) &frame, &ser_len));
+
+        }
 
         // $TODO: support large messages!
         if (ser_len > 65000) { break; }
@@ -605,7 +678,9 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
     } while(0);
 
-    free(frame);
+    cfg.free(frame);
+    cfg.free(base64);
+    json_object_put(x5c);
 
     if (conn->on_sent_message) {
         conn->on_sent_message(conn, msg, arg, err);

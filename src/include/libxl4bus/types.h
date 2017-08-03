@@ -20,6 +20,23 @@ typedef struct xl4bus_buf {
     size_t len;
 } xl4bus_buf_t;
 
+typedef enum xl4bus_asn1enc_t {
+
+    XL4BUS_ANS1ENC_DER = 1,
+    XL4BUS_ASN1ENC_PEM
+
+} xl4bus_asn1enc_t;
+
+/**
+ * Used as a buffer for storing ASN.1 information,
+ * so that the encoding method can be specified.
+ * data needs to be exchanged.
+ */
+typedef struct xl4bus_asn1 {
+    xl4bus_buf_t buf;
+    xl4bus_asn1enc_t enc;
+} xl4bus_asn1_t;
+
 /**
  * Function type for allocation memory.
  */
@@ -235,12 +252,35 @@ typedef int (*xl4bus_stream_callback) (struct xl4bus_connection *, uint16_t stre
 typedef int (*xl4bus_mt_message_callback) (struct xl4bus_connection *, void *, size_t);
 #endif
 
+/**
+ * X.509 based identity. Must contain X.509 certification and private key data.
+ */
 typedef struct xl4bus_X509v3_Identity {
 
-    xl4bus_buf_t ** chain;
-    xl4bus_buf_t * private_key;
+    /**
+     * Certificate chain that represents the caller. Must be terminated with NULL.
+     */
+    xl4bus_asn1_t ** chain;
+
+    /**
+     * Private key of the caller.
+     */
+    xl4bus_asn1_t * private_key;
+
+    /**
+     * If the private key is encrypted, then this call back is used to obtain the
+     * password.
+     */
     xl4bus_password_callback_t password;
-    xl4bus_buf_t ** trust;
+
+    /**
+     * List of trust anchors. Must be terminated with NULL.
+     */
+    xl4bus_asn1_t ** trust;
+
+    /**
+     * Custom value that is used for carrying arbitrary data for the password callback.
+     */
     void * custom;
 
 } xl4bus_X509v3_Identity_t;

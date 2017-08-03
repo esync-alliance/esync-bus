@@ -15,6 +15,7 @@
 #include <mbedtls/rsa.h>
 #include <mbedtls/error.h>
 #include <mbedtls/pk.h>
+#include <mbedtls/asn1write.h>
 
 #define cfg XI(cfg)
 
@@ -103,6 +104,9 @@ typedef struct connection_internal {
 
     cjose_jwk_t * private_key;
     cjose_jwk_t * remote_key;
+    char * my_x5t;
+    char * remote_x5t;
+    int sent_full_x5;
 
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;
@@ -199,6 +203,8 @@ typedef struct client_internal {
 
 } client_internal_t;
 
+typedef int (*x509_lookup_t)(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
+
 extern xl4bus_ll_cfg_t cfg;
 
 /* net.c */
@@ -210,9 +216,10 @@ int check_conn_io(xl4bus_connection_t*);
 #define validate_jws XI(validate_jws)
 #define sign_jws XI(sign_jws)
 #define encrypt_jwe XI(encrypt_jwe)
-int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, cjose_jws_t ** exp_jws);
-int sign_jws(cjose_jwk_t * key, char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
-int encrypt_jwe(cjose_jwk_t *, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
+int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl,
+        x509_lookup_t x509_lookup, void * data, cjose_jws_t ** exp_jws);
+int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
+int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
 
 /* misc.c */
 
@@ -223,6 +230,7 @@ int encrypt_jwe(cjose_jwk_t *, const void * data, size_t data_len, char const * 
 #define cjose_to_err XI(cjose_to_err)
 #define f_asprintf XI(f_asprintf)
 #define shutdown_connection_ts XI(shutdown_connection_ts)
+#define lookup_x509_conn XI(lookup_x509_conn)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -231,5 +239,12 @@ void cleanup_stream(connection_internal_t *, stream_t **);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
 void shutdown_connection_ts(xl4bus_connection_t *);
+int lookup_x509_conn(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
+
+/* x509.c */
+
+#define x509_crt_to_write XI(x509_crt_to_write)
+
+int x509_crt_to_write(mbedtls_x509_crt *, mbedtls_x509write_cert *);
 
 #endif
