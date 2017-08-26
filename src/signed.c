@@ -6,7 +6,7 @@
 #include "debug.h"
 
 int validate_jws(void * bin, size_t jws_len, int ct, uint16_t * stream_id, mbedtls_x509_crt * trust,
-        mbedtls_x509_crl * crl, x509_lookup_t x509_lookup, void * data, cjose_jws_t ** exp_jws) {
+        mbedtls_x509_crl * crl, cjose_jws_t ** exp_jws) {
 
     if (ct != CT_JOSE_COMPACT) {
         // cjose library only supports compact!
@@ -19,6 +19,8 @@ int validate_jws(void * bin, size_t jws_len, int ct, uint16_t * stream_id, mbedt
     cjose_jws_t *jws = 0;
     json_object *hdr = 0;
     int err = E_XL4BUS_OK;
+    char * x5c = 0;
+    const char * x5t = 0;
 
     do {
 
@@ -28,11 +30,17 @@ int validate_jws(void * bin, size_t jws_len, int ct, uint16_t * stream_id, mbedt
 
         BOLT_CJOSE(jws = cjose_jws_import(bin, jws_len, &c_err));
 
-        // $TODO: use proper key!
-        BOLT_IF(!cjose_jws_verify(jws, test_jwk_pub, &c_err), E_XL4BUS_DATA, "Failed JWS verify");
-
         cjose_header_t *p_headers = cjose_jws_get_protected(jws);
         const char *hdr_str;
+
+        // is there an x5c entry?
+        BOLT_CJOSE(x5c = cjose_header_get_raw(p_headers, "x5c", &c_err));
+
+        if (x5c) {
+            BOLT_SUB(accept_x5c(x5c, i_conn, &x5t));
+        } else {
+            BOLT_CJOSE(x5t = cjose_header_get(p_headers, "x5t#S256", &c_err));
+        }
 
         BOLT_CJOSE(hdr_str = cjose_header_get(p_headers, "x-xl4bus", &c_err));
 
@@ -40,6 +48,9 @@ int validate_jws(void * bin, size_t jws_len, int ct, uint16_t * stream_id, mbedt
         if (!hdr || !json_object_is_type(hdr, json_type_object)) {
             BOLT_SAY(E_XL4BUS_DATA, "No x-xl4bus property in the header");
         }
+
+        // $TODO: use proper key!
+        BOLT_IF(!cjose_jws_verify(jws, test_jwk_pub, &c_err), E_XL4BUS_DATA, "Failed JWS verify");
 
         // $TODO: check nonce/timestamp
 
@@ -64,6 +75,8 @@ int validate_jws(void * bin, size_t jws_len, int ct, uint16_t * stream_id, mbedt
 
     } while (0);
 
+    cfg.free(x5c);
+
     json_object_put(hdr);
 
     if ((err == E_XL4BUS_OK) && exp_jws) {
@@ -76,7 +89,7 @@ int validate_jws(void * bin, size_t jws_len, int ct, uint16_t * stream_id, mbedt
 
 }
 
-int sign_jws(cjose_jwk_t * key, char * x5, int is_full_x5, const void *data, size_t data_len,
+int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, const void *data, size_t data_len,
         char const * ct, int pad, int offset, char **jws_data, size_t *jws_len) {
 
     cjose_err c_err;

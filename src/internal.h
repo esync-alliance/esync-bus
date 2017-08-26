@@ -18,6 +18,8 @@
 #include <mbedtls/asn1write.h>
 
 #define cfg XI(cfg)
+#define hash_sha256 XI(hash_sha256)
+#define cert_cache_lock XI(cert_cache_lock)
 
 #if XL4_PROVIDE_PRINTF
 #define vasprintf tft_vasprintf
@@ -206,6 +208,11 @@ typedef struct client_internal {
 typedef int (*x509_lookup_t)(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
 
 extern xl4bus_ll_cfg_t cfg;
+extern const mbedtls_md_info_t * hash_sha256;
+
+#if XL4_SUPPORT_THREADS
+extern void * cert_cache_lock;
+#endif
 
 /* net.c */
 #define check_conn_io XI(check_conn_io)
@@ -216,8 +223,7 @@ int check_conn_io(xl4bus_connection_t*);
 #define validate_jws XI(validate_jws)
 #define sign_jws XI(sign_jws)
 #define encrypt_jwe XI(encrypt_jwe)
-int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl,
-        x509_lookup_t x509_lookup, void * data, cjose_jws_t ** exp_jws);
+int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, cjose_jws_t ** exp_jws);
 int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
 
@@ -231,6 +237,8 @@ int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_
 #define f_asprintf XI(f_asprintf)
 #define shutdown_connection_ts XI(shutdown_connection_ts)
 #define lookup_x509_conn XI(lookup_x509_conn)
+#define mpi2jwk XI(mpi2jwk)
+#define clean_keyspec XI(clean_keyspec)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -240,11 +248,21 @@ int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
 void shutdown_connection_ts(xl4bus_connection_t *);
 int lookup_x509_conn(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
+int mpi2jwk(mbedtls_mpi *, uint8_t **, size_t *);
+void clean_keyspec(cjose_jwk_rsa_keyspec *);
 
 /* x509.c */
 
 #define x509_crt_to_write XI(x509_crt_to_write)
+#define find_key_by_x5t XI(find_key_by_x5t)
+#define accept_x5c XI(accept_x5c)
 
 int x509_crt_to_write(mbedtls_x509_crt *, mbedtls_x509write_cert *);
+// finds the cjose key object for the specified tag.
+cjose_jwk_t * find_key_by_x5t(const char * x5t);
+// accepts JSON serialized x5c header value, and returns x5t tag value
+// (as if x5t#SHA256 was provided), or NULL if the certificate is
+// not accepted.
+int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl *, const char ** x5t);
 
 #endif

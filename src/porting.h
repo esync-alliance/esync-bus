@@ -96,6 +96,10 @@ typedef void (*pf_runnable_t)(void *);
 // return 0 if thread started successfully, or return 1
 // and set errno.
 int pf_start_thread(pf_runnable_t, void *);
+int pf_init_lock(void**);
+int pf_lock(void**);
+int pf_unlock(void**);
+#endif /* XL4_PROVIDE_THREADS */
 
 // connect to a TCP destination.
 // the operation must be asynchronous if possible.
@@ -134,8 +138,6 @@ void pf_shutdown_rdwr(int);
 
 // like close(2), but library doesn't care if close() failed
 void pf_close(int);
-
-#endif
 
 #if XL4_SUPPORT_UNIX_DGRAM_PAIR
 int pf_dgram_pair(int sv[2]);

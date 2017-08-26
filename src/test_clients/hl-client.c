@@ -75,7 +75,10 @@ int main(int argc, char ** argv) {
 
     memset(&clt, 0, sizeof(xl4bus_client_t));
 
-    xl4bus_init_ll(&ll_cfg);
+    if (xl4bus_init_ll(&ll_cfg)) {
+        printf("failed to initialize xl4bus\n");
+        return 1;
+    }
 
     clt.use_internal_thread = 1;
     clt.on_status = conn_info;

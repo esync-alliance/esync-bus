@@ -240,7 +240,6 @@ struct xl4bus_connection;
  */
 #define E_XL4BUS_CLIENT     (-7)
 
-
 typedef int (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_ll_message_t *);
 typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
@@ -251,6 +250,8 @@ typedef int (*xl4bus_stream_callback) (struct xl4bus_connection *, uint16_t stre
 #if XL4_SUPPORT_THREADS
 typedef int (*xl4bus_mt_message_callback) (struct xl4bus_connection *, void *, size_t);
 #endif
+
+typedef struct xl4bus_certificate_cache xl4bus_certificate_cache_t;
 
 /**
  * X.509 based identity. Must contain X.509 certification and private key data.
@@ -379,6 +380,7 @@ typedef struct xl4bus_connection {
     xl4bus_stream_callback on_stream_abort;
 
     int is_shutdown;
+
 #if XL4_SUPPORT_THREADS
     int mt_support;
     int mt_write_socket;

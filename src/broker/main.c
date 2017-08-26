@@ -200,7 +200,10 @@ int main(int argc, char ** argv) {
     ll_cfg.debug_f = print_out;
 #endif
 
-    xl4bus_init_ll(&ll_cfg);
+    if (xl4bus_init_ll(&ll_cfg)) {
+        printf("failed to initialize xl4bus\n");
+        return 1;
+    }
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {

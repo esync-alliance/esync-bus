@@ -6,10 +6,9 @@
 #include "internal.h"
 #include "porting.h"
 #include "misc.h"
+#include "debug.h"
 
 xl4bus_ll_cfg_t cfg;
-
-static int mpi2jwk(mbedtls_mpi *, uint8_t **, size_t *);
 
 #if 0
 // the table below was generated with the following code:
@@ -120,6 +119,7 @@ uint32_t crcTable[] = {
 
 
 int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
+
     memcpy(&cfg, in_cfg, sizeof(xl4bus_ll_cfg_t));
 
 #if XL4_HAVE_STD_MALLOC
@@ -140,7 +140,19 @@ int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
 
 #endif
 
-    return 0;
+    if (!(hash_sha256 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256))) {
+        DBG("Can not find SHA-256 hash implementation");
+        return E_XL4BUS_SYS;
+    }
+
+#if XL4_SUPPORT_THREADS
+    if (pf_init_lock(&cert_cache_lock)) {
+        return E_XL4BUS_SYS;
+    }
+#endif
+
+    return E_XL4BUS_OK;
+
 }
 
 int xl4bus_init_connection(xl4bus_connection_t * conn) {
@@ -242,14 +254,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
     free(pwd);
     mbedtls_pk_free(&prk);
-    free(rsa_ks.e);
-    free(rsa_ks.n);
-    free(rsa_ks.d);
-    free(rsa_ks.p);
-    free(rsa_ks.q);
-    free(rsa_ks.dp);
-    free(rsa_ks.dq);
-    free(rsa_ks.qi);
+    clean_keyspec(&rsa_ks);
 
     return err;
 
@@ -537,5 +542,18 @@ int mpi2jwk(mbedtls_mpi * mpi, uint8_t ** dst , size_t * dst_len) {
         return 0;
 
     }
+
+}
+
+void clean_keyspec(cjose_jwk_rsa_keyspec * ks) {
+
+    cfg.free(ks->e);
+    cfg.free(ks->n);
+    cfg.free(ks->d);
+    cfg.free(ks->p);
+    cfg.free(ks->q);
+    cfg.free(ks->dp);
+    cfg.free(ks->dq);
+    cfg.free(ks->qi);
 
 }

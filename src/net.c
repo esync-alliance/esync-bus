@@ -643,7 +643,6 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
             }
 
-
             BOLT_SUB(sign_jws(i_conn->private_key, json_object_get_string(x5c), 1, bytes_to_sign, bytes_to_sign_sz, ct, 13, 9,
                     (char **) &frame, &ser_len));
 
