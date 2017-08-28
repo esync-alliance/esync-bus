@@ -11,10 +11,11 @@
 #include <errno.h>
 #include <unistd.h>
 
+#include "libxl4bus/types.h"
 #include "broker/common.h"
 #include "broker/debug.h"
 
-static xl4bus_buf_t * load_full(char * path);
+static xl4bus_asn1_t * load_full(char * path);
 static char * simple_password (struct xl4bus_X509v3_Identity *);
 
 void print_out(const char * msg) {
@@ -134,7 +135,7 @@ void load_simple_x509_creds(xl4bus_identity_t * identity, char * p_key_path, cha
 // note that we return buffer with PEM, and a terminating
 // 0, and length includes the terminating 0. This is what
 // mbedtls requires.
-xl4bus_buf_t * load_full(char * path) {
+xl4bus_asn1_t * load_full(char * path) {
 
     int fd = open(path, O_RDONLY);
     int ok = 0;
@@ -143,7 +144,7 @@ xl4bus_buf_t * load_full(char * path) {
         return 0;
     }
 
-    xl4bus_buf_t * buf = f_malloc(sizeof(xl4bus_buf_t));
+    xl4bus_asn1_t * buf = f_malloc(sizeof(xl4bus_asn1_t));
 
     do {
 
@@ -157,8 +158,8 @@ xl4bus_buf_t * load_full(char * path) {
             break;
         }
 
-        buf->len = (size_t) (size + 1);
-        void * ptr = buf->data = f_malloc(buf->len);
+        buf->buf.len = (size_t) (size + 1);
+        void * ptr = buf->buf.data = f_malloc(buf->buf.len);
         while (size) {
             ssize_t rd = read(fd, ptr, (size_t) size);
             if (rd < 0) {
@@ -167,7 +168,7 @@ xl4bus_buf_t * load_full(char * path) {
             }
             if (!rd) {
                 DBG("Premature EOF reading %d, file declared %d bytes, read %d bytes, remaining %d bytes",
-                        path, buf->len-1, ptr-(void*)buf->data, size);
+                        path, buf->buf.len-1, ptr-(void*)buf->buf.data, size);
                 break;
             }
             size -= rd;
@@ -181,7 +182,7 @@ xl4bus_buf_t * load_full(char * path) {
     close(fd);
 
     if (!ok) {
-        free(buf->data);
+        free(buf->buf.data);
         free(buf);
         return 0;
     }

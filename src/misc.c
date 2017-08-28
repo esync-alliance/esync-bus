@@ -188,16 +188,38 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             cjose_err c_err;
 
             // load trust
-            for (xl4bus_buf_t ** buf = conn->identity.x509.trust; *buf; buf++) {
-                BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->trust, (*buf)->data, (*buf)->len));
+            for (xl4bus_asn1_t ** buf = conn->identity.x509.trust; *buf; buf++) {
+
+                switch ((*buf)->enc) {
+                    case XL4BUS_ASN1ENC_DER:
+                    case XL4BUS_ASN1ENC_PEM:
+                        BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->trust, (*buf)->buf.data, (*buf)->buf.len));
+                        break;
+                    default:
+                        BOLT_SAY(E_XL4BUS_DATA, "Unknown encoding %d", (*buf)->enc);
+                }
+
+                BOLT_NEST();
+
             }
+
+            BOLT_NEST();
 
             BOLT_IF(!*conn->identity.x509.chain, E_XL4BUS_ARG,
                     "At least one certificate must be present in the chain");
 
             // load chain
-            for (xl4bus_buf_t ** buf = conn->identity.x509.chain; *buf; buf++) {
-                BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->data, (*buf)->len));
+            for (xl4bus_asn1_t ** buf = conn->identity.x509.chain; *buf; buf++) {
+
+                switch ((*buf)->enc) {
+                    case XL4BUS_ASN1ENC_DER:
+                    case XL4BUS_ASN1ENC_PEM:
+                    BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->buf.data, (*buf)->buf.len));
+                        break;
+                    default:
+                    BOLT_SAY(E_XL4BUS_DATA, "Unknown encoding %d", (*buf)->enc);
+                }
+
             }
 
             // $TODO: do we verify that the provided cert checks out against the provided trust?
@@ -210,8 +232,8 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
                 pwd_len = strlen(pwd);
             }
 
-            BOLT_MTLS(mbedtls_pk_parse_key(&prk, conn->identity.x509.private_key->data,
-                    conn->identity.x509.private_key->len, (char unsigned const *)pwd, pwd_len));
+            BOLT_MTLS(mbedtls_pk_parse_key(&prk, conn->identity.x509.private_key->buf.data,
+                    conn->identity.x509.private_key->buf.len, (char unsigned const *)pwd, pwd_len));
 
             BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA certs are supported");
 

@@ -22,7 +22,7 @@ typedef struct xl4bus_buf {
 
 typedef enum xl4bus_asn1enc_t {
 
-    XL4BUS_ANS1ENC_DER = 1,
+    XL4BUS_ASN1ENC_DER = 1,
     XL4BUS_ASN1ENC_PEM
 
 } xl4bus_asn1enc_t;
