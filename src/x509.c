@@ -223,6 +223,8 @@ cjose_jwk_t * find_key_by_x5t(const char * x5t) {
 
     x5t_cache_t * entry;
 
+    if (!x5t) { return 0; }
+
     HASH_FIND_STR(x5t_cache, x5t, entry);
     if (!entry) { return 0; }
 

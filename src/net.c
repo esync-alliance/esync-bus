@@ -277,6 +277,9 @@ do {} while(0)
 
                             cjose_jws_t * jws = 0;
 
+                            void * decrypted_data = 0;
+                            char * decrypted_ct = 0;
+
                             do {
 
                                 cjose_err c_err;
@@ -284,16 +287,42 @@ do {} while(0)
                                 // the message is completed! Let's purge it.
                                 xl4bus_ll_message_t message;
 
+                                // the message can be encrypted with our private key, or not.
+                                // let's try to treat it as encrypted message first.
+
+                                size_t signed_len;
+                                void * signed_data;
+
+                                int received_ct = stream->incoming_message_ct;
+
+                                int decrypted = decrypt_jwe(stream->incoming_message_data.data,
+                                        stream->incoming_message_data.len, stream->incoming_message_ct,
+                                        &decrypted_data, &signed_len, &decrypted_ct);
+
+                                if (!decrypted) {
+
+                                    if (decrypted_ct && !strcmp("application/jose", decrypted_ct)) {
+                                        received_ct = CT_JOSE_COMPACT;
+                                    } else if (decrypted_ct && !strcmp("application/jose+json", decrypted_ct)) {
+                                        received_ct = CT_JOSE_JSON;
+                                    } else {
+                                        BOLT_SAY(E_XL4BUS_DATA, "Can't process content type %s of decrypted message",
+                                                NULL_STR(decrypted_ct));
+                                    }
+
+                                    signed_data = decrypted_data;
+
+                                } else {
+
+                                    signed_data = stream->incoming_message_data.data;
+                                    signed_len = stream->incoming_message_data.len;
+
+                                }
+
                                 BOLT_SUB(validate_jws(
-                                        stream->incoming_message_data.data,
-                                        stream->incoming_message_data.len,
-                                        stream->incoming_message_ct,
-                                        0,
-                                        &i_conn->trust,
-                                        &i_conn->crl,
-                                        lookup_x509_conn,
-                                        i_conn,
-                                        &jws));
+                                        signed_data, signed_len, received_ct, 0,
+                                        &i_conn->trust, &i_conn->crl, &jws
+                                ));
 
                                 BOLT_CJOSE(cjose_jws_get_plaintext(jws, (uint8_t**)&message.message.data,
                                         &message.message.data_len, &c_err));
@@ -318,6 +347,8 @@ do {} while(0)
                             free_dbuf(&stream->incoming_message_data, 0);
                             stream->message_started = 0;
                             cjose_jws_release(jws);
+                            cfg.free(decrypted_data);
+                            cfg.free(decrypted_ct);
 
                             if (stream->is_final) {
                                 cleanup_stream(i_conn, &stream);
@@ -360,7 +391,7 @@ do {} while(0)
 
                         uint16_t stream_id;
                         if (validate_jws(frm.data.data + 1, frm.data.len - 1,
-                                (int)frm.data.data[0], &stream_id, &i_conn->trust, &i_conn->crl, lookup_x509_conn, i_conn, 0) == E_XL4BUS_OK) {
+                                (int)frm.data.data[0], &stream_id, &i_conn->trust, &i_conn->crl, 0) == E_XL4BUS_OK) {
                             stream_t * stream;
                             HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
                             if (stream) {
