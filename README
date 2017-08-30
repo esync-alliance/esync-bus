@@ -12,6 +12,7 @@ ALL
 * Make relevant configuration changes (pick your O/S section below).
 * Build any submodules (see O/S sections)
 * Change into build directory and run "cmake .."
+  (Use "cmake -DCMAKE_BUILD_TYPE=Debug .." for debug config)
 * Run make to build the libraries, broker and sample clients
 
 LINUX
@@ -26,6 +27,8 @@ LINUX
 * Build your json-c:
   - git submodule init
   - git submodule update
-  - ( cd json-c && ( make distclean || true) && autoreconf -f -i && CFLAGS="-fPIC -fvisibility=hidden" \
-         CPPFLAGS="-include $(pwd)/../json-c-rename.h" ./configure --enable-static --disable-shared && make -j )
+  - ( cd json-c && ( make distclean || true) && autoreconf -f -i && \
+         CFLAGS="-fPIC -fvisibility=hidden -Wno-error=implicit-fallthrough" \
+         CPPFLAGS="-include $(pwd)/../json-c-rename.h" \
+         ./configure --enable-static --disable-shared && make -j )
 
