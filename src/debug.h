@@ -24,7 +24,7 @@
 
 #define DBG(a,b...) do { if (cfg.debug_f) { \
     _ltime_; \
-    char * _str = f_asprintf("[%s] %s:%d " a, now, __FILE__, __LINE__, ## b); \
+    char * _str = f_asprintf("[%s] xl4bus:%s:%d " a, now, chop_path(__FILE__), __LINE__, ## b); \
     if (_str) { \
         cfg.debug_f(_str); \
         cfg.free(_str); \
@@ -34,12 +34,18 @@
 #define DBG_SYS(a,b...) do { if (cfg.debug_f) { \
     int _errno = pf_get_errno(); \
     _ltime_; \
-    char * _str = f_asprintf("[%s] %s:%d error %s(%d): " a, now, __FILE__, __LINE__, strerror(_errno), _errno, ## b); \
+    char * _str = f_asprintf("[%s] xl4bus:%s:%d error %s(%d): " a, now, chop_path(__FILE__), __LINE__, strerror(_errno), _errno, ## b); \
     if (_str) { \
         cfg.debug_f(_str); \
         cfg.free(_str); \
     } \
 } } while(0)
+
+static inline const char * chop_path(const char * path) {
+    const char * aux = strrchr(path, '/');
+    if (aux) { return aux + 1; }
+    return path;
+}
 
 #else
 
