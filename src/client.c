@@ -196,12 +196,15 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             if (fdi && fdi->is_ll_conn) {
 
                 if (i_clt->state == CS_CONNECTING) {
+
                     if (pfd->flags & XL4BUS_POLL_READ) {
                         // this should not happen.
                         BOLT_SUB(clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_WRITE));
                     }
 
-                    if (pfd->flags & XL4BUS_POLL_WRITE) {
+                    // Use of XL4BUS_POLL_ERR is just in case, it should never
+                    // happen.
+                    if (pfd->flags & (XL4BUS_POLL_WRITE|XL4BUS_POLL_ERR)) {
 
                         // no matter what, we should remove that
                         // socket. When needed, the poll request from the low-level
@@ -210,8 +213,8 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                         HASH_DEL(i_clt->known_fd, fdi);
                         cfg.free(fdi);
 
-                        // the read event came, since there is no clt, this must
-                        // be connection event.
+                        // if it's the write event, and we are connecting, it can either
+                        // indicate an error, or successful connection.
                         if (pf_get_socket_error(i_clt->tcp_fd)) {
                             pf_close(i_clt->tcp_fd);
                             i_clt->tcp_fd = -1;
@@ -219,7 +222,11 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                             create_ll_connection(clt);
                         }
                     }
+
                 } else if (i_clt->ll) {
+
+                    // no need to process error condition here, xl4bus_process_connection
+                    // will do it.
 
                     int ll_timeout;
                     ll_called = 1;
@@ -233,6 +240,23 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 }
 
             } else {
+
+                // there is no clear answer on what to do if there is an error
+                // (see https://c-ares.haxx.se/mail/c-ares-archive-2017-05/0014.shtml)
+                // so, for now, let's clear the socket error, and trigger both
+                // read/write. Note that we must at least gobble up the error,
+                // otherwise the poll will keep waking us up forever (ESYNC-700)
+
+                if (pfd->flags & XL4BUS_POLL_ERR) {
+                    int sock_err = pf_get_socket_error(pfd->fd);
+                    if (cfg.debug_f) {
+                        pf_set_errno(sock_err);
+                        DBG_SYS("error on ares socket %d, cleared", pfd->fd);
+                    }
+                    FD_SET(pfd->fd, &read);
+                    FD_SET(pfd->fd, &write);
+                }
+
                 if (pfd->flags & XL4BUS_POLL_READ) {
                     FD_SET(pfd->fd, &read);
                 }
@@ -240,8 +264,6 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                     FD_SET(pfd->fd, &write);
                 }
             }
-
-            // $TODO: handle errors!
 
         }
 
