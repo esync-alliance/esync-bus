@@ -1,6 +1,10 @@
 
 include(FindPkgConfig)
 
+# c-ares library is required, should be installed as a package
 pkg_check_modules(CARES REQUIRED libcares>=1.12.0)
+# openssl library is required by cjose
+pkg_check_modules(OPENSSL REQUIRED openssl)
 influence_pkg("CARES")
+influence_pkg("OPENSSL")
 

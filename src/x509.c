@@ -36,6 +36,10 @@ x5t_cache_t * x5t_cache = 0;
 
 static void free_cache_entry(x5t_cache_t *);
 
+#if XL4_SUPPORT_THREADS
+void * cert_cache_lock;
+#endif
+
 #if 0
 
 static void print_time(char *, mbedtls_x509_time *);

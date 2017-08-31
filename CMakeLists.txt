@@ -239,7 +239,7 @@ if (BUILD_SHARED)
 endif()
 
 if (BUILD_STATIC)
-    file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/mbedtls/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o)
+    file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o)
     add_library(xl4bus-static STATIC ${LIB_SOURCE} ${EXT_OBJ})
     set_target_properties(xl4bus-static PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
     if (XL4_PROVIDE_THREADS)
@@ -276,8 +276,8 @@ if (BUILD_BINS)
     pkg_check_modules(JANSSON REQUIRED jansson)
     influence_pkg("JANSSON")
 
-    influence_pkg_spec(ll-server JANSSON)
-    influence_pkg_spec(ll-client JANSSON)
+    # influence_pkg_spec(ll-server JANSSON)
+    # influence_pkg_spec(ll-client JANSSON)
 
     target_link_libraries(xl4bus-broker ${JSON_C_LIB})
 

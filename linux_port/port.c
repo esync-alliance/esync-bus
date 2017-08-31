@@ -251,6 +251,7 @@ void pf_shutdown_rdwr(int fd) {
 }
 
 #if XL4_PROVIDE_THREADS
+
 int pf_start_thread(pf_runnable_t code, void * arg) {
 
     struct runner_info * info = cfg.malloc(sizeof(struct runner_info));
@@ -280,7 +281,12 @@ void * thread_runner(void * arg) {
     info.code(info.arg);
     return 0;
 }
-#endif
+
+int pf_init_lock(void**);
+int pf_lock(void**);
+int pf_unlock(void**);
+
+#endif /* XL4_PROVIDE_THREADS */
 
 void pf_close(int fd) {
     close(fd);
@@ -309,3 +315,4 @@ int pf_dgram_pair(int sv[2]) {
     return socketpair(PF_UNIX, SOCK_DGRAM, 0, sv);
 }
 #endif
+
