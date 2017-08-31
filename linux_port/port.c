@@ -282,9 +282,28 @@ void * thread_runner(void * arg) {
     return 0;
 }
 
-int pf_init_lock(void**);
-int pf_lock(void**);
-int pf_unlock(void**);
+int pf_init_lock(void ** lock) {
+
+    if (!(*lock = cfg.malloc(sizeof(pthread_mutex_t)))) {
+        pf_set_errno(ENOMEM);
+        return -1;
+    }
+
+    return pthread_mutex_init(*lock, 0);
+
+}
+
+int pf_lock(void** lock) {
+
+    return pthread_mutex_lock(*lock);
+
+}
+
+int pf_unlock(void** lock) {
+
+    return pthread_mutex_unlock(*lock);
+
+}
 
 #endif /* XL4_PROVIDE_THREADS */
 

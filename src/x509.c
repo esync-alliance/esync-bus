@@ -187,7 +187,7 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
         BOLT_CJOSE(entry->key = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
 
 #if XL4_SUPPORT_THREADS
-        pf_lock(&cert_cache_lock);
+        BOLT_SYS(pf_lock(&cert_cache_lock), "");
 #endif
 
         x5t_cache_t * old;
@@ -199,9 +199,8 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
         HASH_ADD_KEYPTR(hh, x5t_cache, entry->x5t, strlen(entry->x5t), entry);
 
 #if XL4_SUPPORT_THREADS
-        pf_unlock(&cert_cache_lock);
+        BOLT_SYS(pf_unlock(&cert_cache_lock), "");
 #endif
-
 
     } while (0);
 

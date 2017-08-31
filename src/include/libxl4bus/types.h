@@ -333,7 +333,7 @@ typedef enum xl4bus_identity_type {
      * X.509 identity, use ::xl4bus_identity.x509 to specify
      * identity details.
      */
-    XL4BIT_X509,
+    XL4BIT_X509 = 1,
     /**
      * Trust identity, used for unsecure environments only.
      * Use ::xl4bus_identity.trust to specify

@@ -190,7 +190,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             cjose_err c_err;
 
             // load trust
-            for (xl4bus_asn1_t ** buf = conn->identity.x509.trust; *buf; buf++) {
+            for (xl4bus_asn1_t ** buf = conn->identity.x509.trust; buf && *buf; buf++) {
 
                 switch ((*buf)->enc) {
                     case XL4BUS_ASN1ENC_DER:
@@ -207,11 +207,10 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
             BOLT_NEST();
 
-            BOLT_IF(!*conn->identity.x509.chain, E_XL4BUS_ARG,
-                    "At least one certificate must be present in the chain");
+            int chain_count = 0;
 
             // load chain
-            for (xl4bus_asn1_t ** buf = conn->identity.x509.chain; *buf; buf++) {
+            for (xl4bus_asn1_t ** buf = conn->identity.x509.chain; buf && *buf; buf++) {
 
                 switch ((*buf)->enc) {
                     case XL4BUS_ASN1ENC_DER:
@@ -222,7 +221,16 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
                     BOLT_SAY(E_XL4BUS_DATA, "Unknown encoding %d", (*buf)->enc);
                 }
 
+                BOLT_NEST();
+
+                chain_count++;
+
             }
+
+            BOLT_NEST();
+
+            BOLT_IF(!chain_count, E_XL4BUS_ARG,
+                    "At least one certificate must be present in the chain");
 
             // $TODO: do we verify that the provided cert checks out against the provided trust?
             // realistically there are no rules to say it should.
@@ -253,6 +261,10 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             BOLT_SUB(mpi2jwk(&prk_rsa->QP, &rsa_ks.qi, &rsa_ks.qilen));
 
             BOLT_CJOSE(i_conn->private_key = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
+
+        } else {
+
+            BOLT_SAY(E_XL4BUS_ARG, "Unsupported identity type %d", conn->identity.type);
 
         }
 

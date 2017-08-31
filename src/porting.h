@@ -96,6 +96,12 @@ typedef void (*pf_runnable_t)(void *);
 // return 0 if thread started successfully, or return 1
 // and set errno.
 int pf_start_thread(pf_runnable_t, void *);
+
+// locking functions get a pointer to a pointer that
+// should point to the lock. Initialization must create
+// a new lock object, and allocate any necessary memory.
+// All functions must return 0 for success, or -1 on failure,
+// and set errno.
 int pf_init_lock(void**);
 int pf_lock(void**);
 int pf_unlock(void**);
