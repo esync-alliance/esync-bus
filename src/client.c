@@ -165,6 +165,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 // we are ready to come out of DOWN state.
                 // first need we need to do is to resolve our broker address.
                 i_clt->state = CS_RESOLVING;
+                DBG("Resolving host %s, family %d", i_clt->host, family);
                 ares_gethostbyname(i_clt->ares, i_clt->host,
                         family, ares_gethostbyname_cb, clt);
 
@@ -523,11 +524,15 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
 
     do {
 
-        DBG("ARES reported status %d", status);
+        DBG("ARES reported status %d, hent at %p", status, hent);
+        if (status != ARES_SUCCESS) {
+            DBG("ARES query failed");
+            break;
+        }
 
         int addr_count;
         int addr_start;
-        for (addr_count = 0; hent->h_addr_list[addr_count]; addr_count++);
+        for (addr_count = 0; hent && hent->h_addr_list[addr_count]; addr_count++);
 
         if (!addr_count) {
             DBG("Ares hostent result has 0 addresses?");
@@ -595,6 +600,7 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
 
 #if XL4_SUPPORT_IPV6 && XL4_SUPPORT_IPV4
     if (i_clt->dual_ip) {
+        DBG("Resolving host %s, force IPv6", i_clt->host);
         ares_gethostbyname(i_clt->ares, i_clt->host,
                 AF_INET6, ares_gethostbyname_cb, clt);
         i_clt->repeat_process = 1;
