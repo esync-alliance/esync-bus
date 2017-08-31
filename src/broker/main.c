@@ -217,8 +217,11 @@ int main(int argc, char ** argv) {
     b_addr.sin_port = htons(9133);
     b_addr.sin_addr.s_addr = INADDR_ANY;
 
+    load_test_x509_creds(&broker_identity, "broker", argv[0]);
+#if 0
     load_simple_x509_creds(&broker_identity, "../test_certs/cip/private.pem",
             "../test_certs/cip/cert.pem", "../test_certs/ca/ca.pem", 0);
+#endif
 
     int reuse = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0) {

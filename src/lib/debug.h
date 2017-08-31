@@ -20,7 +20,7 @@ extern int debug;
 
 #define DBG(a,b...) do { if (debug) { \
     _ltime_; \
-    char * _str = f_asprintf("[%s] %s:%d " a, now, __FILE__, __LINE__, ## b); \
+    char * _str = f_asprintf("[%s] %s:%d " a, now, chop_path(__FILE__), __LINE__, ## b); \
     if (_str) { \
         printf("%s\n", _str); \
         free(_str); \
@@ -30,7 +30,7 @@ extern int debug;
 #define DBG_SYS(a,b...) do { if (debug) { \
     int _errno = errno; \
     _ltime_; \
-    char * _str = f_asprintf("[%s] %s:%d error %s(%d): " a, now, __FILE__, __LINE__, strerror(_errno), _errno, ## b); \
+    char * _str = f_asprintf("[%s] %s:%d error %s(%d): " a, now, chop_path(__FILE__), __LINE__, strerror(_errno), _errno, ## b); \
     if (_str) { \
         printf("%s\n", _str); \
         free(_str); \
@@ -65,5 +65,11 @@ extern int debug;
 #define BOLT_CJOSE(a) { a; if (c_err.code != CJOSE_ERR_NONE) { BOLT_SAY(cjose_to_err(&c_err), "cjose failure %d %s:%s", c_err.code, c_err.message, #a);}}
 #define BOLT_ARES(a) { int __err = (a); if (__err != ARES_SUCCESS) { if (__err == ARES_ENOMEM) { __err = E_XL4BUS_MEMORY; } else { __err = E_XL4BUS_INTERNAL; } BOLT_SAY(__err, "%s", #a); } } do{} while(0)
 #define BOLT_MALLOC(var, how_much) { if (!((var) = f_malloc(how_much))) { BOLT_SAY(E_XL4BUS_MEMORY, "failed to alloc %d for %s", how_much, #var); } } do{}while(0)
+
+static inline const char * chop_path(const char * path) {
+    const char * aux = strrchr(path, '/');
+    if (aux) { return aux + 1; }
+    return path;
+}
 
 #endif
