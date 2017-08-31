@@ -645,26 +645,45 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
                     base64 = f_malloc((*cin)->buf.len);
                     base64_len = 0;
 
-                    int skipping_comment = 0;
+                    int skipping_comment = 1;
+
+                    const char * line_start = (const char *) (*cin)->buf.data;
 
                     for (int i=0; i<(*cin)->buf.len; i++) {
 
                         char c = (*cin)->buf.data[i];
+
                         if (c == '\n') {
-                            skipping_comment = 0;
-                            continue;
+
+                            if (!strncmp("-----BEGIN ", line_start, 11)) {
+
+                                skipping_comment = 0;
+
+                            } else if (!strncmp("-----END ", line_start, 9)) {
+
+                                skipping_comment = 1;
+
+                            } else if (!skipping_comment) {
+
+                                for (const char * cc = line_start; (void*)cc < (*cin)->buf.data+i; cc++) {
+
+                                    c = *cc;
+
+                                    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                                        (c == '+') || (c == '/') || (c == '=')) {
+
+                                        base64[base64_len++] = c;
+
+                                    }
+
+                                }
+
+                            }
+
+                            line_start = (const char *) ((*cin)->buf.data + i + 1);
+
                         }
 
-                        if (skipping_comment) {
-                            continue;
-                        }
-
-                        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-                                (c == '+') || (c == '/') || (c == '=')) {
-
-                            base64[base64_len++] = c;
-
-                        }
                     }
 
                 }
