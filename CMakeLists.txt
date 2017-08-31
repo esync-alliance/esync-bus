@@ -253,21 +253,31 @@ if (BUILD_STATIC)
 endif()
 
 if (BUILD_BINS)
-    add_executable(ll-server src/test_clients/ll-server.c)
-    add_executable(ll-client src/test_clients/ll-client.c)
+
+    set(LIB_SRC
+        src/lib/common.h
+        src/lib/common.c
+        src/lib/debug.h
+    )
+
+    add_executable(ll-server
+            src/test_clients/ll-server.c
+            ${LIB_SRC}
+        )
+    add_executable(ll-client
+            src/test_clients/ll-client.c
+            ${LIB_SRC}
+        )
     add_executable(hl-client
             src/test_clients/hl-client.c
-            src/broker/common.h
-            src/broker/common.c
-            )
+            ${LIB_SRC}
+        )
     add_executable(xl4bus-broker
             src/broker/main.c
-            src/broker/debug.h
             src/uthash.h
             src/utarray.h
-            src/broker/common.h
-            src/broker/common.c
-    )
+            ${LIB_SRC}
+        )
 
     install(TARGETS xl4bus-broker RUNTIME DESTINATION bin)
 

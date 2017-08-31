@@ -1,5 +1,4 @@
 
-#include <libxl4bus/low_level.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -12,10 +11,14 @@
 #include <stdlib.h>
 #include <jansson.h>
 
+#include <libxl4bus/low_level.h>
+#include <lib/common.h>
+
 static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int, int);
-static void print_out(const char *);
+
+int debug = 1;
 
 int main(int argc, char ** argv) {
 
@@ -52,6 +55,12 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    xl4bus_identity_t my_id;
+    if (load_test_x509_creds(&my_id, "ll-client", argv[0])) {
+        printf("can't load test server credentials at .../pki/ll-server");
+        return 1;
+    }
+
     while (1) {
 
         xl4bus_connection_t * conn = malloc(sizeof(xl4bus_connection_t));
@@ -61,6 +70,8 @@ int main(int argc, char ** argv) {
         }
 
         memset(conn, 0, sizeof(xl4bus_connection_t));
+
+        memcpy(&conn->identity, &my_id, sizeof(xl4bus_identity_t));
 
         struct pollfd pfd;
 
@@ -85,6 +96,7 @@ int main(int argc, char ** argv) {
 
             msg.message.data = json_dumps(j, JSON_COMPACT);
             msg.message.data_len = strlen(msg.message.data) + 1;
+            msg.message.content_type = "application/grass.hopper";
             // msg.json = (char*)json_object_get_string(j);
 
             if ((err = xl4bus_send_ll_message(conn, &msg, 0, 0)) != E_XL4BUS_OK) {
@@ -150,11 +162,5 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     printf("hooray, a message!\n");
     return E_XL4BUS_OK;
-
-}
-
-void print_out(const char * msg) {
-
-    printf("%s\n", msg);
 
 }

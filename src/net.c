@@ -610,8 +610,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
             BOLT_SUB(encrypt_jwe(i_conn->remote_key, i_conn->remote_x5t, msg->message.data, msg->message.data_len,
                     msg->message.content_type, 0, 0, (char**)&bytes_to_sign, &bytes_to_sign_sz));
-            // $TODO: this should change to +json
-            ct = "application/jose+json";
+            ct = "application/jose";
 
         } else {
 
@@ -634,8 +633,10 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
                 size_t base64_len;
 
                 if ((*cin)->enc == XL4BUS_ASN1ENC_DER) {
+
                     cjose_err c_err;
                     BOLT_CJOSE(cjose_base64_encode((*cin)->buf.data, (*cin)->buf.len, &base64, &base64_len, &c_err));
+
                 } else {
 
                     // encoding must be PEM, we already have the base64 data,

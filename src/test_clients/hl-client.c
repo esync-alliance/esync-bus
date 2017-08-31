@@ -12,7 +12,7 @@
 
 #include <libxl4bus/low_level.h>
 #include <libxl4bus/high_level.h>
-#include <broker/common.h>
+#include <lib/common.h>
 
 int debug = 1;
 

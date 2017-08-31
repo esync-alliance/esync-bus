@@ -154,14 +154,16 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
         for (int i=0; i<l; i++) {
             const char * str = json_object_get_string(json_object_array_get_idx(x5c_obj, i));
             size_t chars = strlen(str);
-            BOLT_MTLS(mbedtls_x509_crt_parse(&entry->crt, (const unsigned char *) str, chars + 1));
+
+            size_t der_len;
+            BOLT_CJOSE(cjose_base64_decode(str, chars, &der, &der_len, &c_err));
+
+            BOLT_MTLS(mbedtls_x509_crt_parse_der(&entry->crt, der, der_len));
             if (!i) {
                 // the top cert is the reference point.
-                size_t der_len;
                 size_t hash_len = mbedtls_md_get_size(hash_sha256);
                 uint8_t hash_val[hash_len];
                 size_t out_len;
-                BOLT_CJOSE(cjose_base64_decode(str, chars, &der, &der_len, &c_err));
 
                 // calculate sha-256 of the entire DER
                 BOLT_MTLS(mbedtls_md_setup(&mdc, hash_sha256, 0));

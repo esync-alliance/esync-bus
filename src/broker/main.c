@@ -21,8 +21,8 @@
 #include <utarray.h>
 #include <utlist.h>
 
-#include "broker/debug.h"
-#include "broker/common.h"
+#include "lib/debug.h"
+#include "lib/common.h"
 
 typedef enum terminal_type {
     TT_DM_CLIENT,

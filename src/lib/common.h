@@ -15,6 +15,11 @@ int set_nonblocking(int fd);
 uint64_t msvalue();
 int get_socket_error(int fd);
 
-void load_simple_x509_creds(xl4bus_identity_t * identity, char * p_key_path, char * cert_path, char * ca_path, char * password);
+int load_test_x509_creds(xl4bus_identity_t * identity, char * key, char * argv0);
+
+int load_simple_x509_creds(xl4bus_identity_t * identity, char * p_key_path,
+        char * cert_path, char * ca_path, char * password);
+
+void release_identity(xl4bus_identity_t *);
 
 #endif

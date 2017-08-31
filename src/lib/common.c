@@ -10,10 +10,11 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <unistd.h>
+#include <mbedtls/x509_crt.h>
 
 #include "libxl4bus/types.h"
-#include "broker/common.h"
-#include "broker/debug.h"
+#include "lib/common.h"
+#include "lib/debug.h"
 
 static xl4bus_asn1_t * load_full(char * path);
 static char * simple_password (struct xl4bus_X509v3_Identity *);
@@ -111,24 +112,96 @@ int get_socket_error(int fd) {
 
 }
 
+int load_test_x509_creds(xl4bus_identity_t * identity, char * key, char * argv0) {
 
+    char * dir = strrchr(argv0, '/');
+    if (!dir) {
+        dir = f_strdup("./../pki/certs");
+    } else {
+        char * aux = dir;
+        *aux = 0;
+        dir = f_asprintf("%s/../pki/certs", argv0);
+        *aux = '/';
+    }
 
-void load_simple_x509_creds(xl4bus_identity_t * identity, char * p_key_path, char * cert_path, char * ca_path, char * password) {
+    char * p_key = f_asprintf("%s/%s/private.pem", dir, key);
+    char * cert = f_asprintf("%s/%s/cert.pem", dir, key);
+    char * ca = f_asprintf("%s/ca/ca.pem", dir);
+
+    free(dir);
+
+    int ret = load_simple_x509_creds(identity, p_key, cert, ca, 0);
+
+    free(p_key);
+    free(cert);
+    free(ca);
+
+    return ret;
+
+}
+
+void release_identity(xl4bus_identity_t * identity) {
+
+    if (identity->type == XL4BIT_X509) {
+
+        if (identity->x509.trust) {
+            for (xl4bus_asn1_t ** buf = identity->x509.trust; *buf; buf++) {
+                free((*buf)->buf.data);
+            }
+            free(identity->x509.trust);
+        }
+
+        if (identity->x509.chain) {
+            for (xl4bus_asn1_t ** buf = identity->x509.chain; *buf; buf++) {
+                free((*buf)->buf.data);
+            }
+            free(identity->x509.chain);
+        }
+
+        free(identity->x509.custom);
+
+    }
+
+}
+
+int load_simple_x509_creds(xl4bus_identity_t * identity, char * p_key_path,
+        char * cert_path, char * ca_path, char * password) {
 
     // xl4bus_identity_t * identity = f_malloc(sizeof(xl4bus_identity_t));
 
     memset(identity, 0, sizeof(xl4bus_identity_t));
-
     identity->type = XL4BIT_X509;
-    identity->x509.private_key = load_full(p_key_path);
-    identity->x509.trust = f_malloc(2 * sizeof(void*));
-    identity->x509.chain = f_malloc(2 * sizeof(void*));
-    identity->x509.trust[0] = load_full(ca_path);
-    identity->x509.chain[0] = load_full(cert_path);
-    if (password) {
-        identity->x509.custom = password;
-        identity->x509.password = simple_password;
+    int ok = 0;
+
+    do {
+
+        identity->x509.private_key = load_full(p_key_path);
+        if (!(identity->x509.trust = f_malloc(2 * sizeof(void*)))) {
+            break;
+        }
+        if (!(identity->x509.chain = f_malloc(2 * sizeof(void*)))) {
+            break;
+        }
+        if (!(identity->x509.trust[0] = load_full(ca_path))) {
+            break;
+        }
+        if (!(identity->x509.chain[0] = load_full(cert_path))) {
+            break;
+        }
+        if (password) {
+            identity->x509.custom = f_strdup(password);
+            identity->x509.password = simple_password;
+        }
+
+        ok = 1;
+
+    } while(0);
+
+    if (!ok) {
+        release_identity(identity);
     }
+
+    return !ok;
 
 }
 
@@ -145,6 +218,7 @@ xl4bus_asn1_t * load_full(char * path) {
     }
 
     xl4bus_asn1_t * buf = f_malloc(sizeof(xl4bus_asn1_t));
+    buf->enc = XL4BUS_ASN1ENC_PEM;
 
     do {
 

@@ -1,6 +1,4 @@
 
-#include <libxl4bus/low_level.h>
-
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -12,10 +10,14 @@
 #include <unistd.h>
 #include <stdlib.h>
 
+#include <libxl4bus/low_level.h>
+#include "lib/common.h"
+
 static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int, int);
-static void print_out(const char *);
+
+int debug = 1;
 
 int main(int argc, char ** argv) {
 
@@ -67,6 +69,13 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    xl4bus_identity_t my_id;
+
+    if (load_test_x509_creds(&my_id, "ll-server", argv[0])) {
+        printf("can't load test server credentials at .../pki/ll-server");
+        return 1;
+    }
+
     while (1) {
 
         socklen_t b_addr_len = sizeof(b_addr);
@@ -83,6 +92,7 @@ int main(int argc, char ** argv) {
         }
 
         memset(conn, 0, sizeof(xl4bus_connection_t));
+        memcpy(&conn->identity, &my_id, sizeof(xl4bus_identity_t));
 
         conn->on_message = in_message;
         conn->fd = fd2;
@@ -169,8 +179,3 @@ int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
 }
 
-void print_out(const char * msg) {
-
-    printf("%s\n", msg);
-
-}
