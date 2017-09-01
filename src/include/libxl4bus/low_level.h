@@ -14,6 +14,14 @@
 
 XL4_PUB
 /**
+ * Returns library version string. The string shall
+ * not be modified in any way.
+ * @return library version string, for identification purposes
+ */
+const char * xl4bus_version(void);
+
+XL4_PUB
+/**
  * Initializes the library.
  * @param cfg
  * @return
