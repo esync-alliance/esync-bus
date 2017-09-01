@@ -1,4 +1,3 @@
-*.iml
 build
 cmake-build*
 config.cmk
