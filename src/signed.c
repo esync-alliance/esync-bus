@@ -5,8 +5,8 @@
 #include "misc.h"
 #include "debug.h"
 
-int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, mbedtls_x509_crt * trust,
-        mbedtls_x509_crl * crl, cjose_jws_t ** exp_jws) {
+int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, connection_internal_t * i_conn,
+        cjose_jws_t ** exp_jws) {
 
     if (ct != CT_JOSE_COMPACT) {
         // cjose library only supports compact!
@@ -20,7 +20,8 @@ int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, mbedt
     json_object *hdr = 0;
     int err = E_XL4BUS_OK;
     char * x5c = 0;
-    const char * x5t = 0;
+    char * x5t = 0;
+    cjose_jwk_t * key = 0;
 
     do {
 
@@ -37,13 +38,18 @@ int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, mbedt
         BOLT_CJOSE(x5c = cjose_header_get_raw(p_headers, "x5c", &c_err));
 
         if (x5c) {
-            BOLT_SUB(accept_x5c(x5c, trust, crl, &x5t));
+            BOLT_SUB(accept_x5c(x5c, &i_conn->trust, &i_conn->crl, &x5t));
         } else {
-            BOLT_CJOSE(x5t = cjose_header_get(p_headers, "x5t#S256", &c_err));
+            BOLT_CJOSE(x5t = f_strdup(cjose_header_get(p_headers, "x5t#S256", &c_err)));
         }
 
-        cjose_jwk_t * key = find_key_by_x5t(x5t);
+        key = find_key_by_x5t(x5t);
         BOLT_IF(!key, E_XL4BUS_SYS, "Could not find JWK for tag %s", NULL_STR(x5t));
+
+        if (i_conn->remote_x5t) {
+            BOLT_IF(strcmp(i_conn->remote_x5t, x5t), E_XL4BUS_DATA,
+                    "Connection set with tag %s, received tag %s", x5t, i_conn->remote_x5t);
+        }
 
         BOLT_CJOSE(hdr_str = cjose_header_get(p_headers, "x-xl4bus", &c_err));
 
@@ -53,6 +59,14 @@ int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, mbedt
         }
 
         BOLT_IF(!cjose_jws_verify(jws, key, &c_err), E_XL4BUS_DATA, "Failed JWS verify");
+
+        if (!i_conn->remote_x5t) {
+            i_conn->remote_x5t = x5t;
+            x5t = 0;
+            cjose_jwk_release(i_conn->remote_key);
+            i_conn->remote_key = key;
+            key = 0;
+        }
 
         // $TODO: check nonce/timestamp
 
@@ -78,6 +92,8 @@ int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, mbedt
     } while (0);
 
     cfg.free(x5c);
+    cfg.free(x5t);
+    cjose_jwk_release(key);
 
     json_object_put(hdr);
 
@@ -205,6 +221,10 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, void ** decrypted, size_t * 
     const char * x5t = 0;
     *decrypted = 0;
 
+    if (decrypted_ct) {
+        *decrypted_ct = 0;
+    }
+
     do {
 
         BOLT_IF(((char*)bin)[--bin_len], E_XL4BUS_DATA, "Compact serialization is not ASCISZ");
@@ -222,8 +242,25 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, void ** decrypted, size_t * 
 
         BOLT_CJOSE(*decrypted = cjose_jwe_decrypt(jwe, key, decrypted_len, &c_err));
 
-        BOLT_CJOSE(*decrypted_ct = (char*)cjose_header_get(p_headers, CJOSE_HDR_CTY, &c_err));
-        BOLT_MEM(*decrypted_ct = f_strdup(*decrypted_ct));
+        if (decrypted_ct) {
+
+            BOLT_CJOSE(*decrypted_ct = (char*)cjose_header_get(p_headers, CJOSE_HDR_CTY, &c_err));
+
+            // NOTE: we have to parse the mime type value, plus expand the mime type if shortened as
+            // specified in https://tools.ietf.org/html/rfc7515#section-4.1.10
+            {
+                BOLT_MEM(*decrypted_ct = f_strdup(*decrypted_ct));
+                char * aux = strchr(*decrypted_ct, ';');
+                if (aux) { *aux = 0; }
+                aux = strchr(*decrypted_ct, '/');
+                if (!aux) {
+                    BOLT_MEM(aux = f_asprintf("application/%s", *decrypted_ct));
+                    cfg.free(*decrypted_ct);
+                    *decrypted_ct = aux;
+                }
+            }
+
+        }
 
     } while (0);
 
@@ -232,6 +269,9 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, void ** decrypted, size_t * 
     if (err) {
         cfg.free(*decrypted);
         *decrypted = 0;
+        if (decrypted_ct) {
+            cfg.free(*decrypted_ct);
+        }
     }
 
     return err;

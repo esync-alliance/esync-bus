@@ -75,7 +75,7 @@ int main(int argc, char ** argv) {
 
         struct pollfd pfd;
 
-        conn->on_message = in_message;
+        conn->on_message = on_message;
         conn->fd = fd;
         conn->custom = &pfd;
         conn->set_poll = set_poll;

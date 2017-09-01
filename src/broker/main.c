@@ -351,7 +351,7 @@ int main(int argc, char ** argv) {
                     xl4bus_connection_t * conn = f_malloc(sizeof(xl4bus_connection_t));
                     conn_info_t * ci = f_malloc(sizeof(conn_info_t));
 
-                    conn->on_message = in_message;
+                    conn->on_message = on_message;
                     conn->fd = fd2;
                     conn->set_poll = set_poll;
 

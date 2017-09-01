@@ -94,7 +94,7 @@ int main(int argc, char ** argv) {
         memset(conn, 0, sizeof(xl4bus_connection_t));
         memcpy(&conn->identity, &my_id, sizeof(xl4bus_identity_t));
 
-        conn->on_message = in_message;
+        conn->on_message = on_message;
         conn->fd = fd2;
 
         conn->set_poll = set_poll;
@@ -172,7 +172,7 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
 }
 
-int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
+int on_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg) {
 
     printf("hooray, a message!\n");
     return E_XL4BUS_OK;

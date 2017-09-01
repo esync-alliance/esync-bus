@@ -125,7 +125,7 @@ void print_time(char * time, mbedtls_x509_time * x509_time) {
 }
 #endif
 
-int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, const char ** x5t) {
+int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, char ** x5t) {
 
     int err = E_XL4BUS_OK;
     json_object * x5c_obj = 0;
@@ -136,6 +136,8 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
 
     memset(&rsa_ks, 0, sizeof(cjose_jwk_rsa_keyspec));
     mbedtls_md_init(&mdc);
+
+    *x5t = 0;
 
     do {
 
@@ -199,6 +201,7 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
             free_cache_entry(old);
         }
         HASH_ADD_KEYPTR(hh, x5t_cache, entry->x5t, strlen(entry->x5t), entry);
+        *x5t = f_strdup(entry->x5t);
 
 #if XL4_SUPPORT_THREADS
         BOLT_SYS(pf_unlock(&cert_cache_lock), "");
@@ -212,12 +215,9 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
     clean_keyspec(&rsa_ks);
 
     if (err) {
-
         // we failed, so let's clean up.
         free_cache_entry(entry);
-
-    } else {
-        if (x5t) { *x5t = entry->x5t; }
+        free(*x5t);
     }
 
     return err;
@@ -227,13 +227,28 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
 cjose_jwk_t * find_key_by_x5t(const char * x5t) {
 
     x5t_cache_t * entry;
+    cjose_jwk_t * key;
 
     if (!x5t) { return 0; }
 
-    HASH_FIND_STR(x5t_cache, x5t, entry);
-    if (!entry) { return 0; }
+#if XL4_SUPPORT_THREADS
+    if (pf_lock(&cert_cache_lock)) {
+        return 0;
+    }
+#endif
 
-    return entry->key;
+    HASH_FIND_STR(x5t_cache, x5t, entry);
+    if (entry) {
+        key = cjose_jwk_retain(entry->key, 0);
+    } else {
+        key = 0;
+    }
+
+#if XL4_SUPPORT_THREADS
+    pf_unlock(&cert_cache_lock);
+#endif
+
+    return key;
 
 }
 
