@@ -10,7 +10,6 @@
 #include <cjose/cjose.h>
 #include <ares.h>
 #include <stdio.h>
-
-typedef pthread_mutex_t pf_lock_t;
+#include <sys/time.h>
 
 #endif
