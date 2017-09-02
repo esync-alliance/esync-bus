@@ -175,8 +175,8 @@ configure_file(${PORT}/types_base.h ${CMAKE_BINARY_DIR}/types_base.h)
 configure_file(${CMAKE_SOURCE_DIR}/json-c-rename.h ${CMAKE_BINARY_DIR} COPYONLY)
 
 set(JSON_C ${CMAKE_SOURCE_DIR}/json-c-build)
-set(MBEDTLS ${CMAKE_SOURCE_DIR}/mbedtls)
-set(CJOSE ${CMAKE_SOURCE_DIR}/cjose)
+set(MBEDTLS ${CMAKE_SOURCE_DIR}/mbedtls-build)
+set(CJOSE ${CMAKE_SOURCE_DIR}/cjose-build)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${JSON_C})

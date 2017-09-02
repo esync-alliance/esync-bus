@@ -36,8 +36,11 @@ LINUX
          CPPFLAGS="-include $(pwd)/../json-c-rename.h" \
          ./configure --enable-static --disable-shared && make -j )
 * Build mbedtls:
-  - ( mkdir -p mbedtls/build && cd mbedtls && ./scripts/config.pl set MBEDTLS_PLATFORM_MEMORY && cd build && \
+  - ( rm -rf mbedtls-build && cp -fr mbedtls mbedtls-build && cd mbedtls-build && \
+         ./scripts/config.pl set MBEDTLS_PLATFORM_MEMORY && mkdir -p build && cd build && \
          cmake -DCMAKE_C_FLAGS="-fPIC -fvisibility=hidden" .. && make -j )
 * Build cjose:
-  - ( cd cjose && ./configure --with-openssl=/usr --with-jansson=/usr --enable-static --disable-shared && make -j )
+  - ( rm -rf cjose-build && cp -fr cjose cjose-build && cd cjose-build && \
+      ./configure --with-openssl=/usr --with-jansson=/usr \
+       --enable-static --disable-shared && make -j )
 
