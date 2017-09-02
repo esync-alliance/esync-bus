@@ -7,3 +7,4 @@ run.cmk
 config.h
 types_base.h
 build_config.h
+json-c-build

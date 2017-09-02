@@ -140,7 +140,7 @@ configure_file(${PORT}/types_base.h ${CMAKE_BINARY_DIR}/types_base.h)
 configure_file(${CMAKE_SOURCE_DIR}/json-c-rename.h ${CMAKE_BINARY_DIR} COPYONLY)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
-include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/json-c)
+include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/json-c-build)
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${PORT})
 include_directories(${CMAKE_BINARY_DIR})
@@ -169,7 +169,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/include/libxl4bus/types.h
 )
 
-set(JSON_C_LIB ${CMAKE_SOURCE_DIR}/json-c/.libs/libjson-c.a)
+set(JSON_C_LIB ${CMAKE_SOURCE_DIR}/json-c-build/.libs/libjson-c.a)
 if (NOT EXISTS ${JSON_C_LIB})
     message(FATAL_ERROR "You must build json-c sources first!")
 endif()
@@ -191,7 +191,7 @@ if (BUILD_SHARED)
 endif()
 
 if (BUILD_STATIC)
-    file(GLOB JSON_C_OBJ ${CMAKE_SOURCE_DIR}/json-c/*.o)
+    file(GLOB JSON_C_OBJ ${CMAKE_SOURCE_DIR}/json-c-build/*.o)
     add_library(xl4bus-static STATIC ${LIB_SOURCE} ${JSON_C_OBJ})
     set_target_properties(xl4bus-static PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
     if (XL4_PROVIDE_THREADS)
