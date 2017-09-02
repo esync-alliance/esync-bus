@@ -30,6 +30,8 @@ LINUX
   - git submodule init
   - git submodule update
 * Build json-c:
+  - ( rm -rf json-c-build && cp -fr json-c json-c-build && \
+         cd json-c-build && autoreconf -f -i && \
          CFLAGS="-fPIC -fvisibility=hidden -Wno-error=implicit-fallthrough" \
          CPPFLAGS="-include $(pwd)/../json-c-rename.h" \
          ./configure --enable-static --disable-shared && make -j )

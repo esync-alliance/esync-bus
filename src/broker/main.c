@@ -191,6 +191,8 @@ int main(int argc, char ** argv) {
 
     xl4bus_ll_cfg_t ll_cfg;
 
+    printf("xl4-broker %s\n", xl4bus_version());
+
 #if 0
     ll_cfg.realloc = realloc;
     ll_cfg.malloc = malloc;

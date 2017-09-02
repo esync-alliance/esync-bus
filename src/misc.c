@@ -7,6 +7,7 @@
 #include "porting.h"
 #include "misc.h"
 #include "debug.h"
+#include "xl4bus_version.h"
 
 xl4bus_ll_cfg_t cfg;
 
@@ -550,6 +551,12 @@ void xl4bus_free_address(xl4bus_address_t * addr, int chain) {
         addr = next;
 
     }
+
+}
+
+const char * xl4bus_version() {
+
+    return BUILD_VERSION;
 
 }
 

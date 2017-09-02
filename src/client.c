@@ -623,10 +623,10 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
 #if XL4_SUPPORT_IPV6 && XL4_SUPPORT_IPV4
     if (i_clt->dual_ip) {
         DBG("Resolving host %s, force IPv6", i_clt->host);
-        ares_gethostbyname(i_clt->ares, i_clt->host,
-                AF_INET6, ares_gethostbyname_cb, clt);
         i_clt->repeat_process = 1;
         i_clt->dual_ip = 0;
+        ares_gethostbyname(i_clt->ares, i_clt->host,
+                AF_INET6, ares_gethostbyname_cb, clt);
         return;
     }
 #endif
