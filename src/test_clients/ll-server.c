@@ -13,7 +13,7 @@
 #include <libxl4bus/low_level.h>
 #include "lib/common.h"
 
-static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
+static int on_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int, int);
 
@@ -174,7 +174,20 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
 int on_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg) {
 
-    printf("hooray, a message!\n");
+    printf("hooray, a message, encrypted=%d!\n", msg->was_encrypted);
+
+    xl4bus_ll_message_t * x_msg;
+    x_msg = f_malloc(sizeof(xl4bus_ll_message_t));
+
+    x_msg->message.data = f_strdup("none of your business");
+    x_msg->message.data_len = strlen(x_msg->message.data) + 1;
+    x_msg->message.content_type = "application/none.your.business";
+
+    x_msg->stream_id = msg->stream_id;
+    x_msg->is_reply = 1;
+
+    xl4bus_send_ll_message(conn, x_msg, 0, 0);
+
     return E_XL4BUS_OK;
 
 }

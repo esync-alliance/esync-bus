@@ -162,6 +162,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
     int err = E_XL4BUS_OK;
     char * pwd = 0;
+    char * base64 = 0;
 
     mbedtls_pk_context prk;
     mbedtls_pk_init(&prk);
@@ -169,6 +170,10 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
     memset(&rsa_ks, 0, sizeof(rsa_ks));
 
     do {
+
+        BOLT_IF(conn->_init_magic == MAGIC_INIT, E_XL4BUS_ARG, "Connection already initialized");
+
+        conn->_init_magic = MAGIC_INIT;
 
         connection_internal_t * i_conn;
         BOLT_MALLOC(i_conn, sizeof(connection_internal_t));
@@ -185,6 +190,8 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
         mbedtls_x509_crl_init(&i_conn->crl);
         mbedtls_x509_crt_init(&i_conn->chain);
         mbedtls_x509_crt_init(&i_conn->trust);
+
+        BOLT_MEM(i_conn->x5c = json_object_new_array());
 
         if (conn->identity.type == XL4BIT_X509) {
 
@@ -213,16 +220,97 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             // load chain
             for (xl4bus_asn1_t ** buf = conn->identity.x509.chain; buf && *buf; buf++) {
 
+                size_t base64_len = 0;
+
                 switch ((*buf)->enc) {
+
                     case XL4BUS_ASN1ENC_DER:
+
+                        BOLT_CJOSE(cjose_base64_encode((*buf)->buf.data, (*buf)->buf.len, &base64, &base64_len, &c_err));
+
+                        if (buf == conn->identity.x509.chain) {
+                            // first cert, need to build my x5t
+                            BOLT_MEM(i_conn->my_x5t = make_cert_hash((*buf)->buf.data, (*buf)->buf.len));
+                        }
+
+                        BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->buf.data, (*buf)->buf.len));
+
+                        break;
+
                     case XL4BUS_ASN1ENC_PEM:
-                    BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->buf.data, (*buf)->buf.len));
+                    {
+
+                        // encoding must be PEM, we already have the base64 data,
+                        // but we need to remove PEM headers and join the lines.
+
+                        base64 = f_malloc((*buf)->buf.len);
+                        base64_len = 0;
+
+                        int skipping_comment = 1;
+
+                        const char * line_start = (const char *) (*buf)->buf.data;
+
+                        for (int i=0; i<(*buf)->buf.len; i++) {
+
+                            char c = (*buf)->buf.data[i];
+
+                            if (c == '\n') {
+
+                                if (!strncmp("-----BEGIN ", line_start, 11)) {
+
+                                    skipping_comment = 0;
+
+                                } else if (!strncmp("-----END ", line_start, 9)) {
+
+                                    skipping_comment = 1;
+
+                                } else if (!skipping_comment) {
+
+                                    for (const char * cc = line_start; (void*)cc < (*buf)->buf.data+i; cc++) {
+
+                                        c = *cc;
+
+                                        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                                            (c == '+') || (c == '/') || (c == '=')) {
+
+                                            base64[base64_len++] = c;
+
+                                        }
+
+                                    }
+
+                                }
+
+                                line_start = (const char *) ((*buf)->buf.data + i + 1);
+
+                            }
+
+                        }
+
+                        if (buf == conn->identity.x509.chain) {
+                            // first cert, need to build my x5t
+
+                            uint8_t * der;
+                            size_t der_len;
+
+                            BOLT_CJOSE(cjose_base64_decode(base64, base64_len, &der, &der_len, &c_err));
+                            BOLT_MEM(i_conn->my_x5t = make_cert_hash(der, der_len));
+
+                        }
+
+                        BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->buf.data, (*buf)->buf.len));
+
+                    }
                         break;
                     default:
                     BOLT_SAY(E_XL4BUS_DATA, "Unknown encoding %d", (*buf)->enc);
                 }
 
                 BOLT_NEST();
+
+                json_object_array_add(i_conn->x5c, json_object_new_string_len(base64, (int) base64_len));
+                cfg.free(base64);
+                base64 = 0;
 
                 chain_count++;
 
@@ -382,9 +470,12 @@ int xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
 
 void shutdown_connection_ts(xl4bus_connection_t * conn) {
 
-    if (conn->is_shutdown) { return; }
+    if (conn->_init_magic != MAGIC_INIT) {
+        DBG("Attempting to shut down uninitialized connection %p", conn);
+        return;
+    }
 
-    conn->is_shutdown = 1;
+    conn->_init_magic = 0;
 
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
 
@@ -418,6 +509,14 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
     mbedtls_x509_crl_free(&i_conn->crl);
     mbedtls_x509_crt_free(&i_conn->trust);
     mbedtls_x509_crt_free(&i_conn->chain);
+
+    cjose_jwk_release(i_conn->private_key);
+    cjose_jwk_release(i_conn->remote_key);
+    cfg.free(i_conn->my_x5t);
+    cfg.free(i_conn->remote_x5t);
+    json_object_put(i_conn->x5c);
+
+    cfg.free(i_conn);
 
 }
 

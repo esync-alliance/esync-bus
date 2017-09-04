@@ -142,7 +142,7 @@ typedef struct conn_info_hash_list {
     UT_array items;
 } conn_info_hash_list_t;
 
-static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
+static int on_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int, int);
 static int pick_timeout(int t1, int t2);
@@ -261,7 +261,7 @@ int main(int argc, char ** argv) {
 
         memset(conn, 0, sizeof(xl4bus_connection_t));
 
-        conn->on_message = in_message;
+        conn->on_message = on_message;
         conn->fd = fd2;
 
         conn->set_poll = set_poll;
@@ -542,7 +542,7 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
 }
 
-int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
+int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     int err = E_XL4BUS_OK;
     json_object * root = 0;

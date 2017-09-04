@@ -172,6 +172,7 @@ typedef struct xl4bus_ll_message {
     uint16_t stream_id;
     int is_final;
     int is_reply;
+    int was_encrypted;
 
 } xl4bus_ll_message_t;
 
@@ -379,8 +380,6 @@ typedef struct xl4bus_connection {
     xl4bus_ll_send_callback on_sent_message;
     xl4bus_stream_callback on_stream_abort;
 
-    int is_shutdown;
-
 #if XL4_SUPPORT_THREADS
     int mt_support;
     int mt_write_socket;
@@ -390,6 +389,7 @@ typedef struct xl4bus_connection {
 
     void * custom;
     void * _private;
+    int _init_magic;
 
 } xl4bus_connection_t;
 

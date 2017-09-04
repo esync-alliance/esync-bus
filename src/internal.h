@@ -42,6 +42,8 @@
 #define CT_JOSE_COMPACT 0
 #define CT_JOSE_JSON    1
 
+#define MAGIC_INIT 0xb357b0cd
+
 typedef struct dbuf {
     uint8_t * data;
     size_t len;
@@ -108,7 +110,7 @@ typedef struct connection_internal {
     cjose_jwk_t * remote_key;
     char * my_x5t;
     char * remote_x5t;
-    int sent_full_x5;
+    json_object * x5c;
 
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;
@@ -227,7 +229,7 @@ int check_conn_io(xl4bus_connection_t*);
 int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, connection_internal_t * i_conn, cjose_jws_t ** exp_jws);
 int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
-int decrypt_jwe(void * bin, size_t bin_len, int ct, void ** decrypted, size_t * decrypted_len, char ** cty);
+int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * key, void ** decrypted, size_t * decrypted_len, char ** cty);
 
 /* misc.c */
 
@@ -258,7 +260,10 @@ void clean_keyspec(cjose_jwk_rsa_keyspec *);
 #define x509_crt_to_write XI(x509_crt_to_write)
 #define find_key_by_x5t XI(find_key_by_x5t)
 #define accept_x5c XI(accept_x5c)
+#define accept_self XI(accept_self)
+#define make_cert_hash XI(make_cert_hash)
 
+char * make_cert_hash(void *, size_t);
 int x509_crt_to_write(mbedtls_x509_crt *, mbedtls_x509write_cert *);
 // finds the cjose key object for the specified tag.
 cjose_jwk_t * find_key_by_x5t(const char * x5t);
@@ -266,5 +271,6 @@ cjose_jwk_t * find_key_by_x5t(const char * x5t);
 // (as if x5t#SHA256 was provided), or NULL if the certificate is
 // not accepted.
 int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl *, char ** x5t);
+int accept_identity(xl4bus_connection_t *);
 
 #endif

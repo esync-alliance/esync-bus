@@ -206,7 +206,8 @@ int encrypt_jwe(cjose_jwk_t * key, const char * x5t, const void * data, size_t d
 
 }
 
-int decrypt_jwe(void * bin, size_t bin_len, int ct, void ** decrypted, size_t * decrypted_len, char ** decrypted_ct) {
+int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * key,
+        void ** decrypted, size_t * decrypted_len, char ** decrypted_ct) {
 
     if (ct != CT_JOSE_COMPACT) {
         // cjose library only supports compact!
@@ -218,12 +219,7 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, void ** decrypted, size_t * 
 
     cjose_jwe_t *jwe = 0;
     int err = E_XL4BUS_OK;
-    const char * x5t = 0;
     *decrypted = 0;
-
-    if (decrypted_ct) {
-        *decrypted_ct = 0;
-    }
 
     do {
 
@@ -235,10 +231,12 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, void ** decrypted, size_t * 
 
         cjose_header_t *p_headers = cjose_jwe_get_protected(jwe);
 
+        char const * x5t_in;
+
         // is there an x5c entry?
-        BOLT_CJOSE(x5t = cjose_header_get(p_headers, "x5t#S256", &c_err));
-        cjose_jwk_t * key = find_key_by_x5t(x5t);
-        BOLT_IF(!key, E_XL4BUS_SYS, "Could not find JWK for tag %s", NULL_STR(x5t));
+        BOLT_CJOSE(x5t_in = cjose_header_get(p_headers, "x5t#S256", &c_err));
+
+        BOLT_IF(strcmp(x5t_in, x5t) != 0, E_XL4BUS_DATA, "Incoming tag %s, my tag %s", x5t_in, x5t);
 
         BOLT_CJOSE(*decrypted = cjose_jwe_decrypt(jwe, key, decrypted_len, &c_err));
 

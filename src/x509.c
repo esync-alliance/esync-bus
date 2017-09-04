@@ -5,7 +5,7 @@
 // I thought about this for a while - whether certificate cache should be
 // global or not. The key into this cache is sha-256 of the certificate.
 // So, there is no real danger of collisions (the certificate still needs
-// to valid to be added to the cache, though I suppose it's possible
+// to be valid to be added to the cache, though I suppose it's possible
 // to implement some padding attack and knock another certificate out of
 // the cache, effectively DDoSing the caller that owns that knocked out
 // cert. The fix will be to parse ASN.1 as it's being read, making sure
@@ -130,12 +130,10 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
     int err = E_XL4BUS_OK;
     json_object * x5c_obj = 0;
     x5t_cache_t * entry = 0;
-    mbedtls_md_context_t mdc;
     uint8_t * der = 0;
     cjose_jwk_rsa_keyspec rsa_ks;
 
     memset(&rsa_ks, 0, sizeof(cjose_jwk_rsa_keyspec));
-    mbedtls_md_init(&mdc);
 
     *x5t = 0;
 
@@ -162,18 +160,9 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
 
             BOLT_MTLS(mbedtls_x509_crt_parse_der(&entry->crt, der, der_len));
             if (!i) {
-                // the top cert is the reference point.
-                size_t hash_len = mbedtls_md_get_size(hash_sha256);
-                uint8_t hash_val[hash_len];
-                size_t out_len;
 
-                // calculate sha-256 of the entire DER
-                BOLT_MTLS(mbedtls_md_setup(&mdc, hash_sha256, 0));
-                BOLT_MTLS(mbedtls_md_starts(&mdc));
-                BOLT_MTLS(mbedtls_md_update(&mdc, der, der_len));
-                BOLT_MTLS(mbedtls_md_finish(&mdc, hash_val));
+                BOLT_MEM(entry->x5t = make_cert_hash(der, der_len));
 
-                BOLT_CJOSE(cjose_base64url_encode(hash_val, hash_len, &entry->x5t, &out_len, &c_err));
             }
         }
         BOLT_SUB(err);
@@ -210,7 +199,6 @@ int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * cr
     } while (0);
 
     json_object_put(x5c_obj);
-    mbedtls_md_free(&mdc);
     cfg.free(der);
     clean_keyspec(&rsa_ks);
 
@@ -263,3 +251,36 @@ static void free_cache_entry(x5t_cache_t * entry) {
     cfg.free(entry);
 
 }
+
+char * make_cert_hash(void * der, size_t der_len) {
+
+    int err = E_XL4BUS_OK;
+    mbedtls_md_context_t mdc;
+    char * x5t = 0;
+    cjose_err c_err;
+
+    mbedtls_md_init(&mdc);
+
+    do {
+
+        // the top cert is the reference point.
+        size_t hash_len = mbedtls_md_get_size(hash_sha256);
+        uint8_t hash_val[hash_len];
+        size_t out_len;
+
+        // calculate sha-256 of the entire DER
+        BOLT_MTLS(mbedtls_md_setup(&mdc, hash_sha256, 0));
+        BOLT_MTLS(mbedtls_md_starts(&mdc));
+        BOLT_MTLS(mbedtls_md_update(&mdc, der, der_len));
+        BOLT_MTLS(mbedtls_md_finish(&mdc, hash_val));
+
+        BOLT_CJOSE(cjose_base64url_encode(hash_val, hash_len, &x5t, &out_len, &c_err));
+
+    } while(0);
+
+    mbedtls_md_free(&mdc);
+
+    return x5t;
+
+}
+

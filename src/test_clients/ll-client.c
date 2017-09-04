@@ -10,11 +10,12 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <jansson.h>
+#include <time.h>
 
 #include <libxl4bus/low_level.h>
 #include <lib/common.h>
 
-static int in_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
+static int on_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int, int);
 
@@ -87,26 +88,54 @@ int main(int argc, char ** argv) {
 
         if ((err = xl4bus_init_connection(conn)) == E_XL4BUS_OK) {
 
-            xl4bus_ll_message_t msg;
-            memset(&msg, 0, sizeof(xl4bus_ll_message_t));
-            int timeout = -1;
-
-            json_t * j = json_object();
-            json_object_set_new(j, "playing", json_string("hooky"));
-
-            msg.message.data = json_dumps(j, JSON_COMPACT);
-            msg.message.data_len = strlen(msg.message.data) + 1;
-            msg.message.content_type = "application/grass.hopper";
-            // msg.json = (char*)json_object_get_string(j);
-
-            if ((err = xl4bus_send_ll_message(conn, &msg, 0, 0)) != E_XL4BUS_OK) {
-                printf("failed to send a message : %s\n", xl4bus_strerr(err));
-            }
-
-            json_decref(j);
-            free((void *) msg.message.data);
+            time_t next_message = 0;
+            // uint16_t stream = 0;
+            int reply = 0;
 
             while (1) {
+
+                struct timespec ts;
+
+                if (clock_gettime(CLOCK_REALTIME, &ts)) {
+
+                    perror("clock_gettime");
+                    break;
+
+                }
+
+                if (ts.tv_sec >= next_message) {
+
+                    xl4bus_ll_message_t msg;
+                    memset(&msg, 0, sizeof(xl4bus_ll_message_t));
+
+                    json_t * j = json_object();
+                    json_object_set_new(j, "playing", json_string("hooky"));
+
+                    msg.message.data = json_dumps(j, JSON_COMPACT);
+                    msg.message.data_len = strlen(msg.message.data) + 1;
+                    msg.message.content_type = "application/grass.hopper";
+                    // msg.stream_id = 0;
+                    // stream += 2;
+                    // msg.json = (char*)json_object_get_string(j);
+                    if (reply) {
+                        msg.is_reply = 1;
+                    } else {
+                        reply = 1;
+                    }
+
+                    if ((err = xl4bus_send_ll_message(conn, &msg, 0, 0)) != E_XL4BUS_OK) {
+                        printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                    }
+
+                    json_decref(j);
+                    free((void *) msg.message.data);
+
+                    // 5 second delay
+                    next_message = ts.tv_sec + 5;
+
+                }
+
+                int timeout = (int) ((next_message - ts.tv_sec) * 1000);
 
                 int rc = poll(&pfd, 1, timeout);
                 if (rc < 0) {
@@ -158,9 +187,9 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
 }
 
-int in_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
+int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
-    printf("hooray, a message!\n");
+    printf("hooray, a message, encrypted=%d!\n", msg->was_encrypted);
     return E_XL4BUS_OK;
 
 }
