@@ -66,6 +66,16 @@ static inline char * f_strdup(const char *s) {
     return s2;
 }
 
+static inline char * f_strndup(const void *s, size_t len) {
+
+    if (!s) { return 0; }
+    char * s2 = cfg.malloc(len+1);
+    if (!s2) { return 0; }
+    memcpy(s2, s, len);
+    s2[len] = 0;
+    return s2;
+}
+
 static inline int timeval_to_millis(struct timeval * tv) {
     // $TODO check for overflows.
     return  (int) (tv->tv_sec * 1000 + tv->tv_usec / 1000);

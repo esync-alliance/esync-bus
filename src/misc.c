@@ -2,6 +2,7 @@
 #include <config.h>
 #include <mbedtls/bignum.h>
 #include <mbedtls/rsa.h>
+#include <mbedtls/oid.h>
 #include <cjose/jwk.h>
 #include "internal.h"
 #include "porting.h"
@@ -697,5 +698,53 @@ void clean_keyspec(cjose_jwk_rsa_keyspec * ks) {
     cfg.free(ks->dp);
     cfg.free(ks->dq);
     cfg.free(ks->qi);
+
+}
+
+int get_oid(unsigned char ** p, unsigned char * end, mbedtls_asn1_buf * oid) {
+
+    int ret;
+
+    if( ( ret = mbedtls_asn1_get_tag( p, end, &oid->len, MBEDTLS_ASN1_OID ) ) != 0 )
+        return( ret );
+
+    oid->p = *p;
+    *p += oid->len;
+    oid->tag = MBEDTLS_ASN1_OID;
+
+    return 0;
+
+}
+
+int z_strcmp(const char * s1, const char * s2) {
+
+    if (!s1) { return s2 ? -1 : 0; }
+    if (!s2) { return 1; }
+    return strcmp(s1, s2);
+
+}
+
+char * make_chr_oid(mbedtls_asn1_buf * buf) {
+
+    // this is an approximation.
+    size_t len = buf->len * 4;
+
+    if (!len) { return 0; }
+
+    while (1) {
+
+        char * chr = f_malloc(len);
+        if (!chr) { return 0; }
+        int ret = mbedtls_oid_get_numeric_string(chr, len-1, buf);
+        if (ret >= 0) { return chr; }
+        cfg.free(chr);
+        if (ret == MBEDTLS_ERR_OID_BUF_TOO_SMALL) {
+            // $TODO: this can lead to DoS if there is a bug in mbedtls
+            len *= 2;
+        } else {
+            return 0;
+        }
+
+    }
 
 }

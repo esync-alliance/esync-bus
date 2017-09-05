@@ -42,6 +42,9 @@
 #define CT_JOSE_COMPACT 0
 #define CT_JOSE_JSON    1
 
+#define KU_FLAG_ENCRYPT (1<<0)
+#define KU_FLAG_SIGN (1<<1)
+
 #define MAGIC_INIT 0xb357b0cd
 
 typedef struct dbuf {
@@ -111,6 +114,9 @@ typedef struct connection_internal {
     char * my_x5t;
     char * remote_x5t;
     json_object * x5c;
+
+    int ku_flags;
+    xl4bus_address_t * cert_address_list;
 
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;
@@ -240,9 +246,11 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * ke
 #define cjose_to_err XI(cjose_to_err)
 #define f_asprintf XI(f_asprintf)
 #define shutdown_connection_ts XI(shutdown_connection_ts)
-#define lookup_x509_conn XI(lookup_x509_conn)
 #define mpi2jwk XI(mpi2jwk)
 #define clean_keyspec XI(clean_keyspec)
+#define get_oid XI(get_oid)
+#define make_chr_oid XI(make_chr_oid)
+#define z_strcmp XI(z_strcmp)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -251,16 +259,17 @@ void cleanup_stream(connection_internal_t *, stream_t **);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
 void shutdown_connection_ts(xl4bus_connection_t *);
-int lookup_x509_conn(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
 int mpi2jwk(mbedtls_mpi *, uint8_t **, size_t *);
 void clean_keyspec(cjose_jwk_rsa_keyspec *);
+int get_oid(unsigned char ** p, unsigned char *, mbedtls_asn1_buf * oid);
+char * make_chr_oid(mbedtls_asn1_buf *);
+int z_strcmp(const char *, const char *);
 
 /* x509.c */
 
 #define x509_crt_to_write XI(x509_crt_to_write)
 #define find_key_by_x5t XI(find_key_by_x5t)
 #define accept_x5c XI(accept_x5c)
-#define accept_self XI(accept_self)
 #define make_cert_hash XI(make_cert_hash)
 
 char * make_cert_hash(void *, size_t);
@@ -270,7 +279,6 @@ cjose_jwk_t * find_key_by_x5t(const char * x5t);
 // accepts JSON serialized x5c header value, and returns x5t tag value
 // (as if x5t#SHA256 was provided), or NULL if the certificate is
 // not accepted.
-int accept_x5c(const char * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl *, char ** x5t);
-int accept_identity(xl4bus_connection_t *);
+int accept_x5c(const char * x5c, connection_internal_t * i_conn, char ** x5t);
 
 #endif

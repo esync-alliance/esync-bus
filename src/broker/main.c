@@ -573,7 +573,6 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 BOLT_IF(ci->reg_req, E_XL4BUS_CLIENT, "already registered");
                 ci->reg_req = 1;
 
-
 #if 1 /* throw this code out the window, must use x-509 ID only */
                 BOLT_IF(!json_object_object_get_ex(root, "xxx-id", &aux) || !json_object_is_type(aux, json_type_object),
                         E_XL4BUS_CLIENT, "Missing xxx-id property");
@@ -633,6 +632,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 }
 
 #endif
+
+
 
                 // send current presence
                 // https://gitlab.excelfore.com/schema/json/xl4bus/presence.json
