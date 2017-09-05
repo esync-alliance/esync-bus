@@ -41,6 +41,50 @@ mkdir "$cdir" || {
     exit 1
 }
 
+# is_dmclient=0
+# is_broker=0
+
+has_addresses="1.3.6.1.4.1.45473.1.6=ASN1:SEQUENCE:bus_addresses"
+bus_address_details=
+bus_addresses=
+count=1
+
+read -rp "Include DMClient privileges [y/N]? " ans
+echo "$ans" | fgrep -iq y && {
+    addresses="$has_addresses"
+    seq="$count"
+    bus_addresses="${bus_addresses}|f$((count++))=SEQUENCE:address_seq_$seq"
+    bus_address_details="${bus_address_details}|[address_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.2.2|f$((count++))=NULL"
+}
+read -rp "Include Broker privileges [y/N]? " ans
+echo "$ans" | fgrep -iq y && {
+    addresses="$has_addresses"
+    seq="$count"
+    bus_addresses="${bus_addresses}|f$((count++))=SEQUENCE:address_seq_$seq"
+    bus_address_details="${bus_address_details}|[address_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.2.1|f$((count++))=NULL"
+}
+while true; do
+
+    read -rp "Add update agent address [empty to end]: " ans
+    test -z "$ans" && break;
+
+    addresses="$has_addresses"
+    seq="$count"
+    bus_addresses="${bus_addresses}|f$((count++))=SEQUENCE:address_seq_$seq"
+    bus_address_details="${bus_address_details}|[address_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.2.3|f$((count++))=UTF8String:$ans"
+
+done
+
+while true; do
+
+    read -rp "Add group name [empty to end]: " ans
+    test -z "$ans" && break;
+
+    groups="1.3.6.1.4.1.45473.1.7=ASN1:SET:bus_groups"
+    bus_groups="${bus_groups}|f$((count++))=UTF8String:$ans"
+
+done
+
 cat > "$cdir/ca.conf" << _EOF_
 
 HOME			= .
@@ -202,6 +246,19 @@ authorityKeyIdentifier=keyid,issuer
 
 # This is required for TSA certificates.
 # extendedKeyUsage = critical,timeStamping
+
+$addresses
+$groups
+
+[ bus_addresses ]
+$(echo $bus_addresses | tr '|' '\n')
+
+$(echo $bus_address_details | tr '|' '\n')
+
+[ bus_groups ]
+
+$(echo $bus_groups | tr '|' '\n')
+
 
 [ v3_req ]
 
