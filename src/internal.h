@@ -207,6 +207,9 @@ int validate_jws(void * jws, size_t jws_len, int ct, uint16_t * stream_id, cjose
 int sign_jws(const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 
 /* misc.c */
+
+#define make_json_address XI(make_json_address)
+
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
 void free_dbuf(dbuf_t *, int);
@@ -214,5 +217,6 @@ void cleanup_stream(connection_internal_t *, stream_t **);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
 void shutdown_connection_ts(xl4bus_connection_t *);
+int make_json_address(xl4bus_address_t * addr, json_object ** json);
 
 #endif

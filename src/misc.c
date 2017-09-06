@@ -438,3 +438,70 @@ const char * xl4bus_version() {
     return BUILD_VERSION;
 
 }
+
+int make_json_address(xl4bus_address_t * bus_addr, json_object ** json) {
+
+    int err = E_XL4BUS_OK;
+    json_object * addr = 0;
+
+    do {
+
+        BOLT_IF(!(addr = json_object_new_array()), E_XL4BUS_MEMORY, "");
+
+        for (xl4bus_address_t * ma = bus_addr; ma; ma = ma->next) {
+
+            char * key = 0;
+            char * val = 0;
+
+            switch (ma->type) {
+
+                case XL4BAT_SPECIAL:
+                {
+                    key = "special";
+                    switch (ma->special) {
+                        case XL4BAS_DM_CLIENT:
+                            val = "dmclient";
+                            break;
+                        case XL4BAS_DM_BROKER:
+                            val = "broker";
+                            break;
+                        default:
+                        BOLT_SAY(E_XL4BUS_ARG, "Unknown special type %d", ma->special);
+                    }
+                }
+                    break;
+                case XL4BAT_UPDATE_AGENT:
+                    key = "update-agent";
+                    val = ma->update_agent;
+                    break;
+                case XL4BAT_GROUP:
+                    key = "group";
+                    val = ma->group;
+                    break;
+                default:
+                BOLT_SAY(E_XL4BUS_ARG, "Unknown addr type %d", ma->type);
+
+            }
+
+            BOLT_SUB(err);
+
+            json_object * aux;
+            json_object * bux;
+            BOLT_IF(!(aux = json_object_new_object()), E_XL4BUS_MEMORY, "");
+            json_object_array_add(addr, aux);
+            BOLT_IF(!(bux = json_object_new_string(val)), E_XL4BUS_MEMORY, "");
+            json_object_object_add(aux, key, bux);
+
+        }
+
+    } while(0);
+
+    if (err) {
+        json_object_put(addr);
+    } else {
+        *json = addr;
+    }
+
+    return err;
+
+}

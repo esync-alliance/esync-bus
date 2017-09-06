@@ -89,6 +89,18 @@ int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * ar
 
 XL4_PUB
 /**
+ * Converts specified address, or list of addresses to corresponding
+ * JSON format, according to array of xl4bus JSON addresses as
+ * referenced in https://gitlab.excelfore.com/schema/json/xl4bus/xl4bus-address.json
+ * The caller must free the memory if this function completed successfully.
+ * @param addr address, or beginning of chain of addresses, to serialize
+ * @param json pointer to the variable to take in pointer to the serialized JSON value.
+ * @return ::E_XL4BUS_OK if serialization succeeded, or an error code otherwise.
+ */
+int address_to_json(xl4bus_address_t * addr, char ** json);
+
+XL4_PUB
+/**
  * Allocates address structure and copies or assigns relevant address information.
  * @param prev if !0, points to an address that the newly created address is to
  * to be linked to.
