@@ -251,6 +251,7 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * ke
 #define get_oid XI(get_oid)
 #define make_chr_oid XI(make_chr_oid)
 #define z_strcmp XI(z_strcmp)
+#define make_json_address XI(make_json_address)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -264,6 +265,7 @@ void clean_keyspec(cjose_jwk_rsa_keyspec *);
 int get_oid(unsigned char ** p, unsigned char *, mbedtls_asn1_buf * oid);
 char * make_chr_oid(mbedtls_asn1_buf *);
 int z_strcmp(const char *, const char *);
+int make_json_address(xl4bus_address_t * addr, json_object ** json);
 
 /* x509.c */
 

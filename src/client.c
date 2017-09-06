@@ -923,54 +923,8 @@ int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * ar
         client_internal_t * i_clt = clt->_private;
 
         BOLT_IF(!msg->address, E_XL4BUS_ARG, "No message address");
-        BOLT_IF(!(addr = json_object_new_array()), E_XL4BUS_MEMORY, "");
 
-
-        for (xl4bus_address_t * ma = msg->address; ma; ma = ma->next) {
-
-            char * key = 0;
-            char * val = 0;
-
-            switch (ma->type) {
-
-                case XL4BAT_SPECIAL:
-                {
-                    key = "special";
-                    switch (ma->special) {
-                        case XL4BAS_DM_CLIENT:
-                            val = "dmclient";
-                            break;
-                        case XL4BAS_DM_BROKER:
-                            val = "broker";
-                            break;
-                        default:
-                            BOLT_SAY(E_XL4BUS_ARG, "Unknown special type %d", msg->address);
-                    }
-                }
-                    break;
-                case XL4BAT_UPDATE_AGENT:
-                    key = "update-agent";
-                    val = ma->update_agent;
-                    break;
-                case XL4BAT_GROUP:
-                    key = "group";
-                    val = ma->group;
-                    break;
-                default:
-                    BOLT_SAY(E_XL4BUS_ARG, "Unknown addr type %d", msg->address);
-
-            }
-
-            BOLT_SUB(err);
-
-            json_object * aux;
-            json_object * bux;
-            BOLT_IF(!(aux = json_object_new_object()), E_XL4BUS_MEMORY, "");
-            json_object_array_add(addr, aux);
-            BOLT_IF(!(bux = json_object_new_string(val)), E_XL4BUS_MEMORY, "");
-            json_object_object_add(aux, key, bux);
-
-        }
+        BOLT_SUB(make_json_address(msg->address, &addr));
 
         BOLT_SUB(err);
 
@@ -1168,6 +1122,32 @@ int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
     cfg.free(next);
 
     return E_XL4BUS_OK;
+
+}
+
+int address_to_json(xl4bus_address_t * addr, char ** json) {
+
+    int err = E_XL4BUS_OK;
+    char * res = 0;
+    json_object * j_res = 0;
+
+    do {
+
+        BOLT_IF(!addr, E_XL4BUS_ARG, "Empty address");
+        BOLT_SUB(make_json_address(addr, &j_res));
+        BOLT_MEM(res = f_strdup(json_object_get_string(j_res)));
+
+    } while (0);
+
+    json_object_put(j_res);
+
+    if (err) {
+        free(res);
+    } else {
+        *json = res;
+    }
+
+    return err;
 
 }
 
