@@ -110,8 +110,26 @@ XL4_PUB
  * For type ::XL4BAT_UPDATE_AGENT and XL4BAT_GROUP, the address value is a char*, followed by an int.
  * The int is either 0 or 1, specifying whether the char* should be duplicated (1), or assigned (0).
  * @return allocated address.
+ * @deprecated This function is deprecated because it does not handle errors properly,
+ * use ::xl4bus_chain_address instead.
  */
 xl4bus_address_t * xl4bus_make_address(xl4bus_address_t * prev, xl4bus_address_type_t type, ...);
+
+XL4_PUB
+/**
+ * Allocates address structure and copies or assigns relevant address information.
+ * @param receiver pointer to memory where the full address chain will be referenced at.
+ * If *receiver is 0, then a new address chain is created; if it is !0, then the current
+ * address is appended to the new address. In any case, the value at *receiver may or may not
+ * be modified. The value is never modified if the function fails.
+ * @param type address type
+ * @param ...
+ * For type ::XL4BAT_SPECIAL, the argument is of type xl4bus_address_special_t
+ * For type ::XL4BAT_UPDATE_AGENT and XL4BAT_GROUP, the address value is a char*, followed by an int.
+ * The int is either 0 or 1, specifying whether the char* should be duplicated (1), or assigned (0).
+ * @return ::E_XL4BUS_OK if there are no errors, or an error code otherwise.
+ */
+int xl4bus_chain_address(xl4bus_address_t ** receiver, xl4bus_address_type_t type, ...);
 
 XL4_PUB
 /**

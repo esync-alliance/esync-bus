@@ -362,6 +362,65 @@ char * f_asprintf(char * fmt, ...) {
 
 }
 
+int xl4bus_chain_address(xl4bus_address_t ** rec, xl4bus_address_type_t type, ...) {
+
+    int err = E_XL4BUS_OK;
+    xl4bus_address_t * addr = 0;
+
+    va_list ap;
+    va_start(ap, type);
+
+    do {
+
+        BOLT_MALLOC(addr, sizeof(xl4bus_address_t));
+        addr->type = type;
+        switch (type) {
+
+            case XL4BAT_SPECIAL:
+                addr->special = va_arg(ap, xl4bus_address_special_t);
+                break;
+
+            case XL4BAT_UPDATE_AGENT:
+            {
+                char * ua = va_arg(ap, char*);
+                int copy = va_arg(ap, int);
+                if (copy) {
+                    BOLT_MEM(addr->update_agent = f_strdup(ua));
+                } else {
+                    addr->update_agent = ua;
+                }
+            }
+                break;
+            case XL4BAT_GROUP:
+            {
+                char * grp = va_arg(ap, char*);
+                int copy = va_arg(ap, int);
+                if (copy) {
+                    BOLT_MEM(addr->group = f_strdup(grp));
+                } else {
+                    addr->group = grp;
+                }
+            }
+            break;
+            default:
+                BOLT_SAY(E_XL4BUS_ARG, "Unknown address type %d", type);
+        }
+
+    } while(0);
+
+    if (!err) {
+        addr->next = *rec;
+        *rec = addr;
+    } else {
+        // no need to clean up addr->update_agent or addr->group
+        cfg.free(addr);
+    }
+
+    return err;
+
+}
+
+
 xl4bus_address_t * xl4bus_make_address(xl4bus_address_t * prev, xl4bus_address_type_t type, ...) {
 
     va_list ap;
@@ -391,12 +450,12 @@ xl4bus_address_t * xl4bus_make_address(xl4bus_address_t * prev, xl4bus_address_t
             break;
         case XL4BAT_GROUP:
         {
-            char * ua = va_arg(ap, char*);
+            char * grp = va_arg(ap, char*);
             int copy = va_arg(ap, int);
             if (copy) {
-                addr->update_agent = f_strdup(ua);
+                addr->group = f_strdup(grp);
             } else {
-                addr->update_agent = ua;
+                addr->group = grp;
             }
         }
             break;
