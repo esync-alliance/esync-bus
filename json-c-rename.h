@@ -1,5 +1,5 @@
 
-#define JSON_BRUTAL_RENAME(x) __json_c_hidden_##x
+#define JSON_BRUTAL_RENAME(x) __libxl4bus_hide_jsonc_##x
 
 #define printbuf_new JSON_BRUTAL_RENAME(printbuf_new)
 #define lh_char_hash JSON_BRUTAL_RENAME(lh_char_hash)
