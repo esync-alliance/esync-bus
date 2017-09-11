@@ -28,27 +28,15 @@ static void help(void);
 int main(int argc, char ** argv) {
 
     int c;
+    char * cert_dir = 0;
 
-    char * update_agent = 0;
-    int dm_client = 0;
-    char ** groups = 0;
-    size_t group_cnt = 0;
-
-    while ((c = getopt(argc, argv, "u:dg:")) != -1) {
+    while ((c = getopt(argc, argv, "c:")) != -1) {
 
         switch (c) {
 
-            case 'u':
-                update_agent = f_strdup(optarg);
-                break;
-
-            case 'd':
-                dm_client = 1;
-                break;
-
-            case 'g':
-                groups = f_realloc(groups, group_cnt + 1);
-                groups[group_cnt++] = f_strdup(optarg);
+            case 'c':
+                free(cert_dir);
+                cert_dir = f_strdup(optarg);
                 break;
 
             default: help(); break;
@@ -57,14 +45,8 @@ int main(int argc, char ** argv) {
 
     }
 
-    if (update_agent && dm_client) {
-        printf("Can not ID as both an update agent and DMClient\n");
-        help();
-    }
-
-    if (!update_agent && !dm_client) {
-        printf("Must either be an update agent, or a DM Client\n");
-        help();
+    if (!cert_dir) {
+        cert_dir = f_strdup("hl-client");
     }
 
     xl4bus_ll_cfg_t ll_cfg;
@@ -86,12 +68,9 @@ int main(int argc, char ** argv) {
     clt.on_message = handle_message;
     clt.on_presence = handle_presence;
 
-    clt.identity.type = XL4BIT_TRUST;
-    clt.identity.trust.groups = groups;
-    clt.identity.trust.group_cnt = (int) group_cnt;
-    clt.identity.trust.is_broker = 0;
-    clt.identity.trust.is_dm_client = dm_client;
-    clt.identity.trust.update_agent = update_agent;
+    load_test_x509_creds(&clt.identity, cert_dir, argv[0]);
+
+    free(cert_dir);
 
     xl4bus_init_client(&clt, "tcp://localhost:9133");
 

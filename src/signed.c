@@ -5,7 +5,7 @@
 #include "misc.h"
 #include "debug.h"
 
-int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, connection_internal_t * i_conn,
+int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, xl4bus_connection_t * conn,
         cjose_jws_t ** exp_jws) {
 
     if (ct != CT_JOSE_COMPACT) {
@@ -22,6 +22,7 @@ int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, conne
     char * x5c = 0;
     char * x5t = 0;
     cjose_jwk_t * key = 0;
+    connection_internal_t * i_conn = conn->_private;
 
     do {
 
@@ -38,7 +39,7 @@ int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, conne
         BOLT_CJOSE(x5c = cjose_header_get_raw(p_headers, "x5c", &c_err));
 
         if (x5c) {
-            BOLT_SUB(accept_x5c(x5c, i_conn, &x5t));
+            BOLT_SUB(accept_x5c(x5c, conn, &x5t));
         } else {
             BOLT_CJOSE(x5t = f_strdup(cjose_header_get(p_headers, "x5t#S256", &c_err)));
         }

@@ -267,7 +267,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
                                 } else if (!skipping_comment) {
 
-                                    for (const char * cc = line_start; (void*)cc < (*buf)->buf.data+i; cc++) {
+                                    for (const char * cc = line_start; (void*)cc < (void*)(*buf)->buf.data+i; cc++) {
 
                                         c = *cc;
 

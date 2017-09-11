@@ -949,7 +949,11 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
 
     }
 
-    send_presence(0, disconnected, 0); // this consumes disconnected.
+    if (json_object_array_length(disconnected) > 0) {
+        send_presence(0, disconnected, 0); // this consumes disconnected.
+    } else {
+        json_object_put(disconnected);
+    }
 
     free(ci->group_names);
     free(ci->ua_names);

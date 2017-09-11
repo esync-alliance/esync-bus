@@ -331,6 +331,10 @@ typedef struct xl4bus_Trust_Identity {
  */
 typedef enum xl4bus_identity_type {
     /**
+     * Reserved for invalid/uninitialized value
+     */
+    XL4BIT_INVALID = 0,
+    /**
      * X.509 identity, use ::xl4bus_identity.x509 to specify
      * identity details.
      */

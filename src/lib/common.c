@@ -160,6 +160,8 @@ void release_identity(xl4bus_identity_t * identity) {
 
         free(identity->x509.custom);
 
+        identity->type = XL4BIT_INVALID;
+
     }
 
 }

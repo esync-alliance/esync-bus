@@ -321,7 +321,7 @@ do {} while(0)
 
                                 }
 
-                                BOLT_SUB(validate_jws(signed_data, signed_len, received_ct, 0, i_conn, &jws));
+                                BOLT_SUB(validate_jws(signed_data, signed_len, received_ct, 0, conn, &jws));
 
                                 BOLT_CJOSE(cjose_jws_get_plaintext(jws, (uint8_t**)&message.message.data,
                                         &message.message.data_len, &c_err));
@@ -390,7 +390,7 @@ do {} while(0)
 
                         uint16_t stream_id;
                         if (validate_jws(frm.data.data + 1, frm.data.len - 1,
-                                (int)frm.data.data[0], &stream_id, i_conn, 0) == E_XL4BUS_OK) {
+                                (int)frm.data.data[0], &stream_id, conn, 0) == E_XL4BUS_OK) {
                             stream_t * stream;
                             HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
                             if (stream) {

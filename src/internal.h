@@ -230,7 +230,7 @@ int check_conn_io(xl4bus_connection_t*);
 #define sign_jws XI(sign_jws)
 #define encrypt_jwe XI(encrypt_jwe)
 #define decrypt_jwe XI(decrypt_jwe)
-int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, connection_internal_t * i_conn, cjose_jws_t ** exp_jws);
+int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, xl4bus_connection_t * i_conn, cjose_jws_t ** exp_jws);
 int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
 int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * key, void ** decrypted, size_t * decrypted_len, char ** cty);
