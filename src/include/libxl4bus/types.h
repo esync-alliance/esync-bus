@@ -380,6 +380,8 @@ typedef struct xl4bus_connection {
     xl4bus_ll_send_callback on_sent_message;
     xl4bus_stream_callback on_stream_abort;
 
+    xl4bus_address_t * remote_address_list;
+
 #if XL4_SUPPORT_THREADS
     int mt_support;
     int mt_write_socket;

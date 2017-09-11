@@ -24,11 +24,6 @@
 #include "lib/debug.h"
 #include "lib/common.h"
 
-typedef enum terminal_type {
-    TT_DM_CLIENT,
-    TT_UPDATE_AGENT
-} terminal_type_t;
-
 #define REMOVE_FROM_ARRAY(array, item, msg, x...) do { \
     void * __addr = utarray_find(array, &item, void_cmp_fun); \
     if (__addr) { \
@@ -45,8 +40,8 @@ typedef enum terminal_type {
 
 #define UTCOUNT_WITHOUT(array, item, to) do { \
     unsigned long __a = utarray_len(array); \
-    if (__a && item) { \
-        if (utarray_find(array, &item, void_cmp_fun)) { \
+    if (__a && (item)) { \
+        if (utarray_find(array, &(item), void_cmp_fun)) { \
             __a--; \
         } \
     } \
@@ -71,8 +66,8 @@ typedef enum terminal_type {
 } while(0)
 
 #define ADD_TO_ARRAY_ONCE(array, item) do {\
-    if (!utarray_find(array, &item, void_cmp_fun)) { \
-        utarray_push_back(array, &item); \
+    if (!utarray_find(array, &(item), void_cmp_fun)) { \
+        utarray_push_back(array, &(item)); \
         utarray_sort(array, void_cmp_fun); \
     } \
 } while(0)
@@ -117,10 +112,11 @@ typedef struct conn_info {
     struct pollfd pfd;
     int reg_req;
 
-    terminal_type_t terminal;
-    char * ua_name;
+    int is_dm_client;
+    int ua_count;
+    char ** ua_names;
     int group_count;
-    char ** groups;
+    char ** group_names;
 
     int poll_modes;
 
@@ -573,77 +569,67 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 BOLT_IF(ci->reg_req, E_XL4BUS_CLIENT, "already registered");
                 ci->reg_req = 1;
 
-#if 1 /* throw this code out the window, must use x-509 ID only */
-                BOLT_IF(!json_object_object_get_ex(root, "xxx-id", &aux) || !json_object_is_type(aux, json_type_object),
-                        E_XL4BUS_CLIENT, "Missing xxx-id property");
-                {
+                for (xl4bus_address_t * r_addr = conn->remote_address_list; r_addr; r_addr = r_addr->next) {
 
-                    connected = json_object_new_array();
+                    if (r_addr->type == XL4BAT_GROUP) {
 
-                    json_object * bux;
-                    if (json_object_object_get_ex(aux, "is_dmclient", &bux) &&
-                            json_object_is_type(bux, json_type_boolean) && json_object_get_boolean(bux)) {
+                        ci->group_names = f_realloc(ci->group_names, sizeof(char*) * (ci->group_count+1));
+                        ci->group_names[ci->group_count] = f_strdup(r_addr->group);
+                        HASH_LIST_ADD(ci_by_group, ci, group_names[ci->group_count]);
+                        ci->group_count++;
 
-                        ci->terminal = TT_DM_CLIENT;
-
-                        ADD_TO_ARRAY_ONCE(&dm_clients, ci);
-
-                        json_object * cel = json_object_new_object();
-                        json_object_object_add(cel, "special", json_object_new_string("dmclient"));
+                        json_object * cel;
+                        json_object * sel;
+                        BOLT_MEM(cel = json_object_new_object());
                         json_object_array_add(connected, cel);
+                        BOLT_MEM(sel = json_object_new_string(r_addr->group));
+                        json_object_object_add(cel, "group", sel);
 
-                    } else if (json_object_object_get_ex(aux, "is_update_agent", &bux) &&
-                            json_object_is_type(bux, json_type_boolean) && json_object_get_boolean(bux)) {
-                        ci->terminal = TT_UPDATE_AGENT;
-                        BOLT_IF(!json_object_object_get_ex(aux, "update_agent", &bux) ||
-                                !json_object_is_type(bux, json_type_string), E_XL4BUS_CLIENT,
-                                "No update agent name present");
-                        ci->ua_name = f_strdup(json_object_get_string(bux));
-                        BOLT_IF(!*ci->ua_name, E_XL4BUS_CLIENT, "empty update agent name");
+                    } else if (r_addr->type == XL4BAT_SPECIAL) {
 
-                        HASH_LIST_ADD(ci_by_name, ci, ua_name);
+                        if (r_addr->special == XL4BAS_DM_CLIENT) {
 
-                        json_object * cel= json_object_new_object();
-                        json_object_object_add(cel, "update-agent", json_object_new_string(ci->ua_name));
-                        json_object_array_add(connected, cel);
+                            ci->is_dm_client = 1;
 
-                    } else {
-                        BOLT_SAY(E_XL4BUS_CLIENT, "Can't accept/identify terminal type");
-                    }
-
-                    if (json_object_object_get_ex(aux, "groups", &bux) &&
-                            json_object_is_type(bux, json_type_array)) {
-
-                        int l = json_object_array_length(bux);
-                        for (int i=0; i<l; i++) {
-                            json_object * cux = json_object_array_get_idx(bux, i);
-                            if (!json_object_is_type(cux, json_type_string)) { continue; }
-                            ci->groups = f_realloc(ci->groups, sizeof(char*) * (ci->group_count+1));
-                            ci->groups[ci->group_count] = f_strdup(json_object_get_string(cux));
-                            HASH_LIST_ADD(ci_by_group, ci, groups[ci->group_count]);
-                            ci->group_count++;
+                            ADD_TO_ARRAY_ONCE(&dm_clients, ci);
 
                             json_object * cel = json_object_new_object();
-                            json_object_object_add(cel, "group", json_object_new_string(ci->groups[i]));
+                            json_object_object_add(cel, "special", json_object_new_string("dmclient"));
                             json_object_array_add(connected, cel);
 
                         }
+
+                    } else if (r_addr->type == XL4BAT_UPDATE_AGENT) {
+
+                        ci->ua_names = f_realloc(ci->ua_names, sizeof(char*) * (ci->ua_count+1));
+                        ci->ua_names[ci->ua_count] = f_strdup(r_addr->update_agent);
+                        HASH_LIST_ADD(ci_by_name, ci, ua_names[ci->ua_count]);
+                        ci->ua_count++;
+
+                        json_object * cel;
+                        json_object * sel;
+                        BOLT_MEM(cel = json_object_new_object());
+                        json_object_array_add(connected, cel);
+                        BOLT_MEM(sel = json_object_new_string(r_addr->update_agent));
+                        json_object_object_add(cel, "update-agent", sel);
+
                     }
+
                 }
 
-#endif
-
-
+                BOLT_NEST();
 
                 // send current presence
                 // https://gitlab.excelfore.com/schema/json/xl4bus/presence.json
-                json_object * json = json_object_new_object();
+                json_object * json;
+                BOLT_MEM(json = json_object_new_object());
 
                 {
                     json_object_object_add(json, "type", json_object_new_string("xl4bus.presence"));
-                    aux = json_object_new_object();
+                    BOLT_MEM(aux = json_object_new_object());
                     json_object_object_add(json, "body", aux);
-                    json_object * bux = json_object_new_array();
+                    json_object * bux;
+                    BOLT_MEM(bux = json_object_new_array());
                     json_object_object_add(aux, "connected", bux);
 
                     unsigned long lc;
@@ -651,9 +637,12 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     UTCOUNT_WITHOUT(&dm_clients, ci, lc);
 
                     if (lc) {
-                        json_object * cux = json_object_new_object();
-                        json_object_object_add(cux, "special", json_object_new_string("dmclient"));
+                        json_object * cux;
+                        BOLT_MEM(cux = json_object_new_object());
                         json_object_array_add(bux, cux);
+                        json_object * dux;
+                        BOLT_MEM(dux = json_object_new_string("dmclient"));
+                        json_object_object_add(cux, "special", dux);
                     }
 
                     conn_info_hash_list_t * tmp;
@@ -662,20 +651,30 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     HASH_ITER(hh, ci_by_name, cti, tmp) {
                         UTCOUNT_WITHOUT(&cti->items, ci, lc);
                         if (lc > 0) {
-                            json_object * cux = json_object_new_object();
-                            json_object_object_add(cux, "update-agent", json_object_new_string(cti->hh.key));
+                            json_object * cux;
+                            BOLT_MEM(cux = json_object_new_object());
                             json_object_array_add(bux, cux);
+                            json_object * dux;
+                            BOLT_MEM(dux = json_object_new_string(cti->hh.key));
+                            json_object_object_add(cux, "update-agent", dux);
                         }
                     }
+
+                    BOLT_NEST();
 
                     HASH_ITER(hh, ci_by_group, cti, tmp) {
                         UTCOUNT_WITHOUT(&cti->items, ci, lc);
                         if (lc > 0) {
-                            json_object * cux = json_object_new_object();
-                            json_object_object_add(cux, "group", json_object_new_string(cti->hh.key));
+                            json_object * cux;
+                            BOLT_MEM(cux = json_object_new_object());
                             json_object_array_add(bux, cux);
+                            json_object * dux;
+                            BOLT_MEM(dux = json_object_new_string(cti->hh.key));
+                            json_object_object_add(cux, "group", dux);
                         }
                     }
+
+                    BOLT_NEST();
 
                 }
 
@@ -914,7 +913,7 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
 
     json_object * disconnected = json_object_new_array();
 
-    if (ci->terminal == TT_DM_CLIENT) {
+    if (ci->is_dm_client) {
         REMOVE_FROM_ARRAY(&dm_clients, ci, "Removing CI from DM Client list");
         if (!utarray_len(&dm_clients)) {
             // no more dmclients :(
@@ -922,34 +921,38 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
             json_object_object_add(bux, "special", json_object_new_string("dmclient"));
             json_object_array_add(disconnected, bux);
         }
-    } else {
+    }
+
+    for (int i=0; i< ci->ua_count; i++) {
         int n_len;
-        REMOVE_FROM_HASH(ci_by_name, ci, ua_name, n_len, "Removing by UA name");
+        REMOVE_FROM_HASH(ci_by_name, ci, ua_names[i], n_len, "Removing by UA name");
         if (!n_len) {
             json_object * bux = json_object_new_object();
-            json_object_object_add(bux, "update-agent", json_object_new_string(ci->ua_name));
+            json_object_object_add(bux, "update-agent", json_object_new_string(ci->ua_names[i]));
             json_object_array_add(disconnected, bux);
         }
+
+        free(ci->ua_names[i]);
     }
 
     for (int i=0; i<ci->group_count; i++) {
         int n_len;
-        REMOVE_FROM_HASH(ci_by_group, ci, groups[i], n_len, "Removing by group name");
+        REMOVE_FROM_HASH(ci_by_group, ci, group_names[i], n_len, "Removing by group name");
 
         if (!n_len) {
             json_object * bux = json_object_new_object();
-            json_object_object_add(bux, "group", json_object_new_string(ci->groups[i]));
+            json_object_object_add(bux, "group", json_object_new_string(ci->group_names[i]));
             json_object_array_add(disconnected, bux);
         }
 
-        free(ci->groups[i]);
+        free(ci->group_names[i]);
 
     }
 
     send_presence(0, disconnected, 0); // this consumes disconnected.
 
-    free(ci->groups);
-    free(ci->ua_name);
+    free(ci->group_names);
+    free(ci->ua_names);
     free(ci->conn);
     free(ci);
 

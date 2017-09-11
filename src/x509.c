@@ -127,7 +127,7 @@ void print_time(char * time, mbedtls_x509_time * x509_time) {
 }
 #endif
 
-int accept_x5c(const char * x5c, connection_internal_t * i_conn, char ** x5t) {
+int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
 
     int err = E_XL4BUS_OK;
     json_object * x5c_obj = 0;
@@ -168,6 +168,8 @@ int accept_x5c(const char * x5c, connection_internal_t * i_conn, char ** x5t) {
             }
         }
         BOLT_SUB(err);
+
+        connection_internal_t * i_conn = conn->_private;
 
         uint32_t flags;
         BOLT_MTLS(mbedtls_x509_crt_verify(&entry->crt, &i_conn->trust, &i_conn->crl, 0, &flags, 0, 0));
@@ -294,8 +296,11 @@ int accept_x5c(const char * x5c, connection_internal_t * i_conn, char ** x5t) {
                             cfg.free(bus_address);
                             BOLT_MALLOC(bus_address, sizeof(xl4bus_address_t));
                             BOLT_MEM(bus_address->group = f_strndup(start, inner_len));
-                            bus_address->next = i_conn->cert_address_list;
-                            i_conn->cert_address_list = bus_address;
+                            bus_address->next = conn->remote_address_list;
+                            conn->remote_address_list = bus_address;
+
+                            DBG("Identity has group %s", bus_address);
+
                             bus_address = 0;
 
                         }
@@ -342,22 +347,31 @@ int accept_x5c(const char * x5c, connection_internal_t * i_conn, char ** x5t) {
                                     bus_address->type = XL4BAT_SPECIAL;
                                     bus_address->special = XL4BAS_DM_BROKER;
                                     bus_address_ok = 1;
+
+                                    DBG("Identity is BROKER");
+
                                 } else if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.2")) {
                                     bus_address->type = XL4BAT_SPECIAL;
                                     bus_address->special = XL4BAS_DM_CLIENT;
                                     bus_address_ok = 1;
+
+                                    DBG("Identity is DM_CLIENT");
+
                                 } else if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.3")) {
                                     bus_address->type = XL4BAT_UPDATE_AGENT;
                                     if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_UTF8_STRING)) {
                                         // $TODO: validate utf-8
                                         BOLT_MEM(bus_address->update_agent = f_strndup(start, inner_len));
                                         bus_address_ok = 1;
+
+                                        DBG("Identity is UA %s", bus_address->update_agent);
+
                                     }
                                 }
 
                                 if (bus_address_ok) {
-                                    bus_address->next = i_conn->cert_address_list;
-                                    i_conn->cert_address_list = bus_address;
+                                    bus_address->next = conn->remote_address_list;
+                                    conn->remote_address_list = bus_address;
                                     bus_address = 0;
                                 }
 

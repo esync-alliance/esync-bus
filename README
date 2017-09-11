@@ -41,6 +41,6 @@ LINUX
          cmake -DCMAKE_C_FLAGS="-fPIC -fvisibility=hidden" .. && make -j )
 * Build cjose:
   - ( rm -rf cjose-build && cp -fr cjose cjose-build && cd cjose-build && \
-      ./configure --with-openssl=/usr --with-jansson=/usr \
+      CFLAGS="-fPIC -fvisibility=hidden" ./configure --with-openssl=/usr --with-jansson=/usr \
        --enable-static --disable-shared && make -j )
 

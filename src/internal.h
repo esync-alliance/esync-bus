@@ -116,7 +116,6 @@ typedef struct connection_internal {
     json_object * x5c;
 
     int ku_flags;
-    xl4bus_address_t * cert_address_list;
 
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;
@@ -172,7 +171,6 @@ typedef struct message_internal {
     message_info_state_t mis;
     json_object * addr;
     void * custom;
-    int in_hash;
 
 } message_internal_t;
 
@@ -281,6 +279,6 @@ cjose_jwk_t * find_key_by_x5t(const char * x5t);
 // accepts JSON serialized x5c header value, and returns x5t tag value
 // (as if x5t#SHA256 was provided), or NULL if the certificate is
 // not accepted.
-int accept_x5c(const char * x5c, connection_internal_t * i_conn, char ** x5t);
+int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t);
 
 #endif

@@ -65,6 +65,7 @@ extern int debug;
 #define BOLT_CJOSE(a) { a; if (c_err.code != CJOSE_ERR_NONE) { BOLT_SAY(cjose_to_err(&c_err), "cjose failure %d %s:%s", c_err.code, c_err.message, #a);}}
 #define BOLT_ARES(a) { int __err = (a); if (__err != ARES_SUCCESS) { if (__err == ARES_ENOMEM) { __err = E_XL4BUS_MEMORY; } else { __err = E_XL4BUS_INTERNAL; } BOLT_SAY(__err, "%s", #a); } } do{} while(0)
 #define BOLT_MALLOC(var, how_much) { if (!((var) = f_malloc(how_much))) { BOLT_SAY(E_XL4BUS_MEMORY, "failed to alloc %d for %s", how_much, #var); } } do{}while(0)
+#define BOLT_NEST() BOLT_SUB(err)
 
 static inline const char * chop_path(const char * path) {
     const char * aux = strrchr(path, '/');
