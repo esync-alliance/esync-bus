@@ -65,14 +65,6 @@ echo "$ans" | fgrep -iq y && {
     bus_address_details="${bus_address_details}|[address_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.2.1|f$((count++))=NULL"
 }
 
-test -z "$addresses" && {
-    # if no addresses were provided, create a "general listener" address, so there is at least something.
-    addresses="$has_addresses"
-    seq="$count"
-    bus_addresses="${bus_addresses}|f$((count++))=SEQUENCE:address_seq_$seq"
-    bus_address_details="${bus_address_details}|[address_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.2.4|f$((count++))=NULL"
-}
-
 while true; do
 
     read -rp "Add update agent address [empty to end]: " ans
@@ -84,6 +76,14 @@ while true; do
     bus_address_details="${bus_address_details}|[address_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.2.3|f$((count++))=UTF8String:$ans"
 
 done
+
+test -z "$addresses" && {
+    # if no addresses were provided, create a "general listener" address, so there is at least something.
+    addresses="$has_addresses"
+    seq="$count"
+    bus_addresses="${bus_addresses}|f$((count++))=SEQUENCE:address_seq_$seq"
+    bus_address_details="${bus_address_details}|[address_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.2.4|f$((count++))=NULL"
+}
 
 while true; do
 

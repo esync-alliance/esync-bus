@@ -760,12 +760,13 @@ void clean_keyspec(cjose_jwk_rsa_keyspec * ks) {
 
 }
 
-int get_oid(unsigned char ** p, unsigned char * end, mbedtls_asn1_buf * oid) {
+int get_oid(unsigned char **p, unsigned char *end, mbedtls_asn1_buf *oid) {
 
     int ret;
 
-    if( ( ret = mbedtls_asn1_get_tag( p, end, &oid->len, MBEDTLS_ASN1_OID ) ) != 0 )
-        return( ret );
+    if ((ret = mbedtls_asn1_get_tag(p, end, &oid->len, MBEDTLS_ASN1_OID)) != 0) {
+        return (ret);
+    }
 
     oid->p = *p;
     *p += oid->len;

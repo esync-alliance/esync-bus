@@ -569,6 +569,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 BOLT_IF(ci->reg_req, E_XL4BUS_CLIENT, "already registered");
                 ci->reg_req = 1;
 
+                BOLT_MEM(connected = json_object_new_array());
+
                 for (xl4bus_address_t * r_addr = conn->remote_address_list; r_addr; r_addr = r_addr->next) {
 
                     if (r_addr->type == XL4BAT_GROUP) {
@@ -696,8 +698,10 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 } else {
                     // tell everybody else this client arrived.
 
-                    send_presence(connected, 0, ci);
-                    connected = 0; // connected is consumed
+                    if (json_object_array_length(connected)) {
+                        send_presence(connected, 0, ci);
+                        connected = 0; // connected is consumed
+                    }
 
                 }
 
@@ -807,7 +811,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 }
                 json_object * aux;
                 conn_info_hash_list_t * use_hl = 0;
-                char const * key;
+                char const * key = 0;
                 UT_array * send_list = 0;
 
                 if (json_object_object_get_ex(el, "update-agent", &aux) &&
@@ -829,11 +833,13 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     HASH_FIND(hh, use_hl, key, strlen(key)+1, val);
                     if (val) {
                         send_list = &val->items;
+                    } else {
+                        DBG("BRK: No delivery records found for %s", json_object_get_string(el));
                     }
                 }
 
                 if (!send_list) {
-                    DBG("BRK: Skipping destination : no send_list");
+                    DBG("BRK: Skipping destination : no send_list created from %s", json_object_get_string(el));
                     continue;
                 }
 

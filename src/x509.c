@@ -195,34 +195,6 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
             i_conn->ku_flags |= KU_FLAG_ENCRYPT;
         }
 
-
-
-        /*
-
-        unsigned char * ptr = entry->crt.v3_ext.p;
-        unsigned char * slide = ptr;
-        void * end = ptr + entry->crt.v3_ext.len;
-
-        while (slide < end) {
-
-            size_t t_len;
-            int r;
-
-            // this should be sequence of sequences.
-            if (!(r = mbedtls_asn1_get_tag(&slide, end, &t_len, 0x30))) {
-                DBG("got sequence %d bytes", (int)t_len);
-            } else {
-                char e_buf[512];
-                mbedtls_strerror(r, e_buf, 512);
-                DBG("extraction failed with (%x) %s", r, e_buf);
-                break;
-            }
-
-            slide += t_len; // advance to next
-
-        }
-        */
-
         {
 
             mbedtls_asn1_sequence seq;
@@ -268,13 +240,15 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
 
                     // NOTE: we don't expect critical value because we always issue our certs
                     // marking out extensions as not critical, which is default, and therefore
-                    // not included in DER.
+                    // not included in DER. We can't mark is as critical, because any other verification
+                    // will have to reject it.
 
                     if (is_xl4bus_group) {
 
                         size_t inner_len;
 
                         if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
+                            DBG("xl4group attr : not octet string");
                             continue;
                         }
                         end = start + inner_len;
@@ -282,6 +256,7 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
                         // the extracted octet string should contain SET of UTF8String
                         if (mbedtls_asn1_get_tag(&start, end, &inner_len,
                                 MBEDTLS_ASN1_SET|MBEDTLS_ASN1_CONSTRUCTED)) {
+                            DBG("Group list is not a constructed set");
                             continue;
                         }
 
@@ -290,6 +265,7 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
                         while (start < end) {
 
                             if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_UTF8_STRING)) {
+                                DBG("Group element is not utf-8 string");
                                 break;
                             }
 
@@ -299,9 +275,11 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
                             bus_address->next = conn->remote_address_list;
                             conn->remote_address_list = bus_address;
 
-                            DBG("Identity has group %s", bus_address);
+                            DBG("Identity has group %s", bus_address->group);
 
                             bus_address = 0;
+
+                            start += inner_len;
 
                         }
 
@@ -312,6 +290,7 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
                         size_t inner_len;
 
                         if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
+                            DBG("Addr attribute is not octet string");
                             continue;
                         }
                         end = start + inner_len;
@@ -332,6 +311,7 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
                                 end = start + p_addr->buf.len;
 
                                 if (get_oid(&start, end, &oid)) {
+                                    DBG("Address doesn't start with an OID");
                                     continue;
                                 }
 
@@ -359,14 +339,18 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
 
                                 } else if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.3")) {
                                     bus_address->type = XL4BAT_UPDATE_AGENT;
-                                    if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_UTF8_STRING)) {
+                                    if (!mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_UTF8_STRING)) {
                                         // $TODO: validate utf-8
                                         BOLT_MEM(bus_address->update_agent = f_strndup(start, inner_len));
                                         bus_address_ok = 1;
 
                                         DBG("Identity is UA %s", bus_address->update_agent);
 
+                                    } else {
+                                        DBG("Address value part is not utf8 string");
                                     }
+                                } else {
+                                    DBG("Unknown address OID %s", x_oid);
                                 }
 
                                 if (bus_address_ok) {
@@ -377,6 +361,8 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
 
                             }
 
+                        } else {
+                            DBG("address is not a sequence of constructed sequences");
                         }
 
                         for (mbedtls_asn1_sequence *f_seq = addr.next; f_seq;) {
