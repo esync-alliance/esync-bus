@@ -808,6 +808,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             int l = utarray_len(&send_list);
 
+            DBG("Received application message, has %d send list elements", l);
+
             for (int i=0; i<l; i++) {
                 conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(&send_list, i);
                 if (ci2 == ci) {

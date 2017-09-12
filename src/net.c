@@ -285,6 +285,7 @@ do {} while(0)
 
                                 // the message is completed! Let's purge it.
                                 xl4bus_ll_message_t message;
+                                memset(&message, 0, sizeof(xl4bus_ll_message_t));
 
                                 // the message can be encrypted with our private key, or not.
                                 // let's try to treat it as encrypted message first.
