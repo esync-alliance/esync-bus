@@ -101,11 +101,13 @@ typedef struct poll_info {
 
 } poll_info_t;
 
+#if 0
 typedef struct stream_info {
     UT_hash_handle hh;
     uint16_t stream_id;
     json_object * destinations;
 } stream_info_t;
+#endif
 
 typedef struct conn_info {
 
@@ -127,7 +129,9 @@ typedef struct conn_info {
 
     struct poll_info pit;
 
+#if 0
     stream_info_t * open_streams;
+#endif
 
     uint16_t out_stream_id;
 
@@ -143,7 +147,21 @@ static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int, int);
 static int pick_timeout(int t1, int t2);
 static void dismiss_connection(conn_info_t * ci, int need_shutdown);
+
+int debug = 1;
+
+static conn_info_hash_list_t * ci_by_name = 0;
+static conn_info_hash_list_t * ci_by_group = 0;
+static conn_info_hash_list_t * ci_by_x5t = 0;
+static UT_array dm_clients;
+static int poll_fd;
+static conn_info_t * connections;
+static xl4bus_identity_t broker_identity;
+
+#if 0
 static void cleanup_stream(conn_info_t * ci, stream_info_t * si);
+#endif
+
 static void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except);
 
 static inline int void_cmp_fun(void const * a, void const * b) {
@@ -173,15 +191,6 @@ static int void_cmp_fun2(const void * a, const void * b) {
     return r;
 }
 #endif
-
-int debug = 1;
-
-static conn_info_hash_list_t * ci_by_name = 0;
-static conn_info_hash_list_t * ci_by_group = 0;
-static UT_array dm_clients;
-static int poll_fd;
-static conn_info_t * connections;
-static xl4bus_identity_t broker_identity;
 
 int main(int argc, char ** argv) {
 
@@ -619,6 +628,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 }
 
+                HASH_LIST_ADD(ci_by_x5t, ci, conn->remote_x5t);
+
                 BOLT_NEST();
 
                 // send current presence
@@ -711,6 +722,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             } else if (!strcmp("xl4bus.request-destinations", type)) {
 
+#if 0
                 stream_info_t * si;
                 HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
                 if (si) {
@@ -724,6 +736,10 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 si = f_malloc(sizeof(stream_info_t));
                 si->stream_id = msg->stream_id;
                 HASH_ADD(hh, ci->open_streams, stream_id, 2, si);
+
+#endif
+
+                // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
 
                 if (json_object_object_get_ex(root, "body", &aux) && json_object_is_type(aux, json_type_object)) {
                     json_object * bux;
@@ -876,11 +892,13 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     if (msg->is_final) {
         // if there is a final message on stream we track,
         // make sure to clean up.
+#if 0
         stream_info_t * si;
         HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
         if (si) {
             cleanup_stream(ci, si);
         }
+#endif
     }
 
     json_object_put(root);
@@ -911,11 +929,13 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
     shutdown(ci->conn->fd, SHUT_RDWR);
     close(ci->conn->fd);
 
+#if 0
     stream_info_t *si, *aux;
 
     HASH_ITER(hh, ci->open_streams, si, aux) {
         cleanup_stream(ci, si);
     }
+#endif
 
     json_object * disconnected = json_object_new_array();
 
@@ -955,6 +975,14 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
 
     }
 
+    {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-variable"
+        int n_len;
+#pragma clang diagnostic pop
+        REMOVE_FROM_HASH(ci_by_x5t, ci, conn->remote_x5t, n_len, "Removing by x5t");
+    }
+
     if (json_object_array_length(disconnected) > 0) {
         send_presence(0, disconnected, 0); // this consumes disconnected.
     } else {
@@ -968,6 +996,7 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
 
 }
 
+#if 0
 static void cleanup_stream(conn_info_t * ci, stream_info_t * si) {
 
     HASH_DEL(ci->open_streams, si);
@@ -975,6 +1004,7 @@ static void cleanup_stream(conn_info_t * ci, stream_info_t * si) {
     free(si);
 
 }
+#endif
 
 void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except) {
 

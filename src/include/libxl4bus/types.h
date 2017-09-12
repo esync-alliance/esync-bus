@@ -386,6 +386,8 @@ typedef struct xl4bus_connection {
 
     xl4bus_address_t * remote_address_list;
 
+    char * remote_x5t;
+
 #if XL4_SUPPORT_THREADS
     int mt_support;
     int mt_write_socket;

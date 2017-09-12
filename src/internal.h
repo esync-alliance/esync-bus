@@ -112,7 +112,6 @@ typedef struct connection_internal {
     cjose_jwk_t * private_key;
     cjose_jwk_t * remote_key;
     char * my_x5t;
-    char * remote_x5t;
     json_object * x5c;
 
     int ku_flags;
