@@ -5,8 +5,8 @@
 #include "misc.h"
 #include "debug.h"
 
-int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, xl4bus_connection_t * conn,
-        cjose_jws_t ** exp_jws) {
+int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
+        cjose_jws_t ** exp_jws, json_object ** bus_object) {
 
     if (ct != CT_JOSE_COMPACT) {
         // cjose library only supports compact!
@@ -47,9 +47,9 @@ int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, xl4bu
         key = find_key_by_x5t(x5t);
         BOLT_IF(!key, E_XL4BUS_SYS, "Could not find JWK for tag %s", NULL_STR(x5t));
 
-        if (i_conn->remote_x5t) {
-            BOLT_IF(strcmp(i_conn->remote_x5t, x5t), E_XL4BUS_DATA,
-                    "Connection set with tag %s, received tag %s", x5t, i_conn->remote_x5t);
+        if (conn->remote_x5t) {
+            BOLT_IF(strcmp(conn->remote_x5t, x5t), E_XL4BUS_DATA,
+                    "Connection set with tag %s, received tag %s", x5t, conn->remote_x5t);
         }
 
         BOLT_CJOSE(hdr_str = cjose_header_get(p_headers, "x-xl4bus", &c_err));
@@ -61,8 +61,8 @@ int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, xl4bu
 
         BOLT_IF(!cjose_jws_verify(jws, key, &c_err), E_XL4BUS_DATA, "Failed JWS verify");
 
-        if (!i_conn->remote_x5t) {
-            i_conn->remote_x5t = x5t;
+        if (!conn->remote_x5t) {
+            conn->remote_x5t = x5t;
             x5t = 0;
             cjose_jwk_release(i_conn->remote_key);
             i_conn->remote_key = key;
@@ -71,38 +71,25 @@ int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, xl4bu
 
         // $TODO: check nonce/timestamp
 
-        if (stream_id) {
-
-            json_object *j;
-            if (!json_object_object_get_ex(hdr, "stream-id", &j) ||
-                    !json_object_is_type(j, json_type_int)) {
-                err = E_XL4BUS_DATA;
-                break;
-            }
-
-            int val = json_object_get_int(j);
-            if (val & 0xffff) {
-                err = E_XL4BUS_DATA;
-                break;
-            }
-
-            *stream_id = (uint16_t) val;
-
-        }
-
     } while (0);
 
     cfg.free(x5c);
     cfg.free(x5t);
     cjose_jwk_release(key);
 
-    json_object_put(hdr);
-
-    if ((err == E_XL4BUS_OK) && exp_jws) {
-        *exp_jws = jws;
-    } else {
-        cjose_jws_release(jws);
+    if (err == E_XL4BUS_OK) {
+        if (exp_jws) {
+            *exp_jws = jws;
+            jws = 0;
+        }
+        if (bus_object) {
+            *bus_object = hdr;
+            hdr = 0;
+        }
     }
+
+    json_object_put(hdr);
+    cjose_jws_release(jws);
 
     return err;
 
@@ -121,6 +108,12 @@ int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, const void *dat
         BOLT_CJOSE(j_hdr = cjose_header_new(&c_err));
 
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, "RS256", &c_err));
+
+        // this is for https://tools.ietf.org/html/rfc7515#section-4.1.10,
+        // application/ can be omitted if there are no other slashes.
+        if (!strncmp(ct, "application/", 12) && !strchr(ct+12, '/')) {
+            ct += 12;
+        }
 
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, ct, &c_err));
 

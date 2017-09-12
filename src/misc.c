@@ -515,7 +515,7 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
     cjose_jwk_release(i_conn->private_key);
     cjose_jwk_release(i_conn->remote_key);
     cfg.free(i_conn->my_x5t);
-    cfg.free(i_conn->remote_x5t);
+    cfg.free(conn->remote_x5t);
     json_object_put(i_conn->x5c);
 
     cfg.free(i_conn);
@@ -708,6 +708,8 @@ void xl4bus_free_address(xl4bus_address_t * addr, int chain) {
                 break;
         }
 
+        cfg.free(addr);
+
         addr = next;
 
     }
@@ -877,3 +879,62 @@ int make_json_address(xl4bus_address_t * bus_addr, json_object ** json) {
 
 }
 
+int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
+
+    int l = json_object_array_length(j_list);
+    xl4bus_address_t * last = 0;
+    xl4bus_address_t * next = 0;
+    int err = E_XL4BUS_OK;
+
+    for (int i=0; i<l; i++) {
+
+        if (!next) {
+            BOLT_MALLOC(next, sizeof(xl4bus_address_t));
+        }
+
+        json_object * el = json_object_array_get_idx(j_list, i);
+
+        DBG("BAL: Processing el %s", json_object_get_string(el));
+        json_object * aux;
+        if (json_object_object_get_ex(el, "update-agent", &aux) && json_object_is_type(aux, json_type_string)) {
+            next->type = XL4BAT_UPDATE_AGENT;
+            BOLT_MEM(next->update_agent = f_strdup(json_object_get_string(aux)));
+        } else if (json_object_object_get_ex(el, "group", &aux) && json_object_is_type(aux, json_type_string)) {
+            next->type = XL4BAT_GROUP;
+            BOLT_MEM(next->group = f_strdup(json_object_get_string(aux)));
+        } else if (json_object_object_get_ex(el, "special", &aux) && json_object_is_type(aux, json_type_string)) {
+
+            char const * bux = json_object_get_string(aux);
+            next->type = XL4BAT_SPECIAL;
+
+            if (!strcmp("dmclient", bux)) {
+                next->special = XL4BAS_DM_CLIENT;
+            } else if (!strcmp("broker", bux)) {
+                next->special = XL4BAS_DM_BROKER;
+            } else {
+                continue;
+            }
+
+        } else {
+            continue;
+        }
+
+        if (!last) {
+            *new_list = next;
+        } else {
+            last->next = next;
+        }
+        last = next;
+        next = 0;
+
+    }
+
+    cfg.free(next);
+
+    if (err) {
+        xl4bus_free_address(*new_list, 1);
+    }
+
+    return err;
+
+}

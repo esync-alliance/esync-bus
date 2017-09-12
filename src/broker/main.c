@@ -20,6 +20,7 @@
 #include <uthash.h>
 #include <utarray.h>
 #include <utlist.h>
+#include <dbm.h>
 
 #include "lib/debug.h"
 #include "lib/common.h"
@@ -137,6 +138,12 @@ typedef struct conn_info {
 
 } conn_info_t;
 
+typedef struct {
+    UT_hash_handle hh;
+    const char * str;
+} str_t;
+
+
 typedef struct conn_info_hash_list {
     UT_hash_handle hh;
     UT_array items;
@@ -148,11 +155,16 @@ static int set_poll(xl4bus_connection_t *, int, int);
 static int pick_timeout(int t1, int t2);
 static void dismiss_connection(conn_info_t * ci, int need_shutdown);
 
+static void gather_destinations(json_object * array, json_object ** x5t, UT_array * conns);
+static void gather_destination(xl4bus_address_t *, str_t ** x5t, UT_array * conns);
+static void finish_x5t_destinations(json_object ** x5t, str_t * strings);
+static void gather_all_destinations(xl4bus_address_t * first, UT_array * conns);
+
 int debug = 1;
 
 static conn_info_hash_list_t * ci_by_name = 0;
 static conn_info_hash_list_t * ci_by_group = 0;
-static conn_info_hash_list_t * ci_by_x5t = 0;
+// static conn_info_hash_list_t * ci_by_x5t = 0;
 static UT_array dm_clients;
 static int poll_fd;
 static conn_info_t * connections;
@@ -628,7 +640,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 }
 
-                HASH_LIST_ADD(ci_by_x5t, ci, conn->remote_x5t);
+                // HASH_LIST_ADD(ci_by_x5t, ci, conn->remote_x5t);
 
                 BOLT_NEST();
 
@@ -741,11 +753,12 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
 
+                json_object * x5t = 0;
+
                 if (json_object_object_get_ex(root, "body", &aux) && json_object_is_type(aux, json_type_object)) {
-                    json_object * bux;
-                    if (json_object_object_get_ex(aux, "destinations", &bux) && json_object_is_type(bux, json_type_array) &&
-                            json_object_array_length(bux) > 0) {
-                        si->destinations = json_object_get(bux);
+                    json_object * array;
+                    if (json_object_object_get_ex(aux, "destinations", &array)) {
+                        gather_destinations(array, &x5t, 0);
                     }
                 }
 
@@ -753,6 +766,12 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 // https://gitlab.excelfore.com/schema/json/xl4bus/destination-info.json
                 json_object * json = json_object_new_object();
                 json_object_object_add(json, "type", json_object_new_string("xl4bus.destination-info"));
+                json_object * body = json_object_new_object();
+                json_object_object_add(json, "body", body);
+
+                if (x5t) {
+                    json_object_object_add(body, "x5t#S256", x5t);
+                }
 
                 xl4bus_ll_message_t x_msg;
                 memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
@@ -764,7 +783,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 x_msg.stream_id = msg->stream_id;
                 x_msg.is_reply = 1;
-                x_msg.is_final = !si->destinations;
+                x_msg.is_final = json_object_array_length(x5t) == 0;
 
                 if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
@@ -781,6 +800,39 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         } else {
 
+            UT_array send_list;
+
+            utarray_init(&send_list, &ut_ptr_icd);
+
+            gather_all_destinations(msg->message.address, &send_list);
+
+            int l = utarray_len(&send_list);
+
+            for (int i=0; i<l; i++) {
+                conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(&send_list, i);
+                if (ci2 == ci) {
+                    DBG("Ignored one sender - loopback");
+                    // prevent loopback
+                    continue;
+                }
+
+                msg->is_final = 1;
+                msg->is_reply = 0;
+                msg->stream_id = ci2->out_stream_id+=2;
+
+                if (xl4bus_send_ll_message(ci2->conn, msg, 0, 0)) {
+                    printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                    dismiss_connection(ci2, 1);
+                    i--;
+                    l--;
+                }
+
+                DBG("application message forwarded to connection %p", ci2);
+
+            }
+
+
+#if 0
             stream_info_t * si;
             HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
             if (!si) {
@@ -810,9 +862,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 dismiss_connection(ci, 1);
             }
 
-            json_object_put(json);
-
-            // let's send to all possible destinations.
+                        json_object_put(json);
 
             int l = json_object_array_length(si->destinations);
 
@@ -884,6 +934,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 }
 
             }
+
+#endif
 
         }
 
@@ -980,7 +1032,7 @@ void dismiss_connection(conn_info_t * ci, int need_shutdown) {
 #pragma clang diagnostic ignored "-Wunused-variable"
         int n_len;
 #pragma clang diagnostic pop
-        REMOVE_FROM_HASH(ci_by_x5t, ci, conn->remote_x5t, n_len, "Removing by x5t");
+        // REMOVE_FROM_HASH(ci_by_x5t, ci, conn->remote_x5t, n_len, "Removing by x5t");
     }
 
     if (json_object_array_length(disconnected) > 0) {
@@ -1048,3 +1100,136 @@ void send_presence(json_object * connected, json_object * disconnected, conn_inf
     json_object_put(json);
 
 }
+
+void gather_destinations(json_object * array, json_object ** x5t, UT_array * conns) {
+
+    int l;
+    if (!array || !json_object_is_type(array, json_type_array) || (l = json_object_array_length(array)) <= 0) {
+        return;
+    }
+
+
+    str_t * set = 0;
+
+    for (int i=0; i<l; i++) {
+
+        json_object * el = json_object_array_get_idx(array, i);
+        if (!json_object_is_type(el, json_type_object)) {
+            DBG("BRK : skipping destination - not an object");
+            continue;
+        }
+
+        json_object * cux;
+
+        xl4bus_address_t addr;
+        memset(&addr, 0, sizeof(xl4bus_address_t));
+        int ok = 0;
+
+        if (json_object_object_get_ex(el, "update-agent", &cux) &&
+            json_object_is_type(cux, json_type_string)) {
+            addr.type = XL4BAT_UPDATE_AGENT;
+            addr.update_agent = (char *) json_object_get_string(cux);
+            ok = 1;
+        } else if (json_object_object_get_ex(el, "group", &cux) &&
+                   json_object_is_type(cux, json_type_string)) {
+            addr.type = XL4BAT_GROUP;
+            addr.group = (char *) json_object_get_string(cux);
+            ok = 1;
+        } else if (json_object_object_get_ex(el, "special", &cux) &&
+                   json_object_is_type(cux, json_type_string) &&
+                   !strcmp("dmclient",json_object_get_string(cux))) {
+            addr.type = XL4BAT_SPECIAL;
+            addr.special = XL4BAS_DM_CLIENT;
+            ok = 1;
+        }
+
+        if (ok) {
+            gather_destination(&addr, x5t ? &set : 0, conns);
+        }
+
+
+    }
+
+    if (set) {
+        finish_x5t_destinations(x5t, set);
+    }
+
+}
+
+static void gather_destination(xl4bus_address_t * addr, str_t ** x5t, UT_array * conns) {
+
+    UT_array * send_list = 0;
+    conn_info_hash_list_t * use_hl = 0;
+    char const * key = 0;
+
+    if (addr->type == XL4BAT_UPDATE_AGENT) {
+        use_hl = ci_by_name;
+        key = addr->update_agent;
+    } else if (addr->type == XL4BAT_GROUP) {
+        use_hl = ci_by_group;
+        key = addr->group;
+    } else if (addr->type == XL4BAT_SPECIAL && addr->special == XL4BAS_DM_CLIENT) {
+        send_list = &dm_clients;
+    }
+
+    if (use_hl) {
+        conn_info_hash_list_t * val;
+        HASH_FIND(hh, use_hl, key, strlen(key)+1, val);
+        if (val) {
+            send_list = &val->items;
+        }
+    }
+
+    if (!send_list) {
+        return;
+    }
+
+    int l2 = utarray_len(send_list);
+
+    DBG("BRK: Found %d conns", l2);
+
+    for (int j=0; j<l2; j++) {
+        conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(send_list, j);
+        if (x5t) {
+            str_t * str_el;
+            HASH_FIND_STR(*x5t, ci2->conn->remote_x5t, str_el);
+            if (!str_el) {
+                str_el = f_malloc(sizeof(str_t));
+                str_el->str = ci2->conn->remote_x5t;
+                HASH_ADD_STR(*x5t, str, str_el);
+            }
+        }
+
+        if (conns) {
+            // conns array must only contain unique elements.
+            ADD_TO_ARRAY_ONCE(conns, ci2);
+        }
+
+    }
+
+
+}
+
+
+static void finish_x5t_destinations(json_object ** x5t, str_t * strings) {
+
+    *x5t = json_object_new_array();
+
+    // 'set' now contains all X5T values that we need to return back
+    str_t * str_el;
+    str_t * dux;
+
+    HASH_ITER(hh, strings, str_el, dux) {
+        HASH_DEL(strings, str_el);
+        json_object_array_add(*x5t, json_object_new_string(str_el->str));
+        free(str_el);
+    }
+
+}
+static void gather_all_destinations(xl4bus_address_t * first, UT_array * conns) {
+    for (xl4bus_address_t * addr = first; addr; addr = addr->next) {
+        gather_destination(addr, 0, conns);
+    }
+}
+
+

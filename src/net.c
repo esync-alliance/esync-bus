@@ -277,6 +277,7 @@ do {} while(0)
 
                             void * decrypted_data = 0;
                             char * decrypted_ct = 0;
+                            json_object * bus_object = 0;
 
                             do {
 
@@ -293,12 +294,12 @@ do {} while(0)
 
                                 int received_ct = stream->incoming_message_ct;
 
-                                int decrypted = decrypt_jwe(stream->incoming_message_data.data,
+                                int decrypt_err = decrypt_jwe(stream->incoming_message_data.data,
                                         stream->incoming_message_data.len, stream->incoming_message_ct,
                                         i_conn->my_x5t, i_conn->private_key,
                                         &decrypted_data, &signed_len, &decrypted_ct);
 
-                                if (!decrypted) {
+                                if (!decrypt_err) {
 
                                     if (decrypted_ct && !strcmp("application/jose", decrypted_ct)) {
                                         received_ct = CT_JOSE_COMPACT;
@@ -321,7 +322,8 @@ do {} while(0)
 
                                 }
 
-                                BOLT_SUB(validate_jws(signed_data, signed_len, received_ct, 0, conn, &jws));
+                                BOLT_SUB(validate_jws(signed_data, signed_len, received_ct,
+                                        conn, &jws, &bus_object));
 
                                 BOLT_CJOSE(cjose_jws_get_plaintext(jws, (uint8_t**)&message.message.data,
                                         &message.message.data_len, &c_err));
@@ -330,7 +332,12 @@ do {} while(0)
                                 const char * aux;
                                 BOLT_CJOSE(aux = cjose_header_get(hdr, CJOSE_HDR_CTY, &c_err));
                                 if (aux) {
-                                    BOLT_MEM(message.message.content_type = f_strdup(aux));
+                                    if (!strchr(aux, '/')) {
+                                        // if there is no '/', that means we should append 'application/'
+                                        BOLT_MEM(message.message.content_type = f_asprintf("application/%s", aux));
+                                    } else {
+                                        BOLT_MEM(message.message.content_type = f_strdup(aux));
+                                    }
                                 } else {
                                     message.message.content_type = 0;
                                 }
@@ -338,6 +345,24 @@ do {} while(0)
                                 message.stream_id = stream_id;
                                 message.is_reply = stream->is_reply;
                                 message.is_final = stream->is_final;
+
+                                do {
+
+                                    if (!bus_object || !json_object_is_type(bus_object, json_type_object)) {
+                                        break;
+                                    }
+
+                                    json_object * addresses;
+                                    if (!json_object_object_get_ex(bus_object, "destinations", &addresses) ||
+                                            !json_object_is_type(addresses, json_type_array)) {
+                                        break;
+                                    }
+
+                                    BOLT_SUB(build_address_list(addresses, &message.message.address));
+
+                                } while(0);
+
+                                BOLT_NEST();
 
                                 BOLT_SUB(conn->on_message(conn, &message));
 
@@ -348,6 +373,8 @@ do {} while(0)
                             cjose_jws_release(jws);
                             cfg.free(decrypted_data);
                             cfg.free(decrypted_ct);
+
+                            json_object_put(bus_object);
 
                             if (stream->is_final) {
                                 cleanup_stream(i_conn, &stream);
@@ -389,16 +416,33 @@ do {} while(0)
                         }
 
                         uint16_t stream_id;
+                        json_object * bus_object = 0;
                         if (validate_jws(frm.data.data + 1, frm.data.len - 1,
-                                (int)frm.data.data[0], &stream_id, conn, 0) == E_XL4BUS_OK) {
-                            stream_t * stream;
-                            HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
-                            if (stream) {
-                                cleanup_stream(i_conn, &stream);
+                                (int)frm.data.data[0], conn, 0, &bus_object) == E_XL4BUS_OK) {
+
+                            json_object *j;
+                            if (bus_object && json_object_object_get_ex(bus_object, "stream-id", &j) &&
+                                json_object_is_type(j, json_type_int)) {
+
+                                int val = json_object_get_int(j);
+                                if (!(val & 0xffff)) {
+
+                                    stream_id = (uint16_t)val;
+
+                                    stream_t *stream;
+                                    HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+                                    if (stream) {
+                                        cleanup_stream(i_conn, &stream);
+                                    }
+
+                                    if (conn->on_stream_abort) {
+                                        conn->on_stream_abort(conn, stream_id);
+                                    }
+                                }
                             }
-                            if (conn->on_stream_abort) {
-                                conn->on_stream_abort(conn, stream_id);
-                            }
+
+                            json_object_put(bus_object);
+
                         }
 
                     }
@@ -648,7 +692,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
         }
 
         if (i_conn->remote_key) {
-            BOLT_SUB(encrypt_jwe(i_conn->remote_key, i_conn->remote_x5t, signed_buf, signed_buf_len,
+            BOLT_SUB(encrypt_jwe(i_conn->remote_key, conn->remote_x5t, signed_buf, signed_buf_len,
                     "jose", 13, 9, (char**)&frame, &ser_len));
         }
 

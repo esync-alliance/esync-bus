@@ -102,22 +102,6 @@ int address_to_json(xl4bus_address_t * addr, char ** json);
 XL4_PUB
 /**
  * Allocates address structure and copies or assigns relevant address information.
- * @param prev if !0, points to an address that the newly created address is to
- * to be linked to.
- * @param type address type
- * @param ...
- * For type ::XL4BAT_SPECIAL, the argument is of type xl4bus_address_special_t
- * For type ::XL4BAT_UPDATE_AGENT and XL4BAT_GROUP, the address value is a char*, followed by an int.
- * The int is either 0 or 1, specifying whether the char* should be duplicated (1), or assigned (0).
- * @return allocated address.
- * @deprecated This function is deprecated because it does not handle errors properly,
- * use ::xl4bus_chain_address instead.
- */
-xl4bus_address_t * xl4bus_make_address(xl4bus_address_t * prev, xl4bus_address_type_t type, ...);
-
-XL4_PUB
-/**
- * Allocates address structure and copies or assigns relevant address information.
  * @param receiver pointer to memory where the full address chain will be referenced at.
  * If *receiver is 0, then a new address chain is created; if it is !0, then the current
  * address is appended to the new address. In any case, the value at *receiver may or may not
@@ -135,7 +119,8 @@ XL4_PUB
 /**
  * Frees previously allocated address. Note that for addresses that contain
  * string values, such values are always freed, even if they were assigned and the
- * address was created using ::xl4bus_make_address.
+ * address was created using ::xl4bus_make_address. Note that memory that ::xl4bus_address_t
+ * structure pointers reference is also always freed.
  * @param addr address to free
  * @param chain !0 to indicate that all addresses accessible through ::xl4bus_address_t.next
  * should be freed as well.

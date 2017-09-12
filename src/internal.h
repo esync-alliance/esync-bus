@@ -229,7 +229,7 @@ int check_conn_io(xl4bus_connection_t*);
 #define sign_jws XI(sign_jws)
 #define encrypt_jwe XI(encrypt_jwe)
 #define decrypt_jwe XI(decrypt_jwe)
-int validate_jws(void * bin, size_t bin_len, int ct, uint16_t * stream_id, xl4bus_connection_t * i_conn, cjose_jws_t ** exp_jws);
+int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * i_conn, cjose_jws_t ** exp_jws, json_object ** bus_object);
 int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
 int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * key, void ** decrypted, size_t * decrypted_len, char ** cty);
@@ -249,6 +249,7 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * ke
 #define make_chr_oid XI(make_chr_oid)
 #define z_strcmp XI(z_strcmp)
 #define make_json_address XI(make_json_address)
+#define build_address_list XI(build_address_list)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -263,6 +264,7 @@ int get_oid(unsigned char ** p, unsigned char *, mbedtls_asn1_buf * oid);
 char * make_chr_oid(mbedtls_asn1_buf *);
 int z_strcmp(const char *, const char *);
 int make_json_address(xl4bus_address_t * addr, json_object ** json);
+int build_address_list(json_object *, xl4bus_address_t **);
 
 /* x509.c */
 

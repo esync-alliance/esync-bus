@@ -37,7 +37,6 @@ static int create_ll_connection(xl4bus_client_t *);
 static int process_message_out(xl4bus_client_t *, message_internal_t *);
 static int get_xl4bus_message(xl4bus_message_t const *, json_object **, char const **);
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
-static int build_address_list(json_object *, xl4bus_address_t **);
 static int handle_presence(xl4bus_client_t * clt, json_object*);
 
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
@@ -1039,62 +1038,6 @@ static void release_message(xl4bus_client_t * clt, message_internal_t * mint, in
 void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
     cfg.free(msg);
     json_object_put(ref);
-}
-
-int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
-
-    int l = json_object_array_length(j_list);
-    xl4bus_address_t * last = 0;
-    xl4bus_address_t * next = 0;
-
-    for (int i=0; i<l; i++) {
-
-        if (!next) {
-            next = f_malloc(sizeof(xl4bus_address_t));
-            if (!next) { return E_XL4BUS_MEMORY; }
-        }
-
-
-        json_object * el = json_object_array_get_idx(j_list, i);
-        DBG("BAL: Processing el %s", json_object_get_string(el));
-        json_object * aux;
-        if (json_object_object_get_ex(el, "update-agent", &aux) && json_object_is_type(aux, json_type_string)) {
-            next->type = XL4BAT_UPDATE_AGENT;
-            next->update_agent = f_strdup(json_object_get_string(aux));
-        } else if (json_object_object_get_ex(el, "group", &aux) && json_object_is_type(aux, json_type_string)) {
-            next->type = XL4BAT_GROUP;
-            next->group = f_strdup(json_object_get_string(aux));
-        } else if (json_object_object_get_ex(el, "special", &aux) && json_object_is_type(aux, json_type_string)) {
-
-            char const * bux = json_object_get_string(aux);
-            next->type = XL4BAT_SPECIAL;
-
-            if (!strcmp("dmclient", bux)) {
-                next->special = XL4BAS_DM_CLIENT;
-            } else if (!strcmp("broker", bux)) {
-                next->special = XL4BAS_DM_BROKER;
-            } else {
-                continue;
-            }
-
-        } else {
-            continue;
-        }
-
-        if (!last) {
-            *new_list = next;
-        } else {
-            last->next = next;
-        }
-        last = next;
-        next = 0;
-
-    }
-
-    cfg.free(next);
-
-    return E_XL4BUS_OK;
-
 }
 
 int address_to_json(xl4bus_address_t * addr, char ** json) {

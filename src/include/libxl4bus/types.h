@@ -148,7 +148,6 @@ typedef struct xl4bus_message {
 
     /**
      * List of addresses the message is to be delivered to.
-     * Note that this field is not filled in for delivered messages.
      */
     xl4bus_address_t * address;
 
