@@ -819,7 +819,7 @@ int make_json_address(xl4bus_address_t * bus_addr, json_object ** json) {
 
     do {
 
-        BOLT_IF(!(addr = json_object_new_array()), E_XL4BUS_MEMORY, "");
+        BOLT_MEM(addr = json_object_new_array());
 
         for (xl4bus_address_t * ma = bus_addr; ma; ma = ma->next) {
 

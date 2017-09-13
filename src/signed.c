@@ -95,7 +95,7 @@ int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
 
 }
 
-int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, const void *data, size_t data_len,
+int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, json_object * bus_object, const void *data, size_t data_len,
         char const * ct, int pad, int offset, char **jws_data, size_t *jws_len) {
 
     cjose_err c_err;
@@ -123,9 +123,7 @@ int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, const void *dat
             BOLT_CJOSE(cjose_header_set(j_hdr, "x5t#S256", x5, &c_err));
         }
 
-        json_object * obj = json_object_new_object();
-
-        BOLT_CJOSE(cjose_header_set(j_hdr, "x-xl4bus", json_object_get_string(obj), &c_err));
+        BOLT_CJOSE(cjose_header_set(j_hdr, "x-xl4bus", json_object_get_string(bus_object), &c_err));
 
         BOLT_CJOSE(jws = cjose_jws_sign(key, j_hdr, data, data_len, &c_err));
 

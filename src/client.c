@@ -760,9 +760,11 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                 if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", type)) {
 
                     if (msg->is_final) {
+
                         // the broker saying it's not deliverable.
                         DBG("XCHG: no destinations");
                         release_message(clt, mint, 0);
+
                     } else {
 
                         DBG("XCHG: got destination info");

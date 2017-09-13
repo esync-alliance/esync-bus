@@ -621,6 +621,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     char * base64 = 0;
     uint8_t * signed_buf = 0;
     size_t signed_buf_len = 0;
+    json_object * bus_object = 0;
 
     do {
 
@@ -678,16 +679,24 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
+        BOLT_MEM(bus_object = json_object_new_object());
+        {
+            json_object * array;
+            BOLT_SUB(make_json_address(msg->message.address, &array));
+            json_object_object_add(bus_object, "destinations", array);
+        }
+
         if (i_conn->x5c) {
 
-            BOLT_SUB(sign_jws(i_conn->private_key, json_object_get_string(i_conn->x5c), 1, msg->message.data,
-                    msg->message.data_len, msg->message.content_type, pad, offset, (char **) sign_to, sign_to_len));
+            BOLT_SUB(sign_jws(i_conn->private_key, json_object_get_string(i_conn->x5c), 1, bus_object,
+                    msg->message.data, msg->message.data_len, msg->message.content_type, pad, offset,
+                    (char **) sign_to, sign_to_len));
             json_object_put(i_conn->x5c);
             i_conn->x5c = 0;
 
         } else {
 
-            BOLT_SUB(sign_jws(i_conn->private_key, i_conn->my_x5t, 0, msg->message.data,
+            BOLT_SUB(sign_jws(i_conn->private_key, i_conn->my_x5t, 0, bus_object, msg->message.data,
                     msg->message.data_len, msg->message.content_type, pad, offset, (char **) sign_to, sign_to_len));
 
         }
@@ -726,6 +735,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     cfg.free(base64);
     json_object_put(x5c);
     cfg.free(signed_buf);
+
+    json_object_put(bus_object);
 
     if (conn->on_sent_message) {
         conn->on_sent_message(conn, msg, arg, err);
