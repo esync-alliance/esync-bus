@@ -29,7 +29,6 @@ static char * state_str(client_state_t);
 #endif
 
 static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
-static int min_timeout(int a, int b);
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
 static int ll_poll_cb(struct xl4bus_connection*, int, int);
 static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
@@ -38,6 +37,7 @@ static int process_message_out(xl4bus_client_t *, message_internal_t *);
 static int get_xl4bus_message(xl4bus_message_t const *, json_object **, char const **);
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
 static int handle_presence(xl4bus_client_t * clt, json_object*);
+static int pick_timeout(int t1, int t2);
 
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
@@ -146,7 +146,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
             if (left > 0) {
 
-                *timeout = min_timeout(*timeout, (int) left);
+                *timeout = pick_timeout(*timeout, (int) left);
 
             } else {
 
@@ -226,15 +226,15 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                     // no need to process error condition here, xl4bus_process_connection
                     // will do it.
 
-                    int ll_timeout;
                     ll_called = 1;
-                    if (xl4bus_process_connection(i_clt->ll, pfd->fd, pfd->flags, &ll_timeout) != E_XL4BUS_OK) {
+                    if (xl4bus_process_connection(i_clt->ll, pfd->fd, pfd->flags) != E_XL4BUS_OK) {
                         cfg.free(i_clt->ll);
                         i_clt->ll = 0;
                         drop_client(clt, XL4BCC_CONNECTION_BROKE);
                         continue;
                     }
-                    *timeout = min_timeout(*timeout, ll_timeout);
+                    *timeout = pick_timeout(i_clt->ll_timeout, *timeout);
+
                 }
 
             } else {
@@ -336,7 +336,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             struct timeval tv;
             struct timeval * rtv = ares_timeout(i_clt->ares, 0, &tv);
             if (rtv) {
-                *timeout = min_timeout(*timeout, timeval_to_millis(&tv));
+                *timeout = pick_timeout(*timeout, timeval_to_millis(&tv));
             }
 
         }
@@ -392,9 +392,11 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
         }
 
         if (i_clt->ll && !ll_called) {
-            int ll_timeout;
-            BOLT_SUB(xl4bus_process_connection(i_clt->ll, -1, 0, &ll_timeout));
-            *timeout = min_timeout(*timeout, ll_timeout);
+            // means we are calling low-level process_connection
+            // because we timed out; this means we should reset the timeout
+            i_clt->ll_timeout = -1;
+            BOLT_SUB(xl4bus_process_connection(i_clt->ll, -1, 0));
+            *timeout = pick_timeout(i_clt->ll_timeout, *timeout);
         }
 
         // if there is no change, let's get out.
@@ -633,13 +635,6 @@ static void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct h
 
 }
 
-int min_timeout(int a, int b) {
-    if (a == -1) { return b; }
-    if (b == -1) { return a; }
-    if (a < b) { return a; }
-    return b;
-}
-
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     client_internal_t * i_clt = clt->_private;
     // $TODO: 2sec here is an arbitrary constant, and probably should
@@ -713,21 +708,29 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
 
-        // DBG("Clt %p: set poll to %x", conn, modes);
+        if (fd == XL4BUS_POLL_TIMEOUT_MS) {
 
-        known_fd_t * fdi;
+            i_clt->ll_timeout = pick_timeout(i_clt->ll_timeout, modes);
 
-        HASH_FIND_INT(i_clt->known_fd, &fd, fdi);
-        if (!fdi && modes) {
-            BOLT_MALLOC(fdi, sizeof(known_fd_t));
-            fdi->fd = fd;
-            fdi->is_ll_conn = 1;
-            HASH_ADD_INT(i_clt->known_fd, fd, fdi);
-        }
+        } else {
 
-        if (fdi) {
-            fdi->modes = modes;
-            BOLT_SUB(clt->set_poll(clt, fdi->fd, modes));
+            // DBG("Clt %p: set poll to %x", conn, modes);
+
+            known_fd_t * fdi;
+
+            HASH_FIND_INT(i_clt->known_fd, &fd, fdi);
+            if (!fdi && modes) {
+                BOLT_MALLOC(fdi, sizeof(known_fd_t));
+                fdi->fd = fd;
+                fdi->is_ll_conn = 1;
+                HASH_ADD_INT(i_clt->known_fd, fd, fdi);
+            }
+
+            if (fdi) {
+                fdi->modes = modes;
+                BOLT_SUB(clt->set_poll(clt, fdi->fd, modes));
+            }
+
         }
 
     } while(0);
@@ -1114,4 +1117,11 @@ static int handle_presence(xl4bus_client_t * clt, json_object * root) {
 
     return err;
 
+}
+
+int pick_timeout(int t1, int t2) {
+    if (t1 < 0) { return t2; }
+    if (t2 < 0) { return t1; }
+    if (t1 < t2) { return t1; }
+    return t2;
 }

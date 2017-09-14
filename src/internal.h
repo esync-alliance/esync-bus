@@ -80,6 +80,8 @@ typedef struct stream {
 typedef struct connection_internal {
     chunk_t * out_queue;
 
+    int err;
+
     struct {
         size_t total_read;
         uint8_t byte0;
@@ -198,6 +200,8 @@ typedef struct client_internal {
     uint64_t down_target;
     xl4bus_connection_t * ll;
     int repeat_process;
+
+    int ll_timeout;
 
 #if XL4_PROVIDE_THREADS
     void * xl4_thread_space;

@@ -22,4 +22,6 @@ int load_simple_x509_creds(xl4bus_identity_t * identity, char * p_key_path,
 
 void release_identity(xl4bus_identity_t *);
 
+int pick_timeout(int t1, int t2);
+
 #endif

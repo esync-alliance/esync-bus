@@ -199,6 +199,13 @@ struct xl4bus_connection;
 #define XL4BUS_POLL_REMOVE (1<<3)
 
 /**
+ * Special constant value, if used for the file descriptor,
+ * indicates that the flag value is instead a timeout value,
+ * specified in milliseconds.
+ */
+#define XL4BUS_POLL_TIMEOUT_MS -1
+
+/**
  * Successful operation
  */
 #define E_XL4BUS_OK         ( 0)
@@ -243,9 +250,10 @@ struct xl4bus_connection;
 typedef int (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_ll_message_t *);
 typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
-typedef char * (*xl4bus_password_callback_t) (struct xl4bus_X509v3_Identity *);
-typedef int (*xl4bus_set_ll_poll) (struct xl4bus_connection*, int, int);
-typedef int (*xl4bus_stream_callback) (struct xl4bus_connection *, uint16_t stream);
+typedef char *(*xl4bus_password_callback_t)(struct xl4bus_X509v3_Identity *);
+typedef int (*xl4bus_set_ll_poll)(struct xl4bus_connection *, int, int);
+typedef int (*xl4bus_stream_callback)(struct xl4bus_connection *, uint16_t stream);
+typedef void (*xl4bus_shutdown_callback)(struct xl4bus_connection *);
 
 #if XL4_SUPPORT_THREADS
 typedef int (*xl4bus_mt_message_callback) (struct xl4bus_connection *, void *, size_t);
@@ -382,6 +390,7 @@ typedef struct xl4bus_connection {
     xl4bus_handle_ll_message on_message;
     xl4bus_ll_send_callback on_sent_message;
     xl4bus_stream_callback on_stream_abort;
+    xl4bus_shutdown_callback on_shutdown;
 
     xl4bus_address_t * remote_address_list;
 

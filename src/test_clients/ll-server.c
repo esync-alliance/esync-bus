@@ -19,6 +19,11 @@ static int set_poll(xl4bus_connection_t *, int, int);
 
 int debug = 1;
 
+typedef struct {
+    struct pollfd pfd;
+    int timeout;
+} my_info_t;
+
 int main(int argc, char ** argv) {
 
     xl4bus_ll_cfg_t ll_cfg;
@@ -113,35 +118,35 @@ void * run_conn(void * _arg) {
 
     xl4bus_connection_t * conn = (xl4bus_connection_t*)_arg;
 
-    struct pollfd pfd;
+    my_info_t myt;
 
-    memset(&pfd, 0, sizeof(pfd));
-    pfd.fd = conn->fd;
+    memset(&myt, 0, sizeof(myt));
+    myt.pfd.fd = conn->fd;
 
-    conn->custom = &pfd;
+    conn->custom = &myt.pfd;
 
     if (xl4bus_init_connection(conn) == E_XL4BUS_OK) {
 
-        int timeout = -1;
-
         while (1) {
 
-            int rc = poll(&pfd, 1, timeout);
+            int rc = poll(&myt.pfd, 1, myt.timeout);
             if (rc < 0) {
                 perror("poll");
                 break;
             }
 
             int flags = 0;
-            if (pfd.revents & (POLLIN | POLLPRI)) {
+            if (myt.pfd.revents & (POLLIN | POLLPRI)) {
                 flags = XL4BUS_POLL_READ;
-            } else if (pfd.revents & POLLOUT) {
+            } else if (myt.pfd.revents & POLLOUT) {
                 flags |= XL4BUS_POLL_WRITE;
-            } else if (pfd.revents & (POLLHUP | POLLNVAL)) {
+            } else if (myt.pfd.revents & (POLLHUP | POLLNVAL)) {
                 flags |= XL4BUS_POLL_ERR;
             }
 
-            if (xl4bus_process_connection(conn, conn->fd, flags, &timeout) != E_XL4BUS_OK) {
+            myt.timeout = -1;
+
+            if (xl4bus_process_connection(conn, conn->fd, flags) != E_XL4BUS_OK) {
                 break;
             }
 
@@ -160,13 +165,19 @@ void * run_conn(void * _arg) {
 
 int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
-    struct pollfd * pfd = conn->custom;
-    pfd->events = 0;
+    my_info_t * myt = conn->custom;
+
+    if (fd == XL4BUS_POLL_TIMEOUT_MS) {
+        myt->timeout = pick_timeout(myt->timeout, flg);
+        return E_XL4BUS_OK;
+    }
+
+    myt->pfd.events = 0;
     if (flg & XL4BUS_POLL_READ) {
-        pfd->events = POLLIN;
+        myt->pfd.events = POLLIN;
     }
     if (flg & XL4BUS_POLL_WRITE) {
-        pfd->events |= POLLOUT;
+        myt->pfd.events |= POLLOUT;
     }
     return E_XL4BUS_OK;
 

@@ -28,9 +28,19 @@ XL4_PUB
  */
 int xl4bus_init_ll(xl4bus_ll_cfg_t * cfg);
 
-XL4_PUB int xl4bus_init_connection(xl4bus_connection_t *);
-XL4_PUB int xl4bus_process_connection(xl4bus_connection_t *, int fd, int flags, int *);
-XL4_PUB int xl4bus_shutdown_connection(xl4bus_connection_t *);
+XL4_PUB
+/**
+ * Initializes xl4bus connection object. If an error is returned,
+ * the connection object should be considered uninitialized. Check the
+ * documentation for ::xl4bus_connection_t structure to see which fields
+ * must be initialized before calling this function.
+ * @param conn connection object to initialize.
+ * @return ::E_XL4BUS_OK for success, or an error code if there was a problem.
+ */
+int xl4bus_init_connection(xl4bus_connection_t * conn);
+
+XL4_PUB int xl4bus_process_connection(xl4bus_connection_t *, int fd, int flags);
+XL4_PUB void xl4bus_shutdown_connection(xl4bus_connection_t *);
 XL4_PUB int xl4bus_send_ll_message(xl4bus_connection_t *, xl4bus_ll_message_t *msg, void *ref
 #if XL4_SUPPORT_THREADS
         , int is_mt

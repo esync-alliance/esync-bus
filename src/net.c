@@ -25,13 +25,19 @@ int check_conn_io(xl4bus_connection_t * conn) {
 
 }
 
-int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags, int * timeout) {
+int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
 
     int err = E_XL4BUS_OK;
 
-    *timeout = -1;
+    int timeout = -1;
 
     int is_data_fd = fd == conn->fd;
+
+    // do this before anything else is even attempted
+    if (conn->_init_magic != MAGIC_INIT) {
+        DBG("connection object not initialized : %p", conn);
+        return E_XL4BUS_ARG;
+    }
 
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
 
@@ -42,7 +48,8 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags, int
 
     do {
 
-        BOLT_IF(conn->_init_magic != MAGIC_INIT, E_XL4BUS_ARG, "Connection not initialized");
+        // any error that we may have acquired earlier.
+        BOLT_SUB(i_conn->err);
 
         if (is_data_fd && (flags & XL4BUS_POLL_ERR)) {
             pf_set_errno(pf_get_socket_error(fd));
@@ -469,9 +476,10 @@ do {} while(0)
 
         // $TODO: do all the timeouts here!!!
 
-        if (err != E_XL4BUS_OK) { break; }
+        BOLT_NEST();
 
         BOLT_SUB(check_conn_io(conn));
+        BOLT_SUB(conn->set_poll(conn, XL4BUS_POLL_TIMEOUT_MS, timeout));
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -585,7 +593,7 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
     } while (0);
 
-    if (err != E_XL4BUS_OK) {
+    if (is_mt && (err != E_XL4BUS_OK)) {
         if (conn->on_sent_message) {
             conn->on_sent_message(conn, msg, ref, err);
         }
@@ -622,14 +630,13 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     uint8_t * signed_buf = 0;
     size_t signed_buf_len = 0;
     json_object * bus_object = 0;
+    connection_internal_t * i_conn = conn->_private;
 
     do {
 
         size_t ser_len = 0;
 
         stream_t * stream = 0;
-
-        connection_internal_t * i_conn = conn->_private;
 
         HASH_FIND(hh, i_conn->streams, &msg->stream_id, 2, stream);
 
@@ -745,7 +752,9 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     if (err == E_XL4BUS_OK) {
         err = check_conn_io(conn);
         if (err != E_XL4BUS_OK) {
-            shutdown_connection_ts(conn);
+            // shutdown_connection_ts(conn);
+            i_conn->err = err;
+            conn->set_poll(conn, XL4BUS_POLL_TIMEOUT_MS, 0);
         }
     }
 

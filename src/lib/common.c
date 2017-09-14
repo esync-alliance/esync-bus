@@ -273,3 +273,10 @@ static char * simple_password (struct xl4bus_X509v3_Identity * id) {
     return id->custom;
 
 }
+
+int pick_timeout(int t1, int t2) {
+    if (t1 < 0) { return t2; }
+    if (t2 < 0) { return t1; }
+    if (t1 < t2) { return t1; }
+    return t2;
+}

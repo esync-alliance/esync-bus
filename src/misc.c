@@ -173,7 +173,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
     do {
 
-        BOLT_IF(conn->_init_magic == MAGIC_INIT, E_XL4BUS_ARG, "Connection already initialized");
+        BOLT_IF(conn->_init_magic == MAGIC_INIT, E_XL4BUS_OK, "Connection already initialized");
 
         conn->_init_magic = MAGIC_INIT;
 
@@ -449,7 +449,9 @@ void free_dbuf(dbuf_t * dbuf, int and_self) {
 
 }
 
-int xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
+void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
+
+#if 0
 
 #if XL4_SUPPORT_THREADS
 
@@ -467,6 +469,19 @@ int xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
 #endif
 
     return E_XL4BUS_OK;
+
+#else
+
+    if (conn->_init_magic != MAGIC_INIT) {
+        return;
+    }
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+    if (!i_conn->err) {
+        i_conn->err = E_XL4BUS_CLIENT;
+    }
+    conn->set_poll(conn, XL4BUS_POLL_TIMEOUT_MS, 0);
+
+#endif
 
 }
 
@@ -519,6 +534,10 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
     json_object_put(i_conn->x5c);
 
     cfg.free(i_conn);
+
+    if (conn->on_shutdown) {
+        conn->on_shutdown(conn);
+    }
 
 }
 

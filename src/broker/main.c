@@ -58,6 +58,7 @@
         REMOVE_FROM_ARRAY(&__list->items, obj, msg " - key %s", ##x, __keyval); \
         if (!(n_len = utarray_len(&__list->items))) { \
             HASH_DEL(root, __list); \
+            free(__list->key); \
             free(__list); \
         } \
     } else { \
@@ -80,7 +81,8 @@
     HASH_FIND(hh, root, __keyval, __keylen, __list); \
     if (!__list) { \
         __list = f_malloc(sizeof(conn_info_hash_list_t)); \
-        HASH_ADD_KEYPTR(hh, root, __keyval, __keylen, __list); \
+        __list->key = f_strdup(__keyval); \
+        HASH_ADD_KEYPTR(hh, root, __list->key, __keylen, __list); \
         /* utarray_new(__list->items, &ut_ptr_icd); */ \
         utarray_init(&__list->items, &ut_ptr_icd); \
     } \
@@ -130,6 +132,8 @@ typedef struct conn_info {
 
     struct poll_info pit;
 
+    int ll_poll_timeout;
+
 #if 0
     stream_info_t * open_streams;
 #endif
@@ -143,22 +147,22 @@ typedef struct {
     const char * str;
 } str_t;
 
-
 typedef struct conn_info_hash_list {
     UT_hash_handle hh;
     UT_array items;
+    char * key;
 } conn_info_hash_list_t;
 
 static int on_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int, int);
-static int pick_timeout(int t1, int t2);
-static void dismiss_connection(conn_info_t * ci, int need_shutdown);
 
 static void gather_destinations(json_object * array, json_object ** x5t, UT_array * conns);
 static void gather_destination(xl4bus_address_t *, str_t ** x5t, UT_array * conns);
 static void finish_x5t_destinations(json_object ** x5t, str_t * strings);
 static void gather_all_destinations(xl4bus_address_t * first, UT_array * conns);
+static void on_connection_shutdown(xl4bus_connection_t * conn);
+static void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except);
 
 int debug = 1;
 
@@ -174,8 +178,6 @@ static xl4bus_identity_t broker_identity;
 static void cleanup_stream(conn_info_t * ci, stream_info_t * si);
 #endif
 
-static void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except);
-
 static inline int void_cmp_fun(void const * a, void const * b) {
 
     void * const * ls = a;
@@ -188,21 +190,6 @@ static inline int void_cmp_fun(void const * a, void const * b) {
     }
     return -1;
 }
-
-#if 0
-static int void_cmp_fun2(const void * a, const void * b) {
-    int r;
-    if ((uintptr_t)b > (uintptr_t)a) {
-        r = 1;
-    } else if (a == b) {
-        r = 0;
-    } else {
-        r = -1;
-    }
-    DBG("%p <!> %p => %d", a, b, r);
-    return r;
-}
-#endif
 
 int main(int argc, char ** argv) {
 
@@ -389,6 +376,8 @@ int main(int argc, char ** argv) {
 
                     if (err == E_XL4BUS_OK) {
 
+                        conn->on_shutdown = on_connection_shutdown;
+
                         DL_APPEND(connections, ci);
 
                         // send initial message - alg-supported
@@ -418,19 +407,17 @@ int main(int argc, char ** argv) {
 
                         if ((err = xl4bus_send_ll_message(conn, &msg, 0, 0)) != E_XL4BUS_OK) {
                             printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                            dismiss_connection(ci, 1);
+                            xl4bus_shutdown_connection(conn);
                         }
 
                         json_object_put(json);
 
                         if (err == E_XL4BUS_OK) {
-                            int my_timeout;
                             int s_err;
-                            if ((s_err = xl4bus_process_connection(conn, -1, 0, &my_timeout)) == E_XL4BUS_OK) {
-                                timeout = pick_timeout(timeout, my_timeout);
+                            if ((s_err = xl4bus_process_connection(conn, -1, 0)) == E_XL4BUS_OK) {
+                                timeout = pick_timeout(timeout, ci->ll_poll_timeout);
                             } else {
                                 DBG("xl4bus process (initial) returned %d", s_err);
-                                dismiss_connection(ci, 0);
                             }
                         }
 
@@ -455,13 +442,11 @@ int main(int argc, char ** argv) {
                     flags |= XL4BUS_POLL_ERR;
                 }
 
-                int my_timeout;
                 int s_err;
-                if ((s_err = xl4bus_process_connection(ci->conn, pit->fd, flags, &my_timeout)) == E_XL4BUS_OK) {
-                    timeout = pick_timeout(timeout, my_timeout);
+                if ((s_err = xl4bus_process_connection(ci->conn, pit->fd, flags)) == E_XL4BUS_OK) {
+                    timeout = pick_timeout(timeout, ci->ll_poll_timeout);
                 } else {
                     DBG("xl4bus process (fd up route) returned %d", s_err);
-                    dismiss_connection(ci, 0);
                 }
 
             } else {
@@ -479,13 +464,12 @@ int main(int argc, char ** argv) {
             conn_info_t * ci;
 
             DL_FOREACH_SAFE(connections, ci, aux) {
-                int my_timeout;
                 int s_err;
-                if ((s_err = xl4bus_process_connection(ci->conn, -1, 0, &my_timeout)) != E_XL4BUS_OK) {
-                    timeout = pick_timeout(timeout, my_timeout);
+                ci->ll_poll_timeout = -1;
+                if ((s_err = xl4bus_process_connection(ci->conn, -1, 0)) == E_XL4BUS_OK) {
+                    timeout = pick_timeout(timeout, ci->ll_poll_timeout);
                 } else {
                     DBG("xl4bus process (timeout route) returned %d", s_err);
-                    dismiss_connection(ci, 0);
                 }
             }
 
@@ -496,6 +480,13 @@ int main(int argc, char ** argv) {
 }
 
 int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
+
+    conn_info_t * ci = conn->custom;
+
+    if (fd == XL4BUS_POLL_TIMEOUT_MS) {
+        ci->ll_poll_timeout = pick_timeout(ci->ll_poll_timeout, flg);
+        return E_XL4BUS_OK;
+    }
 
     // $TODO: because we use non-mt only, fd is bound to
     // only be fd for the network connection. However, there is
@@ -515,8 +506,6 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
     }
     return E_XL4BUS_OK;
 #endif
-
-    conn_info_t * ci = conn->custom;
 
     uint32_t need_flg = 0;
     if (flg & XL4BUS_POLL_WRITE) {
@@ -717,7 +706,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                    dismiss_connection(ci, 1);
+                    xl4bus_shutdown_connection(conn);
                 } else {
                     // tell everybody else this client arrived.
 
@@ -787,7 +776,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                    dismiss_connection(ci, 1);
+                    xl4bus_shutdown_connection(conn);
                 }
 
                 json_object_put(json);
@@ -810,6 +799,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             DBG("Received application message, has %d send list elements", l);
 
+            uint16_t stream_id = msg->stream_id;
+
             for (int i=0; i<l; i++) {
                 conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(&send_list, i);
                 if (ci2 == ci) {
@@ -824,7 +815,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 if (xl4bus_send_ll_message(ci2->conn, msg, 0, 0)) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                    dismiss_connection(ci2, 1);
+                    xl4bus_shutdown_connection(ci2->conn);
                     i--;
                     l--;
                 }
@@ -833,6 +824,29 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             }
 
+            // confirm the message to the caller.
+            // https://gitlab.excelfore.com/schema/json/xl4bus/message-confirm.json
+            json_object * json = json_object_new_object();
+            json_object_object_add(json, "type", json_object_new_string("xl4bus.message-confirm"));
+
+            xl4bus_ll_message_t x_msg;
+            memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+
+            const char * bux = json_object_get_string(json);
+            x_msg.message.data = bux;
+            x_msg.message.data_len = strlen(bux) + 1;
+            x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
+
+            x_msg.stream_id = stream_id;
+            x_msg.is_reply = 1;
+            x_msg.is_final = 1;
+
+            if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
+                printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                xl4bus_shutdown_connection(conn);
+            }
+
+            json_object_put(json);
 
 #if 0
             stream_info_t * si;
@@ -864,7 +878,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 dismiss_connection(ci, 1);
             }
 
-                        json_object_put(json);
+            json_object_put(json);
 
             int l = json_object_array_length(si->destinations);
 
@@ -943,17 +957,17 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     } while (0);
 
+#if 0
     if (msg->is_final) {
         // if there is a final message on stream we track,
         // make sure to clean up.
-#if 0
         stream_info_t * si;
         HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
         if (si) {
             cleanup_stream(ci, si);
         }
-#endif
     }
+#endif
 
     json_object_put(root);
     json_object_put(connected);
@@ -963,22 +977,13 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
 }
 
-int pick_timeout(int t1, int t2) {
-    if (t1 < 0) { return t2; }
-    if (t2 < 0) { return t1; }
-    if (t1 < t2) { return t1; }
-    return t2;
-}
+void on_connection_shutdown(xl4bus_connection_t * conn) {
 
-void dismiss_connection(conn_info_t * ci, int need_shutdown) {
-
-    if (need_shutdown) {
-        xl4bus_shutdown_connection(ci->conn);
-    }
+    conn_info_t * ci = conn->custom;
 
     DL_DELETE(connections, ci);
 
-    DBG("Dismissing connection %p/%p fd %d", ci, ci->conn, ci->conn->fd);
+    DBG("Shutting down connection %p/%p fd %d", ci, ci->conn, ci->conn->fd);
 
     shutdown(ci->conn->fd, SHUT_RDWR);
     close(ci->conn->fd);
@@ -1095,7 +1100,7 @@ void send_presence(json_object * connected, json_object * disconnected, conn_inf
         msg.stream_id = ci->out_stream_id += 2;
         if ((err = xl4bus_send_ll_message(ci->conn, &msg, 0, 0)) != E_XL4BUS_OK) {
             printf("failed to send a message : %s\n", xl4bus_strerr(err));
-            dismiss_connection(ci, 1);
+            xl4bus_shutdown_connection(ci->conn);
         }
     }
 

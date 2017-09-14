@@ -271,6 +271,7 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
 
                             cfg.free(bus_address);
                             BOLT_MALLOC(bus_address, sizeof(xl4bus_address_t));
+                            bus_address->type = XL4BAT_GROUP;
                             BOLT_MEM(bus_address->group = f_strndup(start, inner_len));
                             bus_address->next = conn->remote_address_list;
                             conn->remote_address_list = bus_address;
