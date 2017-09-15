@@ -45,7 +45,7 @@ int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
                      !json_object_is_type(x5c_json, json_type_array)),
                     E_XL4BUS_DATA, "x5c attribute is not a json array");
 
-            BOLT_SUB(accept_x5c(x5c, conn, &x5t, 0));
+            BOLT_SUB(accept_x5c(x5c_json, conn, &x5t, 0));
         } else {
             BOLT_CJOSE(x5t = f_strdup(cjose_header_get(p_headers, "x5t#S256", &c_err)));
         }
