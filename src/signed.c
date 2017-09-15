@@ -20,6 +20,7 @@ int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
     json_object *hdr = 0;
     int err = E_XL4BUS_OK;
     char * x5c = 0;
+    json_object * x5c_json = 0;
     char * x5t = 0;
     cjose_jwk_t * key = 0;
     connection_internal_t * i_conn = conn->_private;
@@ -39,7 +40,12 @@ int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
         BOLT_CJOSE(x5c = cjose_header_get_raw(p_headers, "x5c", &c_err));
 
         if (x5c) {
-            BOLT_SUB(accept_x5c(x5c, conn, &x5t));
+
+            BOLT_IF((!(x5c_json = json_tokener_parse(x5c)) ||
+                     !json_object_is_type(x5c_json, json_type_array)),
+                    E_XL4BUS_DATA, "x5c attribute is not a json array");
+
+            BOLT_SUB(accept_x5c(x5c, conn, &x5t, 0));
         } else {
             BOLT_CJOSE(x5t = f_strdup(cjose_header_get(p_headers, "x5t#S256", &c_err)));
         }
@@ -76,6 +82,7 @@ int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
     cfg.free(x5c);
     cfg.free(x5t);
     cjose_jwk_release(key);
+    json_object_put(x5c_json);
 
     if (err == E_XL4BUS_OK) {
         if (exp_jws) {

@@ -284,9 +284,6 @@ char * make_cert_hash(void *, size_t);
 int x509_crt_to_write(mbedtls_x509_crt *, mbedtls_x509write_cert *);
 // finds the cjose key object for the specified tag.
 cjose_jwk_t * find_key_by_x5t(const char * x5t);
-// accepts JSON serialized x5c header value, and returns x5t tag value
-// (as if x5t#SHA256 was provided), or NULL if the certificate is
-// not accepted.
-int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t);
+int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose_jwk_t ** key);
 
 #endif

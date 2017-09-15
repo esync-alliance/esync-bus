@@ -23,6 +23,10 @@
 // trust anchors can share caches), but that adds burden on the user to maintain
 // those somehow, and, as stated above, doesn't provide any real additional
 // security.
+//
+// $TODO: On second thought, the certificate cache must be bound to a trust.
+// If trusts are different for connections, the certificates must not be
+// held together, since they won't authenticate against different trust
 typedef struct x5t_cache {
 
     UT_hash_handle hh;
@@ -127,10 +131,9 @@ void print_time(char * time, mbedtls_x509_time * x509_time) {
 }
 #endif
 
-int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
+int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose_jwk_t ** key) {
 
     int err = E_XL4BUS_OK;
-    json_object * x5c_obj = 0;
     x5t_cache_t * entry = 0;
     uint8_t * der = 0;
     cjose_jwk_rsa_keyspec rsa_ks;
@@ -144,17 +147,30 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
         cjose_err c_err;
         int l;
 
-        BOLT_IF((!(x5c_obj = json_tokener_parse(x5c)) ||
-                !json_object_is_type(x5c_obj, json_type_array)), E_XL4BUS_DATA, "x5c attribute is not json array");
+        int is_array = json_object_is_type(x5c, json_type_array);
+        if (!is_array && !json_object_is_type(x5c, json_type_string)) {
+            BOLT_SAY(E_XL4BUS_DATA, "x5c json is neither an array, nor a string");
+        }
 
-        BOLT_IF(!(l = json_object_array_length(x5c_obj)), E_XL4BUS_DATA, "x5c array is empty");
+        if (is_array) {
+            BOLT_IF((l = json_object_array_length(x5c)) <= 0, E_XL4BUS_DATA, "x5c array is empty");
+        } else {
+            l = 1;
+        }
 
         BOLT_MEM(entry = f_malloc(sizeof(x5t_cache_t)));
 
         mbedtls_x509_crt_init(&entry->crt);
 
         for (int i=0; i<l; i++) {
-            const char * str = json_object_get_string(json_object_array_get_idx(x5c_obj, i));
+            const char * str;
+
+            if (is_array) {
+                str = json_object_get_string(json_object_array_get_idx(x5c, i));
+            } else {
+                str = json_object_get_string(x5c);
+            }
+
             size_t chars = strlen(str);
 
             size_t der_len;
@@ -404,7 +420,12 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
             free_cache_entry(old);
         }
         HASH_ADD_KEYPTR(hh, x5t_cache, entry->x5t, strlen(entry->x5t), entry);
-        *x5t = f_strdup(entry->x5t);
+        if (x5t) {
+            *x5t = f_strdup(entry->x5t);
+        }
+        if (key) {
+            *key = cjose_jwk_retain(entry->key, 0);
+        }
 
 #if XL4_SUPPORT_THREADS
         BOLT_SYS(pf_unlock(&cert_cache_lock), "");
@@ -412,7 +433,6 @@ int accept_x5c(const char * x5c, xl4bus_connection_t * conn, char ** x5t) {
 
     } while (0);
 
-    json_object_put(x5c_obj);
     cfg.free(der);
     clean_keyspec(&rsa_ks);
 
