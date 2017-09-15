@@ -171,6 +171,9 @@ typedef struct message_internal {
     UT_hash_handle hh;
     message_info_state_t mis;
     json_object * addr;
+    cjose_jwk_t ** keys;
+    int key_count;
+    int key_idx;
     void * custom;
 
 } message_internal_t;

@@ -739,10 +739,35 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
 
 }
 
-int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
+int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
+
+    int err = E_XL4BUS_OK;
+
+    client_internal_t * i_clt = clt->_private;
+
+    do {
+
+        xl4bus_ll_message_t * x_msg;
+        BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
+
+        memcpy(&x_msg->message, mint->msg, sizeof(xl4bus_message_t));
+
+        x_msg->stream_id = mint->stream_id;
+        x_msg->is_reply = 1;
+        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, 0));
+        mint->mis = MIS_WAIT_CONFIRM;
+
+    } while (0);
+
+    return err;
+
+}
+
+int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     int err = E_XL4BUS_OK;
     json_object * root = 0;
+    json_object * req_destinations = 0;
 
     do {
 
@@ -767,25 +792,90 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
                         // the broker saying it's not deliverable.
                         DBG("XCHG: no destinations");
                         release_message(clt, mint, 0);
+                        break;
+
+                    }
+
+                    DBG("XCHG: got destination info");
+
+                    json_object * body;
+                    json_object * tags;
+                    int l;
+
+                    if (!json_object_object_get_ex(root, "body", &body) ||
+                            !json_object_is_type(body, json_type_object) ||
+                            !json_object_object_get_ex(body, "x5t#S256", &tags) ||
+                            !json_object_is_type(tags, json_type_array) ||
+                            (l = json_object_array_length(tags)) <= 0) {
+
+                        DBG("XCHG: can't find any destinations in %s", json_object_get_string(root));
+                        xl4bus_abort_stream(conn, msg->stream_id);
+                        release_message(clt, mint, 0);
+                        break;
+
+                    }
+
+                    BOLT_MALLOC(mint->keys, sizeof(void*) * (mint->key_count = l));
+
+                    for (int i=0; i<l; i++) {
+
+                        json_object * item = json_object_array_get_idx(tags, i);
+                        cjose_jwk_t * key = find_key_by_x5t(json_object_get_string(item));
+                        if (key) {
+                            mint->keys[mint->key_idx++] = key;
+                        } else {
+                            if (!req_destinations) {
+                                BOLT_MEM(req_destinations = json_object_new_array());
+                            }
+                            json_object_array_add(req_destinations, json_object_get(item));
+                        }
+
+                    }
+
+                    if (req_destinations) {
+
+                        // request destinations
+                        // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
+
+                        json_object * json = 0;
+
+                        do {
+
+                            BOLT_MEM(json = json_object_new_object());
+
+                            BOLT_MEM(body = json_object_new_string("xl4bus.request-cert"));
+                            json_object_object_add(json, "type", body);
+                            BOLT_MEM(body = json_object_new_object());
+                            json_object_object_add(json, "body", body);
+                            json_object_object_add(body, "x5t#S256", req_destinations);
+
+                            xl4bus_ll_message_t * x_msg;
+                            BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
+
+                            const char * bux = json_object_get_string(json);
+                            x_msg->message.data = bux;
+                            x_msg->message.data_len = strlen(bux) + 1;
+                            x_msg->message.content_type = "application/vnd.xl4.busmessage+json";
+                            x_msg->stream_id = msg->stream_id;
+                            x_msg->is_reply = 1;
+
+                            DBG("XCGH: sending request-certs on stream %d : %s",
+                                    x_msg->stream_id, json_object_get_string(json));
+
+                            BOLT_SUB(SEND_LL(i_clt->ll, x_msg, json_object_get(json)));
+                            json = 0;
+                            BOLT_NEST();
+
+                            mint->mis = MIS_WAIT_DETAILS;
+
+                        } while (0);
+
+                        json_object_put(json);
+                        BOLT_NEST();
 
                     } else {
 
-                        DBG("XCHG: got destination info");
-
-                        // here we would request certificate details, but since
-                        // we are using trust, there is nothing to request,
-                        // so we can skip on to sending the actual message.
-                        // mint->mis = MIS_WAIT_DETAILS;
-
-                        xl4bus_ll_message_t * x_msg;
-                        BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
-
-                        memcpy(&x_msg->message, mint->msg, sizeof(msg->message));
-
-                        x_msg->stream_id = msg->stream_id;
-                        x_msg->is_reply = 1;
-                        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, 0));
-                        mint->mis = MIS_WAIT_CONFIRM;
+                        BOLT_SUB(send_main_message(clt, mint));
 
                     }
 
@@ -837,21 +927,33 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
             // send registration request.
             // https://gitlab.excelfore.com/schema/json/xl4bus/registration-request.json
 
-            json_object * json = json_object_new_object();
-            json_object_object_add(json, "type", json_object_new_string("xl4bus.registration-request"));
-            
-            xl4bus_ll_message_t * x_msg;
-            BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
 
-            const char * bux = json_object_get_string(json);
-            x_msg->message.data = bux;
-            x_msg->message.data_len = strlen(bux) + 1;
-            x_msg->message.content_type = "application/vnd.xl4.busmessage+json";
+            json_object * json = 0;
 
-            x_msg->stream_id = msg->stream_id;
-            x_msg->is_reply = 1;
+            do {
 
-            BOLT_SUB(SEND_LL(conn, x_msg, json));
+                BOLT_MEM(json = json_object_new_object());
+                json_object * type;
+                BOLT_MEM(type = json_object_new_string("xl4bus.registration-request"));
+                json_object_object_add(json, "type", type);
+
+                xl4bus_ll_message_t * x_msg;
+                BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
+
+                const char * bux = json_object_get_string(json);
+                x_msg->message.data = bux;
+                x_msg->message.data_len = strlen(bux) + 1;
+                x_msg->message.content_type = "application/vnd.xl4.busmessage+json";
+
+                x_msg->stream_id = msg->stream_id;
+                x_msg->is_reply = 1;
+
+                BOLT_SUB(SEND_LL(conn, x_msg, json_object_get(json)));
+
+            } while (0);
+
+            json_object_put(json);
+            BOLT_NEST();
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
                 !strcmp(type, "xl4bus.presence") && msg->is_final) {
@@ -883,6 +985,7 @@ int ll_msg_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg) {
     } while (0);
 
     json_object_put(root);
+    json_object_put(req_destinations);
 
     return err;
 
@@ -955,6 +1058,7 @@ char * state_str(client_state_t state) {
 
 static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) {
 
+    json_object * json = 0;
     client_internal_t * i_clt = clt->_private;
     int err = E_XL4BUS_OK;
 
@@ -963,13 +1067,16 @@ static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) 
     }
 
     while (msg->mis == MIS_VIRGIN) {
+
         // request destinations
         // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
-        json_object * json = json_object_new_object();
+        BOLT_MEM(json = json_object_new_object());
         json_object * body;
 
-        json_object_object_add(json, "type", json_object_new_string("xl4bus.request-destinations"));
-        json_object_object_add(json, "body", body = json_object_new_object());
+        BOLT_MEM(body = json_object_new_string("xl4bus.request-destinations"));
+        json_object_object_add(json, "type", body);
+        BOLT_MEM(body = json_object_new_object());
+        json_object_object_add(json, "body", body);
         json_object_object_add(body, "destinations", json_object_get(msg->addr));
 
         xl4bus_ll_message_t * x_msg;
@@ -983,12 +1090,14 @@ static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) 
 
         DBG("XCGH: sending request-destinations on stream %d : %s", x_msg->stream_id, json_object_get_string(json));
 
-        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, json));
+        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, json_object_get(json)));
 
         // json_object_put(json);
 
         msg->mis = MIS_WAIT_DESTINATIONS;
     }
+
+    json_object_put(json);
 
     return err;
 
@@ -1034,6 +1143,11 @@ static void release_message(xl4bus_client_t * clt, message_internal_t * mint, in
     client_internal_t * i_clt = clt->_private;
     HASH_DEL(i_clt->stream_hash, mint);
     DL_DELETE(i_clt->message_list, mint);
+
+    for (int i=0; i<mint->key_count; i++) {
+        cjose_jwk_release(mint->keys[i]);
+    }
+    cfg.free(mint->keys);
 
     json_object_put(mint->addr);
     cfg.free(mint);
