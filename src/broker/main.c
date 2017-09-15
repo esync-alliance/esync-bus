@@ -104,14 +104,6 @@ typedef struct poll_info {
 
 } poll_info_t;
 
-#if 0
-typedef struct stream_info {
-    UT_hash_handle hh;
-    uint16_t stream_id;
-    json_object * destinations;
-} stream_info_t;
-#endif
-
 typedef struct conn_info {
 
     struct pollfd pfd;
@@ -133,10 +125,6 @@ typedef struct conn_info {
     struct poll_info pit;
 
     int ll_poll_timeout;
-
-#if 0
-    stream_info_t * open_streams;
-#endif
 
     uint16_t out_stream_id;
 
@@ -173,10 +161,6 @@ static UT_array dm_clients;
 static int poll_fd;
 static conn_info_t * connections;
 static xl4bus_identity_t broker_identity;
-
-#if 0
-static void cleanup_stream(conn_info_t * ci, stream_info_t * si);
-#endif
 
 static inline int void_cmp_fun(void const * a, void const * b) {
 
@@ -224,10 +208,6 @@ int main(int argc, char ** argv) {
     b_addr.sin_addr.s_addr = INADDR_ANY;
 
     load_test_x509_creds(&broker_identity, "broker", argv[0]);
-#if 0
-    load_simple_x509_creds(&broker_identity, "../test_certs/cip/private.pem",
-            "../test_certs/cip/cert.pem", "../test_certs/ca/ca.pem", 0);
-#endif
 
     int reuse = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0) {
@@ -250,36 +230,6 @@ int main(int argc, char ** argv) {
         perror("listen");
         return 1;
     }
-
-#if 0
-    while (1) {
-
-        socklen_t b_addr_len = sizeof(b_addr);
-        int fd2 = accept(fd, (struct sockaddr*)&b_addr, &b_addr_len);
-        if (fd2 < 0) {
-            perror("accept");
-            return 1;
-        }
-
-        xl4bus_connection_t * conn = f_malloc(sizeof(xl4bus_connection_t));
-
-        memset(conn, 0, sizeof(xl4bus_connection_t));
-
-        conn->on_message = on_message;
-        conn->fd = fd2;
-
-        conn->set_poll = set_poll;
-
-        pthread_t nt;
-
-        if (pthread_create(&nt, 0, run_conn, conn)) {
-            perror("pthread_create");
-            return 1;
-        }
-
-    }
-
-#endif
 
     if (set_nonblocking(fd)) {
         perror("non-blocking");
@@ -492,20 +442,6 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
     // only be fd for the network connection. However, there is
     // no promise it is, which means that conn_info must support
     // multiple poll_info entries.
-
-#if 0
-    conn_info_t * ci = conn->custom;
-
-    ci->pfd.events = 0;
-
-    if (flg & XL4BUS_POLL_READ) {
-        ci->pfd.events = POLLIN;
-    }
-    if (flg & XL4BUS_POLL_WRITE) {
-        ci->pfd.events |= POLLOUT;
-    }
-    return E_XL4BUS_OK;
-#endif
 
     uint32_t need_flg = 0;
     if (flg & XL4BUS_POLL_WRITE) {
@@ -723,23 +659,6 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             } else if (!strcmp("xl4bus.request-destinations", type)) {
 
-#if 0
-                stream_info_t * si;
-                HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
-                if (si) {
-                    // one shall not request destinations on existing stream.
-                    DBG("request-destinations on existing stream %d", msg->stream_id);
-                    xl4bus_abort_stream(conn, msg->stream_id);
-                    cleanup_stream(ci, si);
-                    break;
-                }
-
-                si = f_malloc(sizeof(stream_info_t));
-                si->stream_id = msg->stream_id;
-                HASH_ADD(hh, ci->open_streams, stream_id, 2, si);
-
-#endif
-
                 // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
 
                 json_object * x5t = 0;
@@ -848,126 +767,9 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             json_object_put(json);
 
-#if 0
-            stream_info_t * si;
-            HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
-            if (!si) {
-                DBG("Message of c/t %s ignored", msg->message.content_type);
-                break;
-            }
-
-            // confirm the message to the caller.
-            // https://gitlab.excelfore.com/schema/json/xl4bus/message-confirm.json
-            json_object * json = json_object_new_object();
-            json_object_object_add(json, "type", json_object_new_string("xl4bus.message-confirm"));
-
-            xl4bus_ll_message_t x_msg;
-            memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
-
-            const char * bux = json_object_get_string(json);
-            x_msg.message.data = bux;
-            x_msg.message.data_len = strlen(bux) + 1;
-            x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
-
-            x_msg.stream_id = msg->stream_id;
-            x_msg.is_reply = 1;
-            x_msg.is_final = 1;
-
-            if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
-                printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                dismiss_connection(ci, 1);
-            }
-
-            json_object_put(json);
-
-            int l = json_object_array_length(si->destinations);
-
-            DBG("BRK: %d destinations", l);
-
-            for (int i=0; i<l; i++) {
-
-                json_object * el = json_object_array_get_idx(si->destinations, i);
-                if (!json_object_is_type(el, json_type_object)) {
-                    DBG("BRK : skipping destination - not an object");
-                    continue;
-                }
-                json_object * aux;
-                conn_info_hash_list_t * use_hl = 0;
-                char const * key = 0;
-                UT_array * send_list = 0;
-
-                if (json_object_object_get_ex(el, "update-agent", &aux) &&
-                        json_object_is_type(aux, json_type_string)) {
-                    use_hl = ci_by_name;
-                    key = json_object_get_string(aux);
-                } else if (json_object_object_get_ex(el, "group", &aux) &&
-                        json_object_is_type(aux, json_type_string)) {
-                    use_hl = ci_by_group;
-                    key = json_object_get_string(aux);
-                } else if (json_object_object_get_ex(el, "special", &aux) &&
-                        json_object_is_type(aux, json_type_string) &&
-                        !strcmp("dmclient",json_object_get_string(aux))) {
-                    send_list = &dm_clients;
-                }
-
-                if (use_hl) {
-                    conn_info_hash_list_t * val;
-                    HASH_FIND(hh, use_hl, key, strlen(key)+1, val);
-                    if (val) {
-                        send_list = &val->items;
-                    } else {
-                        DBG("BRK: No delivery records found for %s", json_object_get_string(el));
-                    }
-                }
-
-                if (!send_list) {
-                    DBG("BRK: Skipping destination : no send_list created from %s", json_object_get_string(el));
-                    continue;
-                }
-
-                int l2 = utarray_len(send_list);
-
-                DBG("BRK: Sending to %d conns", l2);
-
-                for (int j=0; j<l2; j++) {
-                    conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(send_list, j);
-                    if (ci2 == ci) {
-                        DBG("Ignored one sender - loopback");
-                        // prevent loopback
-                        continue;
-                    }
-
-                    msg->is_final = 1;
-                    msg->is_reply = 0;
-                    msg->stream_id = ci2->out_stream_id+=2;
-
-                    if (xl4bus_send_ll_message(ci2->conn, msg, 0, 0)) {
-                        printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                        dismiss_connection(ci2, 1);
-                        j--;
-                        l2--;
-                    }
-                }
-
-            }
-
-#endif
-
         }
 
     } while (0);
-
-#if 0
-    if (msg->is_final) {
-        // if there is a final message on stream we track,
-        // make sure to clean up.
-        stream_info_t * si;
-        HASH_FIND(hh, ci->open_streams, &msg->stream_id, 2, si);
-        if (si) {
-            cleanup_stream(ci, si);
-        }
-    }
-#endif
 
     json_object_put(root);
     json_object_put(connected);
@@ -987,14 +789,6 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
 
     shutdown(ci->conn->fd, SHUT_RDWR);
     close(ci->conn->fd);
-
-#if 0
-    stream_info_t *si, *aux;
-
-    HASH_ITER(hh, ci->open_streams, si, aux) {
-        cleanup_stream(ci, si);
-    }
-#endif
 
     json_object * disconnected = json_object_new_array();
 
@@ -1054,16 +848,6 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
     free(ci);
 
 }
-
-#if 0
-static void cleanup_stream(conn_info_t * ci, stream_info_t * si) {
-
-    HASH_DEL(ci->open_streams, si);
-    json_object_put(si->destinations);
-    free(si);
-
-}
-#endif
 
 void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except) {
 
@@ -1238,5 +1022,3 @@ static void gather_all_destinations(xl4bus_address_t * first, UT_array * conns) 
         gather_destination(addr, 0, conns);
     }
 }
-
-
