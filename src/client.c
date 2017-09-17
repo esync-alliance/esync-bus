@@ -786,6 +786,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 BOLT_SUB(get_xl4bus_message(&msg->message, &root, &type));
 
+                DBG("mint state %d, received %s", mint->mis, json_object_get_string(root));
+
                 if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", type)) {
 
                     if (msg->is_final) {

@@ -55,7 +55,7 @@ int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
                 remote_x5c = x5c_json;
             }
 
-            BOLT_MEM(conn->remote_x5c = f_strdup(json_object_get_string(remote_x5c)));
+            BOLT_MEM(conn->remote_x5c = f_strdup(json_object_to_json_string(remote_x5c)));
 
         } else {
             BOLT_CJOSE(x5t = f_strdup(cjose_header_get(p_headers, "x5t#S256", &c_err)));

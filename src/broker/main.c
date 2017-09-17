@@ -689,11 +689,16 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             int l2 = utarray_len(send_list);
 
+                            // because these must be the same x5t, we only need
+                            // to send out one x5c, because they all must be the same
+
+                            if (l2 > 1) { l2 = 1; }
+
                             for (int j=0; j<l2; j++) {
 
                                 conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(send_list, j);
-                                if (!ci2->remote_x5c) {
-                                    json_object_array_add(x5c, ci2->remote_x5c);
+                                if (ci2->remote_x5c) {
+                                    json_object_array_add(x5c, json_object_get(ci2->remote_x5c));
                                 }
 
                             }
@@ -705,7 +710,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 json_object * body = json_object_new_object();
                 json_object_object_add(body, "x5c", x5c);
-                send_json_message(ci, "xl4.cert-details", body, msg->stream_id, 1, 0);
+                send_json_message(ci, "xl4bus.cert-details", body, msg->stream_id, 1, 0);
 
                 break;
 

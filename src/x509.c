@@ -140,7 +140,8 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose
 
     memset(&rsa_ks, 0, sizeof(cjose_jwk_rsa_keyspec));
 
-    *x5t = 0;
+    if (x5t) { *x5t = 0; }
+    if (key) { *key = 0; }
 
     do {
 
