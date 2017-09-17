@@ -275,13 +275,11 @@ int build_address_list(json_object *, xl4bus_address_t **);
 
 /* x509.c */
 
-#define x509_crt_to_write XI(x509_crt_to_write)
 #define find_key_by_x5t XI(find_key_by_x5t)
 #define accept_x5c XI(accept_x5c)
 #define make_cert_hash XI(make_cert_hash)
 
 char * make_cert_hash(void *, size_t);
-int x509_crt_to_write(mbedtls_x509_crt *, mbedtls_x509write_cert *);
 // finds the cjose key object for the specified tag.
 cjose_jwk_t * find_key_by_x5t(const char * x5t);
 int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose_jwk_t ** key);

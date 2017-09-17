@@ -46,6 +46,17 @@ int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
                     E_XL4BUS_DATA, "x5c attribute is not a json array");
 
             BOLT_SUB(accept_x5c(x5c_json, conn, &x5t, 0));
+
+            json_object * remote_x5c;
+
+            if (json_object_array_length(x5c_json) == 1) {
+                remote_x5c = json_object_array_get_idx(x5c_json, 0);
+            } else {
+                remote_x5c = x5c_json;
+            }
+
+            BOLT_MEM(conn->remote_x5c = f_strdup(json_object_get_string(remote_x5c)));
+
         } else {
             BOLT_CJOSE(x5t = f_strdup(cjose_header_get(p_headers, "x5t#S256", &c_err)));
         }

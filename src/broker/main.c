@@ -106,7 +106,7 @@ typedef struct poll_info {
 
 typedef struct conn_info {
 
-    struct pollfd pfd;
+    // struct pollfd pfd;
     int reg_req;
 
     int is_dm_client;
@@ -127,6 +127,8 @@ typedef struct conn_info {
     int ll_poll_timeout;
 
     uint16_t out_stream_id;
+
+    json_object * remote_x5c;
 
 } conn_info_t;
 
@@ -151,12 +153,14 @@ static void finish_x5t_destinations(json_object ** x5t, str_t * strings);
 static void gather_all_destinations(xl4bus_address_t * first, UT_array * conns);
 static void on_connection_shutdown(xl4bus_connection_t * conn);
 static void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except);
+static int send_json_message(conn_info_t *, const char *, json_object * body, uint16_t stream_id, int is_reply, int is_final);
+
 
 int debug = 1;
 
 static conn_info_hash_list_t * ci_by_name = 0;
 static conn_info_hash_list_t * ci_by_group = 0;
-// static conn_info_hash_list_t * ci_by_x5t = 0;
+static conn_info_hash_list_t * ci_by_x5t = 0;
 static UT_array dm_clients;
 static int poll_fd;
 static conn_info_t * connections;
@@ -332,10 +336,8 @@ int main(int argc, char ** argv) {
 
                         // send initial message - alg-supported
                         // https://gitlab.excelfore.com/schema/json/xl4bus/alg-supported.json
-                        json_object *json = json_object_new_object();
                         json_object *aux;
-                        json_object *body;
-                        json_object_object_add(json, "body", body = json_object_new_object());
+                        json_object *body = json_object_new_object();
 
                         json_object_object_add(body, "signature", aux = json_object_new_array());
                         json_object_array_add(aux, json_object_new_string("RS256"));
@@ -344,23 +346,7 @@ int main(int argc, char ** argv) {
                         json_object_object_add(body, "encryption-alg", aux = json_object_new_array());
                         json_object_array_add(aux, json_object_new_string("A128CBC-HS256"));
 
-                        json_object_object_add(json, "type", json_object_new_string("xl4bus.alg-supported"));
-
-                        xl4bus_ll_message_t msg;
-                        memset(&msg, 0, sizeof(xl4bus_ll_message_t));
-
-                        const char *bux = json_object_get_string(json);
-                        msg.message.data = bux;
-                        msg.message.data_len = strlen(bux) + 1;
-                        msg.message.content_type = "application/vnd.xl4.busmessage+json";
-                        msg.stream_id = ci->out_stream_id += 2;
-
-                        if ((err = xl4bus_send_ll_message(conn, &msg, 0, 0)) != E_XL4BUS_OK) {
-                            printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                            xl4bus_shutdown_connection(conn);
-                        }
-
-                        json_object_put(json);
+                        err = send_json_message(ci, "xl4bus.alg-supported", body, ci->out_stream_id+=2, 0, 0);
 
                         if (err == E_XL4BUS_OK) {
                             int s_err;
@@ -493,20 +479,24 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     do {
 
+        if (!ci->remote_x5c && conn->remote_x5c) {
+            ci->remote_x5c = json_tokener_parse(conn->remote_x5c);
+        }
+
         if (!strcmp("application/vnd.xl4.busmessage+json", msg->message.content_type)) {
 
             // the json must be ASCIIZ.
-            BOLT_IF(((uint8_t*)msg->message.data)[msg->message.data_len-1], E_XL4BUS_CLIENT,
+            BOLT_IF(((uint8_t *) msg->message.data)[msg->message.data_len - 1], E_XL4BUS_CLIENT,
                     "Incoming message is not ASCIIZ");
 
             BOLT_IF(!(root = json_tokener_parse(msg->message.data)),
                     E_XL4BUS_CLIENT, "Not valid json: %s", msg->message.data);
 
-            json_object * aux;
+            json_object *aux;
             BOLT_IF(!json_object_object_get_ex(root, "type", &aux) || !json_object_is_type(aux, json_type_string),
                     E_XL4BUS_CLIENT, "No/non-string type property in %s", msg->message.data);
 
-            const char * type = json_object_get_string(aux);
+            const char *type = json_object_get_string(aux);
 
             DBG("LLP message type %s", type);
 
@@ -517,17 +507,17 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 BOLT_MEM(connected = json_object_new_array());
 
-                for (xl4bus_address_t * r_addr = conn->remote_address_list; r_addr; r_addr = r_addr->next) {
+                for (xl4bus_address_t *r_addr = conn->remote_address_list; r_addr; r_addr = r_addr->next) {
 
                     if (r_addr->type == XL4BAT_GROUP) {
 
-                        ci->group_names = f_realloc(ci->group_names, sizeof(char*) * (ci->group_count+1));
+                        ci->group_names = f_realloc(ci->group_names, sizeof(char *) * (ci->group_count + 1));
                         ci->group_names[ci->group_count] = f_strdup(r_addr->group);
                         HASH_LIST_ADD(ci_by_group, ci, group_names[ci->group_count]);
                         ci->group_count++;
 
-                        json_object * cel;
-                        json_object * sel;
+                        json_object *cel;
+                        json_object *sel;
                         BOLT_MEM(cel = json_object_new_object());
                         json_object_array_add(connected, cel);
                         BOLT_MEM(sel = json_object_new_string(r_addr->group));
@@ -541,7 +531,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             ADD_TO_ARRAY_ONCE(&dm_clients, ci);
 
-                            json_object * cel = json_object_new_object();
+                            json_object *cel = json_object_new_object();
                             json_object_object_add(cel, "special", json_object_new_string("dmclient"));
                             json_object_array_add(connected, cel);
 
@@ -549,13 +539,13 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     } else if (r_addr->type == XL4BAT_UPDATE_AGENT) {
 
-                        ci->ua_names = f_realloc(ci->ua_names, sizeof(char*) * (ci->ua_count+1));
+                        ci->ua_names = f_realloc(ci->ua_names, sizeof(char *) * (ci->ua_count + 1));
                         ci->ua_names[ci->ua_count] = f_strdup(r_addr->update_agent);
                         HASH_LIST_ADD(ci_by_name, ci, ua_names[ci->ua_count]);
                         ci->ua_count++;
 
-                        json_object * cel;
-                        json_object * sel;
+                        json_object *cel;
+                        json_object *sel;
                         BOLT_MEM(cel = json_object_new_object());
                         json_object_array_add(connected, cel);
                         BOLT_MEM(sel = json_object_new_string(r_addr->update_agent));
@@ -565,46 +555,43 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 }
 
-                // HASH_LIST_ADD(ci_by_x5t, ci, conn->remote_x5t);
+                HASH_LIST_ADD(ci_by_x5t, ci, conn->remote_x5t);
 
                 BOLT_NEST();
 
                 // send current presence
                 // https://gitlab.excelfore.com/schema/json/xl4bus/presence.json
-                json_object * json;
-                BOLT_MEM(json = json_object_new_object());
+                json_object *body;
+                BOLT_MEM(body = json_object_new_object());
 
                 {
-                    json_object_object_add(json, "type", json_object_new_string("xl4bus.presence"));
-                    BOLT_MEM(aux = json_object_new_object());
-                    json_object_object_add(json, "body", aux);
-                    json_object * bux;
+                    json_object *bux;
                     BOLT_MEM(bux = json_object_new_array());
-                    json_object_object_add(aux, "connected", bux);
+                    json_object_object_add(body, "connected", bux);
 
                     unsigned long lc;
 
                     UTCOUNT_WITHOUT(&dm_clients, ci, lc);
 
                     if (lc) {
-                        json_object * cux;
+                        json_object *cux;
                         BOLT_MEM(cux = json_object_new_object());
                         json_object_array_add(bux, cux);
-                        json_object * dux;
+                        json_object *dux;
                         BOLT_MEM(dux = json_object_new_string("dmclient"));
                         json_object_object_add(cux, "special", dux);
                     }
 
-                    conn_info_hash_list_t * tmp;
-                    conn_info_hash_list_t * cti;
+                    conn_info_hash_list_t *tmp;
+                    conn_info_hash_list_t *cti;
 
                     HASH_ITER(hh, ci_by_name, cti, tmp) {
                         UTCOUNT_WITHOUT(&cti->items, ci, lc);
                         if (lc > 0) {
-                            json_object * cux;
+                            json_object *cux;
                             BOLT_MEM(cux = json_object_new_object());
                             json_object_array_add(bux, cux);
-                            json_object * dux;
+                            json_object *dux;
                             BOLT_MEM(dux = json_object_new_string(cti->hh.key));
                             json_object_object_add(cux, "update-agent", dux);
                         }
@@ -615,10 +602,10 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     HASH_ITER(hh, ci_by_group, cti, tmp) {
                         UTCOUNT_WITHOUT(&cti->items, ci, lc);
                         if (lc > 0) {
-                            json_object * cux;
+                            json_object *cux;
                             BOLT_MEM(cux = json_object_new_object());
                             json_object_array_add(bux, cux);
-                            json_object * dux;
+                            json_object *dux;
                             BOLT_MEM(dux = json_object_new_string(cti->hh.key));
                             json_object_object_add(cux, "group", dux);
                         }
@@ -628,24 +615,11 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 }
 
-                xl4bus_ll_message_t x_msg;
-                memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
-
-                const char * bux = json_object_get_string(json);
-                x_msg.message.data = bux;
-                x_msg.message.data_len = strlen(bux) + 1;
-                x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
-
-                x_msg.stream_id = msg->stream_id;
-                x_msg.is_final = 1;
-                x_msg.is_reply = 1;
-
-                if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
+                if ((err = send_json_message(ci, "xl4bus.presence", body, msg->stream_id, 1, 1)) != E_XL4BUS_OK) {
                     printf("failed to send a message : %s\n", xl4bus_strerr(err));
                     xl4bus_shutdown_connection(conn);
                 } else {
                     // tell everybody else this client arrived.
-
                     if (json_object_array_length(connected)) {
                         send_presence(connected, 0, ci);
                         connected = 0; // connected is consumed
@@ -653,18 +627,16 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 }
 
-                json_object_put(json);
-
                 break;
 
             } else if (!strcmp("xl4bus.request-destinations", type)) {
 
                 // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
 
-                json_object * x5t = 0;
+                json_object *x5t = 0;
 
                 if (json_object_object_get_ex(root, "body", &aux) && json_object_is_type(aux, json_type_object)) {
-                    json_object * array;
+                    json_object *array;
                     if (json_object_object_get_ex(aux, "destinations", &array)) {
                         gather_destinations(array, &x5t, 0);
                     }
@@ -672,33 +644,62 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 // send destination list
                 // https://gitlab.excelfore.com/schema/json/xl4bus/destination-info.json
-                json_object * json = json_object_new_object();
-                json_object_object_add(json, "type", json_object_new_string("xl4bus.destination-info"));
-                json_object * body = json_object_new_object();
-                json_object_object_add(json, "body", body);
-
+                json_object *body = json_object_new_object();
                 if (x5t) {
                     json_object_object_add(body, "x5t#S256", x5t);
                 }
 
-                xl4bus_ll_message_t x_msg;
-                memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+                send_json_message(ci, "xl4bus.destination-info", body, msg->stream_id, 1,
+                        json_object_array_length(x5t) == 0);
 
-                const char * bux = json_object_get_string(json);
-                x_msg.message.data = bux;
-                x_msg.message.data_len = strlen(bux) + 1;
-                x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
+                break;
 
-                x_msg.stream_id = msg->stream_id;
-                x_msg.is_reply = 1;
-                x_msg.is_final = json_object_array_length(x5t) == 0;
+            } else if (!strcmp("xl4bus.request-cert.json", type)) {
 
-                if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
-                    printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                    xl4bus_shutdown_connection(conn);
+                json_object * x5c = json_object_new_array();
+
+                if (json_object_object_get_ex(root, "body", &aux) && json_object_is_type(aux, json_type_object)) {
+                    json_object *array;
+                    if (json_object_object_get_ex(aux, "x5t#S256", &array) &&
+                            json_object_is_type(array, json_type_array)) {
+
+                        int l = json_object_array_length(array);
+                        for (int i=0; i<l; i++) {
+
+                            json_object * x5t_json = json_object_array_get_idx(array, i);
+                            if (!json_object_is_type(x5t_json, json_type_string)) { continue; }
+
+                            const char * x5t = json_object_get_string(x5t_json);
+
+                            UT_array * send_list = 0;
+
+                            conn_info_hash_list_t * val;
+                            HASH_FIND(hh, ci_by_x5t, x5t, strlen(x5t)+1, val);
+                            if (val) {
+                                send_list = &val->items;
+                            }
+
+                            if (!send_list) { continue; }
+
+                            int l2 = utarray_len(send_list);
+
+                            for (int j=0; j<l2; j++) {
+
+                                conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(send_list, j);
+                                if (!ci2->remote_x5c) {
+                                    json_object_array_add(x5c, ci2->remote_x5c);
+                                }
+
+                            }
+
+                        }
+
+                    }
                 }
 
-                json_object_put(json);
+                json_object * body = json_object_new_object();
+                json_object_object_add(body, "x5c", x5c);
+                send_json_message(ci, "xl4.cert-info", body, msg->stream_id, 1, 0);
 
                 break;
 
@@ -743,29 +744,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             }
 
-            // confirm the message to the caller.
-            // https://gitlab.excelfore.com/schema/json/xl4bus/message-confirm.json
-            json_object * json = json_object_new_object();
-            json_object_object_add(json, "type", json_object_new_string("xl4bus.message-confirm"));
-
-            xl4bus_ll_message_t x_msg;
-            memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
-
-            const char * bux = json_object_get_string(json);
-            x_msg.message.data = bux;
-            x_msg.message.data_len = strlen(bux) + 1;
-            x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
-
-            x_msg.stream_id = stream_id;
-            x_msg.is_reply = 1;
-            x_msg.is_final = 1;
-
-            if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
-                printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                xl4bus_shutdown_connection(conn);
-            }
-
-            json_object_put(json);
+            send_json_message(ci, "xl4bus.message-confirm", 0, stream_id, 1, 1);
 
         }
 
@@ -833,7 +812,7 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
 #pragma clang diagnostic ignored "-Wunused-variable"
         int n_len;
 #pragma clang diagnostic pop
-        // REMOVE_FROM_HASH(ci_by_x5t, ci, conn->remote_x5t, n_len, "Removing by x5t");
+        REMOVE_FROM_HASH(ci_by_x5t, ci, conn->remote_x5t, n_len, "Removing by x5t");
     }
 
     if (json_object_array_length(disconnected) > 0) {
@@ -851,13 +830,7 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
 
 void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except) {
 
-    int err;
-
-    json_object *json = json_object_new_object();
-
-    json_object *body;
-    json_object_object_add(json, "body", body = json_object_new_object());
-    json_object_object_add(json, "type", json_object_new_string("xl4bus.presence"));
+    json_object *body = json_object_new_object();
     if (connected) {
         json_object_object_add(body, "connected", connected);
     }
@@ -865,30 +838,17 @@ void send_presence(json_object * connected, json_object * disconnected, conn_inf
         json_object_object_add(body, "disconnected", disconnected);
     }
 
-    xl4bus_ll_message_t msg;
-    memset(&msg, 0, sizeof(xl4bus_ll_message_t));
-
-    const char *bux = json_object_get_string(json);
-    msg.message.data = bux;
-    msg.message.data_len = strlen(bux) + 1;
-    msg.message.content_type = "application/vnd.xl4.busmessage+json";
-    msg.is_final = 1;
-
     conn_info_t * ci;
     conn_info_t * aux;
 
-    DBG("Broadcasting presence change %s", bux);
+    DBG("Broadcasting presence change %s", body);
 
     DL_FOREACH_SAFE(connections, ci, aux) {
         if (ci == except) { continue; }
-        msg.stream_id = ci->out_stream_id += 2;
-        if ((err = xl4bus_send_ll_message(ci->conn, &msg, 0, 0)) != E_XL4BUS_OK) {
-            printf("failed to send a message : %s\n", xl4bus_strerr(err));
-            xl4bus_shutdown_connection(ci->conn);
-        }
+        send_json_message(ci, "xl4bus.presence", json_object_get(body), ci->out_stream_id+=2, 0, 1);
     }
 
-    json_object_put(json);
+    json_object_put(body);
 
 }
 
@@ -1021,4 +981,42 @@ static void gather_all_destinations(xl4bus_address_t * first, UT_array * conns) 
     for (xl4bus_address_t * addr = first; addr; addr = addr->next) {
         gather_destination(addr, 0, conns);
     }
+}
+
+int send_json_message(conn_info_t * ci, const char * type, json_object * body,
+        uint16_t stream_id, int is_reply, int is_final) {
+
+    int err;
+
+    xl4bus_connection_t * conn = ci->conn;
+
+    // confirm the message to the caller.
+    // https://gitlab.excelfore.com/schema/json/xl4bus/message-confirm.json
+    json_object * json = json_object_new_object();
+    json_object_object_add(json, "type", json_object_new_string(type));
+    if (body) {
+        json_object_object_add(json, "body", body);
+    }
+
+    xl4bus_ll_message_t x_msg;
+    memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+
+    const char * bux = json_object_get_string(json);
+    x_msg.message.data = bux;
+    x_msg.message.data_len = strlen(bux) + 1;
+    x_msg.message.content_type = "application/vnd.xl4.busmessage+json";
+
+    x_msg.stream_id = stream_id;
+    x_msg.is_reply = is_reply;
+    x_msg.is_final = is_final;
+
+    if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
+        printf("failed to send a message : %s\n", xl4bus_strerr(err));
+        xl4bus_shutdown_connection(conn);
+    }
+
+    json_object_put(json);
+
+    return err;
+
 }
