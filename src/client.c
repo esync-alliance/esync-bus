@@ -843,10 +843,9 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         do {
 
                             BOLT_MEM(body = json_object_new_object());
-                            json_object_object_add(body, "x5t#S256", req_destinations);
+                            json_object_object_add(body, "x5t#S256", json_object_get(req_destinations));
 
-                            BOLT_SUB(send_json_message(clt, 1, mint->stream_id,
-                                    "xl4bus.request-cert", json_object_get(body)));
+                            BOLT_SUB(send_json_message(clt, 1, mint->stream_id, "xl4bus.request-cert", body));
 
                             mint->mis = MIS_WAIT_DETAILS;
 
@@ -1068,7 +1067,7 @@ static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) 
 
         BOLT_MEM(json = json_object_new_object());
         json_object_object_add(json, "destinations", json_object_get(msg->addr));
-        send_json_message(clt, 0, msg->stream_id, "xl4bus.request-destinations", json_object_get(json));
+        send_json_message(clt, 0, msg->stream_id, "xl4bus.request-destinations", json);
         msg->mis = MIS_WAIT_DESTINATIONS;
 
     }
@@ -1228,8 +1227,9 @@ int send_json_message(xl4bus_client_t * clt, int is_reply, uint16_t stream_id, c
 
         BOLT_MEM(json = json_object_new_object());
         if (body) {
-            json_object_object_add(json, "body", body);
+            json_object_object_add(json, "body", json_object_get(body));
         }
+
         BOLT_MEM(body = json_object_new_string(type));
         json_object_object_add(json, "type", body);
 
@@ -1243,10 +1243,11 @@ int send_json_message(xl4bus_client_t * clt, int is_reply, uint16_t stream_id, c
         x_msg->stream_id = stream_id;
         x_msg->is_reply = is_reply;
 
-        DBG("XCGH: sending request-certs on stream %d : %s",
+        DBG("XCGH: sending json on stream %d : %s",
                 x_msg->stream_id, json_object_get_string(json));
 
-        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, json_object_get(json)));
+        json = json_object_get(json);
+        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, json));
 
     } while(0);
 

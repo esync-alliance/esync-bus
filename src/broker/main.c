@@ -129,6 +129,7 @@ typedef struct conn_info {
     uint16_t out_stream_id;
 
     json_object * remote_x5c;
+    char * remote_x5t;
 
 } conn_info_t;
 
@@ -482,6 +483,11 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         if (!ci->remote_x5c && conn->remote_x5c) {
             ci->remote_x5c = json_tokener_parse(conn->remote_x5c);
         }
+        if (!ci->remote_x5t && conn->remote_x5t) {
+            // we must copy x5t, since we need it when we deallocate
+            // things, at which point it would be cleaned up already
+            ci->remote_x5t = f_strdup(conn->remote_x5t);
+        }
 
         if (!strcmp("application/vnd.xl4.busmessage+json", msg->message.content_type)) {
 
@@ -555,7 +561,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 }
 
-                HASH_LIST_ADD(ci_by_x5t, ci, conn->remote_x5t);
+                HASH_LIST_ADD(ci_by_x5t, ci, remote_x5t);
 
                 BOLT_NEST();
 
@@ -654,7 +660,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 break;
 
-            } else if (!strcmp("xl4bus.request-cert.json", type)) {
+            } else if (!strcmp("xl4bus.request-cert", type)) {
 
                 json_object * x5c = json_object_new_array();
 
@@ -699,7 +705,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 json_object * body = json_object_new_object();
                 json_object_object_add(body, "x5c", x5c);
-                send_json_message(ci, "xl4.cert-info", body, msg->stream_id, 1, 0);
+                send_json_message(ci, "xl4.cert-details", body, msg->stream_id, 1, 0);
 
                 break;
 
@@ -812,7 +818,9 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
 #pragma clang diagnostic ignored "-Wunused-variable"
         int n_len;
 #pragma clang diagnostic pop
-        REMOVE_FROM_HASH(ci_by_x5t, ci, conn->remote_x5t, n_len, "Removing by x5t");
+        if (ci->remote_x5t) {
+            REMOVE_FROM_HASH(ci_by_x5t, ci, remote_x5t, n_len, "Removing by x5t");
+        }
     }
 
     if (json_object_array_length(disconnected) > 0) {
@@ -821,6 +829,8 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
         json_object_put(disconnected);
     }
 
+    json_object_put(ci->remote_x5c);
+    free(ci->remote_x5t);
     free(ci->group_names);
     free(ci->ua_names);
     free(ci->conn);
@@ -841,7 +851,7 @@ void send_presence(json_object * connected, json_object * disconnected, conn_inf
     conn_info_t * ci;
     conn_info_t * aux;
 
-    DBG("Broadcasting presence change %s", body);
+    DBG("Broadcasting presence change %s", json_object_get_string(body));
 
     DL_FOREACH_SAFE(connections, ci, aux) {
         if (ci == except) { continue; }
@@ -1009,6 +1019,8 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
     x_msg.stream_id = stream_id;
     x_msg.is_reply = is_reply;
     x_msg.is_final = is_final;
+
+    DBG("Outgoing on %p/%p fd %d : %s", ci, conn, conn->fd, json_object_get_string(json));
 
     if ((err = xl4bus_send_ll_message(conn, &x_msg, 0, 0)) != E_XL4BUS_OK) {
         printf("failed to send a message : %s\n", xl4bus_strerr(err));
