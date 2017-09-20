@@ -304,7 +304,7 @@ do {} while(0)
 
                                 int decrypt_err = decrypt_jwe(stream->incoming_message_data.data,
                                         stream->incoming_message_data.len, stream->incoming_message_ct,
-                                        i_conn->my_x5t, i_conn->private_key,
+                                        conn->my_x5t, i_conn->private_key,
                                         &decrypted_data, &signed_len, &decrypted_ct);
 
                                 if (!decrypt_err) {
@@ -703,7 +703,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         } else {
 
-            BOLT_SUB(sign_jws(i_conn->private_key, i_conn->my_x5t, 0, bus_object, msg->message.data,
+            BOLT_SUB(sign_jws(i_conn->private_key, conn->my_x5t, 0, bus_object, msg->message.data,
                     msg->message.data_len, msg->message.content_type, pad, offset, (char **) sign_to, sign_to_len));
 
         }

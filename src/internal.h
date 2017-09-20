@@ -113,7 +113,6 @@ typedef struct connection_internal {
 
     cjose_jwk_t * private_key;
     cjose_jwk_t * remote_key;
-    char * my_x5t;
     json_object * x5c;
 
     int ku_flags;
@@ -172,8 +171,9 @@ typedef struct message_internal {
     message_info_state_t mis;
     json_object * addr;
     cjose_jwk_t ** keys;
-    int key_count;
-    int key_idx;
+    char ** x5t;
+    size_t key_count;
+    size_t key_idx;
     void * custom;
 
 } message_internal_t;
@@ -205,6 +205,8 @@ typedef struct client_internal {
     int repeat_process;
 
     int ll_timeout;
+
+    cjose_jwk_t * private_key;
 
 #if XL4_PROVIDE_THREADS
     void * xl4_thread_space;
@@ -257,6 +259,7 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * ke
 #define z_strcmp XI(z_strcmp)
 #define make_json_address XI(make_json_address)
 #define build_address_list XI(build_address_list)
+#define make_private_key XI(make_private_key)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -272,6 +275,7 @@ char * make_chr_oid(mbedtls_asn1_buf *);
 int z_strcmp(const char *, const char *);
 int make_json_address(xl4bus_address_t * addr, json_object ** json);
 int build_address_list(json_object *, xl4bus_address_t **);
+int make_private_key(xl4bus_identity_t *, mbedtls_pk_context *, cjose_jwk_t **);
 
 /* x509.c */
 

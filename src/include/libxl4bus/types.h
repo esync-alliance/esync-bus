@@ -396,6 +396,7 @@ typedef struct xl4bus_connection {
 
     char * remote_x5t;
     char * remote_x5c;
+    char * my_x5t;
 
 #if XL4_SUPPORT_THREADS
     int mt_support;

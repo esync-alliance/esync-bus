@@ -163,13 +163,7 @@ int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
 int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
     int err = E_XL4BUS_OK;
-    char * pwd = 0;
     char * base64 = 0;
-
-    mbedtls_pk_context prk;
-    mbedtls_pk_init(&prk);
-    cjose_jwk_rsa_keyspec rsa_ks;
-    memset(&rsa_ks, 0, sizeof(rsa_ks));
 
     do {
 
@@ -232,7 +226,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
                         if (buf == conn->identity.x509.chain) {
                             // first cert, need to build my x5t
-                            BOLT_MEM(i_conn->my_x5t = make_cert_hash((*buf)->buf.data, (*buf)->buf.len));
+                            BOLT_MEM(conn->my_x5t = make_cert_hash((*buf)->buf.data, (*buf)->buf.len));
                         }
 
                         BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->buf.data, (*buf)->buf.len));
@@ -296,7 +290,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
                             size_t der_len;
 
                             BOLT_CJOSE(cjose_base64_decode(base64, base64_len, &der, &der_len, &c_err));
-                            BOLT_MEM(i_conn->my_x5t = make_cert_hash(der, der_len));
+                            BOLT_MEM(conn->my_x5t = make_cert_hash(der, der_len));
 
                         }
 
@@ -326,32 +320,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             // $TODO: do we verify that the provided cert checks out against the provided trust?
             // realistically there are no rules to say it should.
 
-            size_t pwd_len = 0;
-
-            if (conn->identity.x509.password) {
-                pwd = conn->identity.x509.password(&conn->identity.x509);
-                pwd_len = strlen(pwd);
-            }
-
-            BOLT_MTLS(mbedtls_pk_parse_key(&prk, conn->identity.x509.private_key->buf.data,
-                    conn->identity.x509.private_key->buf.len, (char unsigned const *)pwd, pwd_len));
-
-            BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA certs are supported");
-
-            BOLT_MTLS(mbedtls_pk_check_pair(&i_conn->chain.pk, &prk));
-
-            mbedtls_rsa_context * prk_rsa = mbedtls_pk_rsa(prk);
-
-            BOLT_SUB(mpi2jwk(&prk_rsa->E, &rsa_ks.e, &rsa_ks.elen));
-            BOLT_SUB(mpi2jwk(&prk_rsa->N, &rsa_ks.n, &rsa_ks.nlen));
-            BOLT_SUB(mpi2jwk(&prk_rsa->D, &rsa_ks.d, &rsa_ks.dlen));
-            BOLT_SUB(mpi2jwk(&prk_rsa->P, &rsa_ks.p, &rsa_ks.plen));
-            BOLT_SUB(mpi2jwk(&prk_rsa->Q, &rsa_ks.q, &rsa_ks.qlen));
-            BOLT_SUB(mpi2jwk(&prk_rsa->DP, &rsa_ks.dp, &rsa_ks.dplen));
-            BOLT_SUB(mpi2jwk(&prk_rsa->DQ, &rsa_ks.dq, &rsa_ks.dqlen));
-            BOLT_SUB(mpi2jwk(&prk_rsa->QP, &rsa_ks.qi, &rsa_ks.qilen));
-
-            BOLT_CJOSE(i_conn->private_key = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
+            BOLT_SUB(make_private_key(&conn->identity, &i_conn->chain.pk, &i_conn->private_key));
 
         } else {
 
@@ -378,10 +347,6 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
     if (err != E_XL4BUS_OK) {
         shutdown_connection_ts(conn);
     }
-
-    free(pwd);
-    mbedtls_pk_free(&prk);
-    clean_keyspec(&rsa_ks);
 
     return err;
 
@@ -529,7 +494,7 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
 
     cjose_jwk_release(i_conn->private_key);
     cjose_jwk_release(i_conn->remote_key);
-    cfg.free(i_conn->my_x5t);
+    cfg.free(conn->my_x5t);
     cfg.free(conn->remote_x5t);
     json_object_put(i_conn->x5c);
 
@@ -953,6 +918,62 @@ int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
     if (err) {
         xl4bus_free_address(*new_list, 1);
     }
+
+    return err;
+
+}
+
+int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_t ** jwk) {
+
+    int err = E_XL4BUS_OK;
+    cjose_err c_err;
+    char * pwd = 0;
+
+    mbedtls_pk_context prk;
+    mbedtls_pk_init(&prk);
+
+    cjose_jwk_rsa_keyspec rsa_ks;
+    memset(&rsa_ks, 0, sizeof(rsa_ks));
+
+    do {
+
+        BOLT_IF(id->type != XL4BIT_X509, E_XL4BUS_ARG, "Only x.509 is supported");
+
+        size_t pwd_len = 0;
+
+        if (id->x509.password) {
+            pwd = id->x509.password(&id->x509);
+            pwd_len = strlen(pwd);
+        }
+
+        BOLT_MTLS(mbedtls_pk_parse_key(&prk, id->x509.private_key->buf.data,
+                id->x509.private_key->buf.len, (char unsigned const *)pwd, pwd_len));
+
+        BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA keys are supported");
+
+        if (pk) {
+            BOLT_MTLS(mbedtls_pk_check_pair(pk, &prk));
+        }
+
+        mbedtls_rsa_context * prk_rsa = mbedtls_pk_rsa(prk);
+
+        BOLT_SUB(mpi2jwk(&prk_rsa->E, &rsa_ks.e, &rsa_ks.elen));
+        BOLT_SUB(mpi2jwk(&prk_rsa->N, &rsa_ks.n, &rsa_ks.nlen));
+        BOLT_SUB(mpi2jwk(&prk_rsa->D, &rsa_ks.d, &rsa_ks.dlen));
+        BOLT_SUB(mpi2jwk(&prk_rsa->P, &rsa_ks.p, &rsa_ks.plen));
+        BOLT_SUB(mpi2jwk(&prk_rsa->Q, &rsa_ks.q, &rsa_ks.qlen));
+        BOLT_SUB(mpi2jwk(&prk_rsa->DP, &rsa_ks.dp, &rsa_ks.dplen));
+        BOLT_SUB(mpi2jwk(&prk_rsa->DQ, &rsa_ks.dq, &rsa_ks.dqlen));
+        BOLT_SUB(mpi2jwk(&prk_rsa->QP, &rsa_ks.qi, &rsa_ks.qilen));
+
+        BOLT_CJOSE(*jwk = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
+
+
+    } while (0);
+
+    free(pwd);
+    mbedtls_pk_free(&prk);
+    clean_keyspec(&rsa_ks);
 
     return err;
 

@@ -39,6 +39,7 @@ static void release_message(xl4bus_client_t *, message_internal_t *, int);
 static int handle_presence(xl4bus_client_t * clt, json_object*);
 static int pick_timeout(int t1, int t2);
 static int send_json_message(xl4bus_client_t * clt, int is_reply, uint16_t stream_id, const char * type, json_object * body);
+static const cjose_jwk_t * key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *);
 
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
@@ -665,6 +666,8 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
         clt->on_status(clt, how);
     }
 
+    cjose_jwk_release(i_clt->private_key);
+
 }
 static int create_ll_connection(xl4bus_client_t * clt) {
 
@@ -690,6 +693,8 @@ static int create_ll_connection(xl4bus_client_t * clt) {
 #endif
 
         memcpy(&i_clt->ll->identity, &clt->identity, sizeof(clt->identity));
+
+        BOLT_SUB(make_private_key(&i_clt->ll->identity, 0, &i_clt->private_key));
 
         BOLT_SUB(xl4bus_init_connection(i_clt->ll));
 
@@ -743,6 +748,10 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
 int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
 
     int err = E_XL4BUS_OK;
+    cjose_err c_err;
+    cjose_jwe_t * encrypted = 0;
+    cjose_header_t * hdr = 0;
+    cjose_header_t * unprotected_headers [mint->key_idx];
 
     client_internal_t * i_clt = clt->_private;
 
@@ -751,14 +760,53 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
         xl4bus_ll_message_t * x_msg;
         BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
 
-        memcpy(&x_msg->message, mint->msg, sizeof(xl4bus_message_t));
+        DBG("Will encrypt with %d keys", mint->key_idx);
 
+        // encrypt the original message to all destinations
+
+        // memset(unprotected_headers, 0, mint->key_idx * sizeof(void*));
+        for (int i=0; i<mint->key_idx; i++) {
+            BOLT_CJOSE(unprotected_headers[i] = cjose_header_new(&c_err));
+            BOLT_CJOSE(cjose_header_set(unprotected_headers[i], "x5t#S256", mint->x5t[i], &c_err));
+        }
+
+        BOLT_NEST();
+
+        BOLT_CJOSE(hdr = cjose_header_new(&c_err));
+
+        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_RSA_OAEP, &c_err));
+        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A256CBC_HS512, &c_err));
+        // BOLT_CJOSE(cjose_header_set(hdr, "x5t#S256", x5t, &c_err));
+
+        const char * ct = mint->msg->content_type;
+        if (!strncmp("application/", ct, 12) && !strchr(ct+12, '/')) {
+            ct += 12;
+        }
+
+        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_CTY, ct, &c_err));
+
+        BOLT_CJOSE(encrypted =
+                cjose_jwe_encrypt_full((const cjose_jwk_t **) mint->keys, unprotected_headers,
+                        mint->key_idx, hdr, 0, mint->msg->data, mint->msg->data_len, &c_err));
+
+        BOLT_CJOSE(x_msg->message.data = cjose_jwe_export_json(encrypted, &c_err));
+
+        x_msg->message.address = mint->msg->address;
+        x_msg->message.data_len = strlen(x_msg->message.data) + 1;
+        x_msg->message.content_type = f_strdup("application/jose+json");
         x_msg->stream_id = mint->stream_id;
         x_msg->is_reply = 1;
+
         BOLT_SUB(SEND_LL(i_clt->ll, x_msg, 0));
         mint->mis = MIS_WAIT_CONFIRM;
 
     } while (0);
+
+    cjose_jwe_release(encrypted);
+    cjose_header_release(hdr);
+    for (int i=0; i<mint->key_idx; i++) {
+        cjose_header_release(unprotected_headers[i]);
+    }
 
     return err;
 
@@ -769,6 +817,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     int err = E_XL4BUS_OK;
     json_object * root = 0;
     json_object * req_destinations = 0;
+    cjose_err c_err;
+    cjose_jwe_t * jwe = 0;
 
     do {
 
@@ -803,13 +853,13 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     json_object *body;
                     json_object *tags;
-                    int l;
+                    size_t l;
 
                     if (!json_object_object_get_ex(root, "body", &body) ||
                         !json_object_is_type(body, json_type_object) ||
                         !json_object_object_get_ex(body, "x5t#S256", &tags) ||
                         !json_object_is_type(tags, json_type_array) ||
-                        (l = json_object_array_length(tags)) <= 0) {
+                        (l = (size_t) json_object_array_length(tags)) <= 0) {
 
                         DBG("XCHG: can't find any destinations in %s", json_object_get_string(root));
                         xl4bus_abort_stream(conn, msg->stream_id);
@@ -819,12 +869,15 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     }
 
                     BOLT_MALLOC(mint->keys, sizeof(void *) * (mint->key_count = l));
+                    BOLT_MALLOC(mint->x5t, sizeof(void *) * l);
 
                     for (int i = 0; i < l; i++) {
 
                         json_object *item = json_object_array_get_idx(tags, i);
-                        cjose_jwk_t *key = find_key_by_x5t(json_object_get_string(item));
+                        const char * x5t = json_object_get_string(item);
+                        cjose_jwk_t *key = find_key_by_x5t(x5t);
                         if (key) {
+                            mint->x5t[mint->key_idx] = f_strdup(x5t);
                             mint->keys[mint->key_idx++] = key;
                         } else {
                             if (!req_destinations) {
@@ -886,14 +939,14 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     for (int i=0; i<l; i++) {
 
-                        cjose_jwk_t * key;
+                        if (mint->key_idx == mint->key_count) {
+                            DBG("XCHG: requested certificate response overflows key count?");
+                            break;
+                        }
 
-                        if (!accept_x5c(json_object_array_get_idx(tags, i), conn, 0, &key)) {
-                            mint->keys[mint->key_idx++] = key;
-                            if (mint->key_idx == mint->key_count) {
-                                DBG("XCHG: requested certificate response overflows key count?");
-                                break;
-                            }
+                        if (!accept_x5c(json_object_array_get_idx(tags, i), conn,
+                                &mint->x5t[mint->key_idx], &mint->keys[mint->key_idx])) {
+                             mint->key_idx++;
                         }
 
                     }
@@ -931,6 +984,35 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         DBG("Unknown message type %s received : %s", type, json_object_get_string(root));
 
                     }
+
+                } else if (!strcmp(msg->message.content_type, "application/jose+json")) {
+
+                    // we got encrypted message! Decrypt it with our key, if we can, and pass it to
+                    // the caller.
+
+                    BOLT_IF(((char*)msg->message.data)[msg->message.data_len-1] != 0,
+                            E_XL4BUS_DATA, "json must be 0 terminated");
+
+                    BOLT_CJOSE(jwe = cjose_jwe_import_json(msg->message.data, msg->message.data_len-1, &c_err));
+
+                    xl4bus_message_t message;
+
+                    BOLT_CJOSE(message.data = cjose_jwe_decrypt_full(jwe, key_locator, clt, &message.data_len, &c_err));
+
+                    cjose_header_t * hdr = cjose_jwe_get_protected(jwe);
+
+                    const char * ct;
+
+                    BOLT_CJOSE(ct = cjose_header_get(hdr, CJOSE_HDR_CTY, &c_err));
+
+                    if (!strchr(ct, '/')) {
+                        // no slash - means application/ was removed
+                        message.content_type = f_asprintf("application/%s", ct);
+                    } else {
+                        message.content_type = f_strdup(ct);
+                    }
+
+                    clt->on_message(clt, &message);
 
                 } else {
 
@@ -985,6 +1067,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     json_object_put(root);
     json_object_put(req_destinations);
+    cjose_jwe_release(jwe);
 
     return err;
 
@@ -1123,6 +1206,7 @@ static void release_message(xl4bus_client_t * clt, message_internal_t * mint, in
 
     for (int i=0; i<mint->key_count; i++) {
         cjose_jwk_release(mint->keys[i]);
+        free(mint->x5t[i]);
     }
     cfg.free(mint->keys);
 
@@ -1258,3 +1342,19 @@ int send_json_message(xl4bus_client_t * clt, int is_reply, uint16_t stream_id, c
 
 }
 
+const cjose_jwk_t * key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void * data) {
+
+    const char * x5t = cjose_header_get(hdr, "x5t#S256", 0);
+    if (!x5t) { return 0; }
+
+    xl4bus_client_t * clt = data;
+    client_internal_t * i_clt = clt->_private;
+    xl4bus_connection_t * conn = i_clt->ll;
+
+    if (z_strcmp(x5t, conn->my_x5t)) {
+        return 0;
+    }
+
+    return i_clt->private_key;
+
+}
