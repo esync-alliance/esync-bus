@@ -299,7 +299,7 @@ if (BUILD_BINS)
         targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES -lefence)
     endif()
 
-    targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES ${USE_LIB})
+    targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES ${USE_LIB} -lm)
 
     # target_link_libraries("ll-server" ${USE_LIB})
     # target_link_libraries("ll-client" ${USE_LIB})

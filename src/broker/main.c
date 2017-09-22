@@ -20,7 +20,6 @@
 #include <uthash.h>
 #include <utarray.h>
 #include <utlist.h>
-#include <dbm.h>
 
 #include "lib/debug.h"
 #include "lib/common.h"
