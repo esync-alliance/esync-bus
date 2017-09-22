@@ -8,3 +8,5 @@ pkg_check_modules(OPENSSL REQUIRED openssl)
 influence_pkg("CARES")
 influence_pkg("OPENSSL")
 
+# -lm needed for Ubuntu
+targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES -lm)
