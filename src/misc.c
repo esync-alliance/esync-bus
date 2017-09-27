@@ -949,6 +949,11 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
         BOLT_MTLS(mbedtls_pk_parse_key(&prk, id->x509.private_key->buf.data,
                 id->x509.private_key->buf.len, (char unsigned const *)pwd, pwd_len));
 
+        if (pwd) {
+            secure_bzero(pwd, pwd_len);
+            cfg.free(pwd);
+        }
+
         BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA keys are supported");
 
         if (pk) {

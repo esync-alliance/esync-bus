@@ -85,4 +85,10 @@ static inline int max_int(int a1, int a2) {
     return a1 > a2 ? a1 : a2;
 }
 
+static inline void secure_bzero(void * addr, size_t len) {
+    for (size_t i = 0; i<len; i++) {
+        ((char*)addr)[i] = 0;
+    }
+}
+
 #endif
