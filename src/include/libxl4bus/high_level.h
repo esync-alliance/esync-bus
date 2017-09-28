@@ -119,8 +119,8 @@ XL4_PUB
 /**
  * Frees previously allocated address. Note that for addresses that contain
  * string values, such values are always freed, even if they were assigned and the
- * address was created using ::xl4bus_make_address. Note that memory that ::xl4bus_address_t
- * structure pointers reference is also always freed.
+ * address was created using ::xl4bus_chain_address. Note that memory that
+ * ::xl4bus_address_t structure pointers reference is also always freed.
  * @param addr address to free
  * @param chain !0 to indicate that all addresses accessible through ::xl4bus_address_t.next
  * should be freed as well.

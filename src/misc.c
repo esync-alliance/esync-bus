@@ -627,50 +627,6 @@ int xl4bus_chain_address(xl4bus_address_t ** rec, xl4bus_address_type_t type, ..
 }
 
 
-xl4bus_address_t * xl4bus_make_address(xl4bus_address_t * prev, xl4bus_address_type_t type, ...) {
-
-    va_list ap;
-    va_start(ap, type);
-
-    xl4bus_address_t * addr = f_malloc(sizeof(xl4bus_address_t));
-    if (prev) {
-        prev->next = addr;
-    }
-    addr->type = type;
-    switch (type) {
-
-        case XL4BAT_SPECIAL:
-            addr->special = va_arg(ap, xl4bus_address_special_t);
-            break;
-
-        case XL4BAT_UPDATE_AGENT:
-        {
-            char * ua = va_arg(ap, char*);
-            int copy = va_arg(ap, int);
-            if (copy) {
-                addr->update_agent = f_strdup(ua);
-            } else {
-                addr->update_agent = ua;
-            }
-        }
-            break;
-        case XL4BAT_GROUP:
-        {
-            char * grp = va_arg(ap, char*);
-            int copy = va_arg(ap, int);
-            if (copy) {
-                addr->group = f_strdup(grp);
-            } else {
-                addr->group = grp;
-            }
-        }
-            break;
-    }
-
-    return addr;
-
-}
-
 void xl4bus_free_address(xl4bus_address_t * addr, int chain) {
 
     while (addr) {
@@ -938,6 +894,7 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
     do {
 
         BOLT_IF(id->type != XL4BIT_X509, E_XL4BUS_ARG, "Only x.509 is supported");
+        BOLT_IF(!id->x509.private_key, E_XL4BUS_ARG, "Private key must be supplied");
 
         size_t pwd_len = 0;
 
