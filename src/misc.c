@@ -884,6 +884,7 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
     int err = E_XL4BUS_OK;
     cjose_err c_err;
     char * pwd = 0;
+    size_t pwd_len = 0;
 
     mbedtls_pk_context prk;
     mbedtls_pk_init(&prk);
@@ -896,7 +897,6 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
         BOLT_IF(id->type != XL4BIT_X509, E_XL4BUS_ARG, "Only x.509 is supported");
         BOLT_IF(!id->x509.private_key, E_XL4BUS_ARG, "Private key must be supplied");
 
-        size_t pwd_len = 0;
 
         if (id->x509.password) {
             pwd = id->x509.password(&id->x509);
@@ -905,11 +905,6 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
 
         BOLT_MTLS(mbedtls_pk_parse_key(&prk, id->x509.private_key->buf.data,
                 id->x509.private_key->buf.len, (char unsigned const *)pwd, pwd_len));
-
-        if (pwd) {
-            secure_bzero(pwd, pwd_len);
-            cfg.free(pwd);
-        }
 
         BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA keys are supported");
 
@@ -933,7 +928,11 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
 
     } while (0);
 
-    free(pwd);
+    if (pwd) {
+        secure_bzero(pwd, pwd_len);
+        cfg.free(pwd);
+    }
+
     mbedtls_pk_free(&prk);
     clean_keyspec(&rsa_ks);
 
