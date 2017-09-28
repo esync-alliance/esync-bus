@@ -278,8 +278,8 @@ typedef struct xl4bus_X509v3_Identity {
 
     /**
      * If the private key is encrypted, then this call back is used to obtain the
-     * password. If a string is returned, it will be zeroed and freed by the library
-     * once the private key was decrypted.
+     * password. If the callback is set, a non-NULL string *must* be returned (but can be empty),
+     * it will be zeroed and freed by the library once the private key was decrypted.
      */
     xl4bus_password_callback_t password;
 
