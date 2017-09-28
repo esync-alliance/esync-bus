@@ -655,7 +655,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 }
 
                 send_json_message(ci, "xl4bus.destination-info", body, msg->stream_id, 1,
-                        json_object_array_length(x5t) == 0);
+                        !x5t || (json_object_array_length(x5t) == 0));
 
                 break;
 
