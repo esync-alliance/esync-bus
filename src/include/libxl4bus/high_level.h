@@ -3,6 +3,30 @@
  * @file
  * @brief High-level XL4-Bus API for connecting to a XL4-Bus broker
  * and exchanging messages with other clients.
+ *
+ * Before using the high level client in any way, the caller must
+ * create the client object and initialize it using ::xl4bus_init_client
+ * function.
+ *
+ * There are two ways to use the high level API from there on. First way is with
+ * doing direct I/O multiplexing, having caller be responsible for polling for data,
+ * and invoking the corresponding functions when there are socket events
+ * on the reported file descriptors. This invokes using ::xl4bus_flag_poll
+ * to tell the library which descriptors have changed state, and making
+ * sure to configure xl4bus_client_t::set_poll to point to the function
+ * that would tell the caller which file descriptor should be listened on.
+ * Once some of the file descriptors recorded an event, call
+ * ::xl4bus_run_client. If ::xl4bus_run_client ever fails, the caller
+ * should call ::xl4bus_stop_client, and either re-initialize the client
+ * after the corresponding callback as been invoked. The caller should
+ * use ::xl4bus_stop_client in the case when it wants to stop processing
+ * of the client object as well.
+ *
+ * Second mode is only available if threading support was compiled in,
+ * and internal thread support has been configured during compilation.
+ * In this case, the xl4bus_client::use_internal_thread must be set to 1.
+ * The client object can still be destroyed if there was an I/O problem,
+ * or if the caller called ::xl4bus_stop_client explicitly.
  */
 
 #ifndef _XL4BUS_HIGH_LEVEL_H_
@@ -20,10 +44,18 @@
 XL4_PUB
 /**
  * Initializes a high level client.
- * Note that the low level (using ::xl4bus_init_ll) must be initialized.
- * This also starts client operations, and the client will start
- * issuing poll requests, etc. If the use of internal thread
- * is turned on, then the internal thread is started right away.
+ * Note that the low level (using ::xl4bus_init_ll) must be initialized
+ * before initializing any high level clients.
+ *
+ * If the internal threads are supported, and it is requested
+ * for the client to use an internal thread for handling, callbacks
+ * can start being issued before this function returns; however,
+ * callbacks are only issued when this function to return success.
+ *
+ * The caller must not release any memory associated with any
+ * of the objects provided during this function, until
+ * xl4bus_client_t::on_release has been called.
+ *
  * @param clt client structure, with handler information filled in.
  * @param url URL of the broker. The only supported connection URL
  * at this point is in form of `tcp://hostname:port`.
@@ -69,7 +101,7 @@ XL4_PUB
  * Stops running client.
  * @param clt client structure
  */
-void xl4bus_stop_client(xl4bus_client_t * clt);
+int xl4bus_stop_client(xl4bus_client_t * clt);
 
 XL4_PUB
 /**

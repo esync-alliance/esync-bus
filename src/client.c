@@ -40,6 +40,11 @@ static int handle_presence(xl4bus_client_t * clt, json_object*);
 static int pick_timeout(int t1, int t2);
 static int send_json_message(xl4bus_client_t * clt, int is_reply, uint16_t stream_id, const char * type, json_object * body);
 static const cjose_jwk_t * key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *);
+static void stop_client_ts(xl4bus_client_t * clt);
+
+#if XL4_SUPPORT_THREADS
+static int handle_mt_message(struct xl4bus_connection *, void *, size_t);
+#endif
 
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
@@ -462,7 +467,7 @@ void client_thread(void * arg) {
 
         int res = pf_poll(poll_info.polls, poll_info.polls_len, timeout);
         if (res < 0) {
-            xl4bus_stop_client(clt);
+            stop_client_ts(clt);
             return;
         }
 
@@ -472,14 +477,20 @@ void client_thread(void * arg) {
                 res--;
                 // DBG("Clt %p : flagging %x for fd %d", clt, pp->revents, pp->fd);
                 if (xl4bus_flag_poll(clt, pp->fd, pp->revents) != E_XL4BUS_OK) {
-                    xl4bus_stop_client(clt);
+                    stop_client_ts(clt);
                     return;
                 }
             }
         }
 
         xl4bus_run_client(clt, &timeout);
-        if (i_clt->stop) { break; }
+
+        // xl4bus_run_client may have called handle_mt_message, that could have raised stop flag.
+
+        if (i_clt->stop) {
+            stop_client_ts(clt);
+            return;
+        }
 
     }
 
@@ -689,6 +700,7 @@ static int create_ll_connection(xl4bus_client_t * clt) {
 #if XL4_SUPPORT_THREADS
 
         i_clt->ll->mt_support = clt->mt_support;
+        i_clt->ll->on_mt_message = handle_mt_message;
 
 #endif
 
@@ -1113,13 +1125,38 @@ int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * ar
 
 }
 
-void xl4bus_stop_client(xl4bus_client_t * clt) {
+int xl4bus_stop_client(xl4bus_client_t * clt) {
+
+    client_internal_t * i_clt = clt->_private;
+
+#if XL4_PROVIDE_THREADS
+    if (clt->use_internal_thread) {
+
+        int err = E_XL4BUS_OK;
+
+        do {
+            itc_message_t itc;
+            itc.magic = ITC_STOP_CLIENT_MAGIC;
+            itc.ref = clt;
+            BOLT_SYS(pf_send(i_clt->ll->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
+        } while (0);
+
+        return err;
+
+    }
+#endif
+
+    stop_client_ts(clt);
+    return E_XL4BUS_OK;
+
+}
+
+void stop_client_ts(xl4bus_client_t * clt) {
 
     drop_client(clt, XL4BCC_CLIENT_STOPPED);
-    client_internal_t * i_clt = clt->_private;
-#if XL4_PROVIDE_THREADS
-    i_clt->stop = 1;
-#endif
+    if (clt->on_release) {
+        clt->on_release(clt);
+    }
 
 }
 
@@ -1358,3 +1395,15 @@ const cjose_jwk_t * key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void * da
     return i_clt->private_key;
 
 }
+
+#if XL4_SUPPORT_THREADS
+static int handle_mt_message(struct xl4bus_connection * conn, void * buf, size_t buf_size) {
+
+    if (buf_size == sizeof(itc_message_t) && ((itc_message_t*)buf)->magic == ITC_STOP_CLIENT_MAGIC) {
+        ((client_internal_t *) ((xl4bus_client_t *) (((itc_message_t *) buf)->ref))->_private)->stop = 1;
+    }
+
+    return E_XL4BUS_OK;
+
+}
+#endif

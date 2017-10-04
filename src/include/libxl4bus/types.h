@@ -447,8 +447,8 @@ typedef enum xl4bus_client_condition {
     /**
      * The connection was explicitly stopped. This only delivered
      * once, and no more status updates will be delivered afterwards.
-     * Note that all undelivered messages will be reported to the
-     * corresponding handler beforehands.
+     * Note that this condition will be used if the client is managed
+     * by an internal library thread, and the thread ran into I/O issue.
      */
     XL4BCC_CLIENT_STOPPED
 } xl4bus_client_condition_t;
@@ -472,6 +472,8 @@ typedef void (*xl4bus_handle_message)(struct xl4bus_client * clt, xl4bus_message
  * until ::xl4bus_stop_client is called.
  */
 typedef void (*xl4bus_conn_info)(struct xl4bus_client *, xl4bus_client_condition_t);
+
+typedef void (*xl4bus_release_client)(struct xl4bus_client *);
 
 /**
  * Call back to be invoked when a previously scheduled message has been processed.
@@ -527,9 +529,20 @@ typedef struct xl4bus_client {
     xl4bus_identity_t identity;
 
     /**
+     * Used as a callback for cleaning up any allocated client structures. The caller
+     * must only clean up any memory used for creating the client object after this
+     * callback is invoked, if the client initialization succeeded. The caller can either
+     * clean up the structure, or re-initialize it. The client object will remain
+     * unusable if it is not re-initialized.
+     *
+     * Not setting this handler will result into memory leaks.
+     */
+    xl4bus_release_client on_release;
+
+    /**
      * Callback invoked when presence information is provided by the broker.
      * The callback can be set to 0 to ignore presence events. Note that the
-     * presence handler will be invoke every time the client reconnects to
+     * presence handler will be invoked every time the client reconnects to
      * the broker.
      */
     xl4bus_presence_info on_presence;
@@ -571,7 +584,8 @@ typedef struct xl4bus_client {
     void * custom;
 
     /**
-     * This field is internally used by the library.
+     * This field is internally used by the library, and must not be modified by
+     * the caller.
      */
     void * _private;
 

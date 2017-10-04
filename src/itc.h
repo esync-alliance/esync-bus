@@ -3,8 +3,9 @@
 
 #include <libxl4bus/low_level.h>
 
-#define ITC_MESSAGE_MAGIC   0xda8de347
-#define ITC_SHUTDOWN_MAGIC  0x947b67d3
+#define ITC_MESSAGE_MAGIC      0xda8de347
+#define ITC_SHUTDOWN_MAGIC     0x947b67d3
+#define ITC_STOP_CLIENT_MAGIC  0x829fde1e
 
 typedef struct itc_message {
     uint32_t magic;

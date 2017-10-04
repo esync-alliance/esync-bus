@@ -23,6 +23,10 @@ static void msg_info(struct xl4bus_client *, xl4bus_message_t *, void *, int);
 static void handle_message(struct xl4bus_client *, xl4bus_message_t *);
 static void handle_presence(struct xl4bus_client *, xl4bus_address_t * connected, xl4bus_address_t * disconnected);
 
+static void reconnect(xl4bus_client_t * clt) {
+    xl4bus_init_client(clt, "tcp://localhost:9133");
+}
+
 static void help(void);
 
 int main(int argc, char ** argv) {
@@ -72,7 +76,8 @@ int main(int argc, char ** argv) {
 
     free(cert_dir);
 
-    xl4bus_init_client(&clt, "tcp://localhost:9133");
+    clt.on_release = reconnect;
+    reconnect(&clt);
 
     xl4bus_message_t msg;
     memset(&msg, 0, sizeof(msg));
