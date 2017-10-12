@@ -103,7 +103,7 @@ if test ! -f jsonc.ok; then
     rm -rf json-c
     git clone https://github.com/json-c/json-c.git
     cd json-c
-    git checkout acbcc062f9c114f7b2a63b792897fdfffed71d14
+    git checkout json-c-0.12
     autoreconf -f -i
     CFLAGS="-fPIC -fvisibility=hidden -Wno-error" CPPFLAGS="-include $(pwd)/../../json-c-rename.h" ./configure --prefix=$USR --host=$TCH --enable-static --disable-shared
     # AC_FUNC_MALLOC fails

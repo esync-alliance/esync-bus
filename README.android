@@ -1,0 +1,24 @@
+Readme to build libxl4bus for android
+
+Create android toolchain.
+
+You must have CMake 3.8, you may need to build it yourself.
+The scripts assume CMake 3.8 is either installed, or available
+in ~/cmake-3.8, or CMAKE_38 environment variable is exported
+to pointed to its binary.
+
+You need to have latest SDK and NDK downloaded and installed.
+Use Android Studio to accomplish this. By default the NDK is in
+be ~/Android/Sdk/ndk-bundle. Create toolchain by running:
+
+~/Android/Sdk/ndk-bundle/build/tools/make_standalone_toolchain.py --arch arm --api 23 --deprecated-headers --install-dir ~/tmp/arm-23
+
+If you are using a different directory for toolchain target,
+set environment variable USE_ANDROID_TOOLCHAIN to the location of the
+toolchain.
+
+Once the toolchain is created
+
+* Run ./android_scripts/toolchain_root.sh
+* Run ./android_scripts/build-android.sh
+
