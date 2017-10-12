@@ -70,13 +70,31 @@ fi
 
 if test ! -f cjose.ok; then
     rm -rf cjose
-    git clone https://github.com/cisco/cjose.git
+    git clone https://github.com/veselov/cjose
     cd cjose
+    git checkout json_ser
     autoreconf -f -i
-    ./configure --prefix=$USR --host=$TCH --enable-static=yes --enable-shared=no
-    make install
+    CFLAGS="-fPIC -fvisibility=hidden" ./configure --prefix=$USR --host=$TCH --with-openssl=$USR --with-jansson=$USR --enable-static --disable-shared
+    make
     cd ..
     touch cjose.ok
+    cp -fr cjose ../cjose-build
+fi
+
+#** mbedtls
+
+if test ! -f mbedtls.ok; then
+    rm -rf mbedtls
+    git clone https://github.com/ARMmbed/mbedtls.git
+    cd mbedtls
+    git checkout 45d269555b3cb9785a75e804fe74413baffd4f0a
+    ./scripts/config.pl set MBEDTLS_PLATFORM_MEMORY
+    mkdir -p build && cd build
+    cmake -DENABLE_TESTING=OFF -DCMAKE_C_FLAGS="-fPIC -fvisibility=hidden" ..
+    make
+    cd ../..
+    touch mbedtls.ok
+    cp -fr mbedtls ../mbedtls-build
 fi
 
 #** json-c
