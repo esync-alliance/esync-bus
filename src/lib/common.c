@@ -49,6 +49,19 @@ char * f_strdup(const char * s) {
     return memcpy(r, s, l);
 }
 
+char * f_strndup(const char * s, size_t n) {
+
+    if (!s) { return 0; }
+    for (size_t i = 0; i<n; i++) {
+        if (!s[i]) {
+            n = i;
+            break;
+        }
+    }
+    char * r = f_malloc(n+1);
+    return memcpy(r, s, n);
+}
+
 void * f_malloc(size_t t) {
 
     void * r = malloc(t);

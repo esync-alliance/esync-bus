@@ -39,6 +39,19 @@ XL4_PUB
  */
 int xl4bus_init_connection(xl4bus_connection_t * conn);
 
+XL4_PUB
+/**
+ * Set remote identity for this connection. Useful when remote identity
+ * enables encrypting for this identity. For X.509, specifying remote certificate
+ * is sufficient. The caller can dispose of any memory used for identity
+ * value after this function returns. This function must only be called on the same
+ * thread as ::xl4bus_process_connection.
+ * @param conn connection to set identity for
+ * @param identity identity object
+ * @return ::E_XL4BUS_OK for success, or an error code if there was a problem.
+ */
+int xl4bus_set_remote_identity(xl4bus_connection_t * conn, xl4bus_identity_t * identity);
+
 XL4_PUB int xl4bus_process_connection(xl4bus_connection_t *, int fd, int flags);
 XL4_PUB void xl4bus_shutdown_connection(xl4bus_connection_t *);
 XL4_PUB int xl4bus_send_ll_message(xl4bus_connection_t *, xl4bus_ll_message_t *msg, void *ref

@@ -38,6 +38,12 @@ ssize_t pf_recv(int sockfd, void *buf, size_t len) {
     return recv(sockfd, buf, len, 0);
 }
 
+int pf_add_and_get(int * addr, int value) {
+
+    return __atomic_fetch_add(addr, value, __ATOMIC_RELAXED);
+
+}
+
 // sets descriptor to non-blocking mode, return 0 if OK,
 // !0 if not OK (errno must be set)
 int pf_set_nonblocking(int fd) {

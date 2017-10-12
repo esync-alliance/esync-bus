@@ -190,9 +190,9 @@ int on_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg) {
     xl4bus_ll_message_t * x_msg;
     x_msg = f_malloc(sizeof(xl4bus_ll_message_t));
 
-    x_msg->message.data = f_strdup("none of your business");
-    x_msg->message.data_len = strlen(x_msg->message.data) + 1;
-    x_msg->message.content_type = "application/none.your.business";
+    x_msg->data = f_strdup("none of your business");
+    x_msg->data_len = strlen(x_msg->data) + 1;
+    x_msg->content_type = "application/none.your.business";
 
     x_msg->stream_id = msg->stream_id;
     x_msg->is_reply = 1;

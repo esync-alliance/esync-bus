@@ -18,6 +18,7 @@
 static int on_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);
 static int set_poll(xl4bus_connection_t *, int, int);
+static void on_sent_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void * ref, int err);
 
 int debug = 1;
 
@@ -87,6 +88,7 @@ int main(int argc, char ** argv) {
         conn->fd = fd;
         conn->custom = &myt.pfd;
         conn->set_poll = set_poll;
+        conn->on_sent_message = on_sent_message;
 
         int err;
 
@@ -118,9 +120,9 @@ int main(int argc, char ** argv) {
                     json_t * j = json_object();
                     json_object_set_new(j, "playing", json_string("hooky"));
 
-                    msg.message.data = json_dumps(j, JSON_COMPACT);
-                    msg.message.data_len = strlen(msg.message.data) + 1;
-                    msg.message.content_type = "application/grass.hopper";
+                    msg.data = json_dumps(j, JSON_COMPACT);
+                    msg.data_len = strlen(msg.data) + 1;
+                    msg.content_type = "application/grass.hopper";
                     // msg.stream_id = 0;
                     // stream += 2;
                     // msg.json = (char*)json_object_get_string(j);
@@ -135,7 +137,6 @@ int main(int argc, char ** argv) {
                     }
 
                     json_decref(j);
-                    free((void *) msg.message.data);
 
                     // 5 second delay
                     next_message = ts.tv_sec + 5;
@@ -206,5 +207,11 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     printf("hooray, a message, encrypted=%d!\n", msg->was_encrypted);
     return E_XL4BUS_OK;
+
+}
+
+void on_sent_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void * ref, int err) {
+
+    free((void *) msg->data);
 
 }
