@@ -185,6 +185,45 @@ XL4_PUB
  */
 void xl4bus_free_address(xl4bus_address_t * addr, int chain);
 
+XL4_PUB
+/**
+ * Checks whether all specified addresses are present in the specified address list.
+ * @param needle All of these addresses must be found in haystack.
+ * @param haystack List of addresses to check against.
+ * @param failed, optional, if !0, then the function will place the pointer to the first address that failed
+ * to have been found in the haystack. If needle was 0, it will set to 0 as well.
+ * @return ::E_XL4BUS_OK if address is found, error otherwise.
+ */
+int xl4bus_require_address(xl4bus_address_t * needle, xl4bus_address_t * haystack, xl4bus_address_t ** failed);
+
+XL4_PUB
+/**
+ * Checks whether the specified special address is present in the specified address list.
+ * @param special Special address value that must be found in the haystack
+ * @param haystack List of addresses to check against.
+ * @return ::E_XL4BUS_OK if address is found, error otherwise.
+ */
+int xl4bus_require_special(xl4bus_address_special_t special, xl4bus_address_t * haystack);
+
+XL4_PUB
+/**
+ * Checks whether the specified group address is present in the specified address list.
+ * @param name Group address value that must be found in the haystack
+ * @param haystack List of addresses to check against.
+ * @return ::E_XL4BUS_OK if address is found, error otherwise.
+ */
+int xl4bus_require_group(const char * name, xl4bus_address_t * haystack);
+
+XL4_PUB
+/**
+ * Checks whether the specified update agent address is present in the specified address list.
+ * Note that update agent address name matching will be used.
+ * @param name Update agent address value that must be found in the haystack
+ * @param haystack List of addresses to check against.
+ * @return ::E_XL4BUS_OK if address is found, error otherwise.
+ */
+int xl4bus_require_update_agent(const char * name, xl4bus_address_t * haystack);
+
 #undef XL4_PUB
 
 #endif

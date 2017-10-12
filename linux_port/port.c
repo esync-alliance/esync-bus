@@ -216,7 +216,7 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
         sin.sin_family = AF_INET;
         sin.sin_port = htons(port);
         memcpy(&sin.sin_addr, ip, ip_len);
-        rc = connect(fd, &sin, sizeof(struct sockaddr_in));
+        rc = connect(fd, (struct sockaddr*)&sin, sizeof(struct sockaddr_in));
     }
 #endif
 #if XL4_SUPPORT_IPV6
@@ -225,7 +225,7 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
         sin6.sin6_family = AF_INET6;
         sin6.sin6_port = htons(port);
         memcpy(&sin6.sin6_addr, ip, ip_len);
-        rc = connect(fd, &sin6, sizeof(struct sockaddr_in6));
+        rc = connect(fd, (struct sockaddr*)&sin6, sizeof(struct sockaddr_in6));
     }
 #endif
 

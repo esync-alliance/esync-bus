@@ -274,6 +274,14 @@ int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void * 
 int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
 int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * key, void ** decrypted, size_t * decrypted_len, char ** cty);
 
+/* addr.c */
+
+#define make_json_address XI(make_json_address)
+#define build_address_list XI(build_address_list)
+
+int make_json_address(xl4bus_address_t * addr, json_object ** json);
+int build_address_list(json_object *, xl4bus_address_t **);
+
 /* misc.c */
 
 #define consume_dbuf XI(consume_dbuf)
@@ -288,8 +296,6 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * ke
 #define get_oid XI(get_oid)
 #define make_chr_oid XI(make_chr_oid)
 #define z_strcmp XI(z_strcmp)
-#define make_json_address XI(make_json_address)
-#define build_address_list XI(build_address_list)
 #define make_private_key XI(make_private_key)
 #define pack_content_type XI(pack_content_type)
 #define inflate_content_type XI(inflate_content_type)
@@ -308,8 +314,6 @@ void clean_keyspec(cjose_jwk_rsa_keyspec *);
 int get_oid(unsigned char ** p, unsigned char *, mbedtls_asn1_buf * oid);
 char * make_chr_oid(mbedtls_asn1_buf *);
 int z_strcmp(const char *, const char *);
-int make_json_address(xl4bus_address_t * addr, json_object ** json);
-int build_address_list(json_object *, xl4bus_address_t **);
 int make_private_key(xl4bus_identity_t *, mbedtls_pk_context *, cjose_jwk_t **);
 const char * pack_content_type(const char *);
 int asn1_to_json(xl4bus_asn1_t *, json_object **);
