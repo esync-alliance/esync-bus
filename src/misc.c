@@ -841,8 +841,11 @@ int xl4bus_copy_address(xl4bus_address_t * src, int chain, xl4bus_address_t ** r
     }
 
     if (err == E_XL4BUS_OK) {
-        last->next = *receiver;
-        *receiver = new_chain;
+        if (last) {
+            // last can be 0, if there were no addresses in src.
+            last->next = *receiver;
+            *receiver = new_chain;
+        }
     } else {
         xl4bus_free_address(new_chain, 1);
     }

@@ -828,6 +828,10 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 break;
 
+            } else if (!strcmp("xl4bus.message-confirm", type)) {
+                // do nothing, it's the client telling us it's OK.
+                BOLT_IF(!msg->is_final, E_XL4BUS_CLIENT, "Message confirmation must be final");
+                break;
             }
 
             BOLT_SAY(E_XL4BUS_CLIENT, "Don't know what to do with XL4 message type %s", type);
@@ -861,7 +865,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     continue;
                 }
 
-                msg->is_final = 1;
+                // the message is not final, the other side may return a certificate request.
+                msg->is_final = 0;
                 msg->is_reply = 0;
                 msg->stream_id = ci2->out_stream_id+=2;
 

@@ -399,7 +399,7 @@ do {} while(0)
                         json_object * bus_object = 0;
                         validated_object_t vo;
                         if (validate_jws(frm.data.data + 1, frm.data.len - 1, (int)frm.data.data[0],
-                                conn, &vo) == E_XL4BUS_OK) {
+                                conn, &vo, 0) == E_XL4BUS_OK) {
 
                             json_object *j;
                             if (bus_object && json_object_object_get_ex(bus_object, "stream-id", &j) &&
