@@ -27,7 +27,7 @@ int check_conn_io(xl4bus_connection_t * conn) {
 
 int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
 
-    int err = E_XL4BUS_OK;
+    int err;
 
     int timeout = -1;
 
@@ -282,13 +282,11 @@ do {} while(0)
 
                             cjose_jws_t * jws = 0;
 
-                            void * decrypted_data = 0;
                             char * decrypted_ct = 0;
+                            void * decrypted_data = 0;
                             json_object * bus_object = 0;
 
                             do {
-
-                                cjose_err c_err;
 
                                 // the message is completed! Let's purge it.
                                 xl4bus_ll_message_t message;
@@ -297,80 +295,54 @@ do {} while(0)
                                 // the message can be encrypted with our private key, or not.
                                 // let's try to treat it as encrypted message first.
 
-                                size_t signed_len;
-                                void * signed_data;
-
-                                int received_ct = stream->incoming_message_ct;
-
                                 int decrypt_err = decrypt_jwe(stream->incoming_message_data.data,
                                         stream->incoming_message_data.len, stream->incoming_message_ct,
                                         conn->my_x5t, i_conn->private_key,
-                                        &decrypted_data, &signed_len, &decrypted_ct);
+                                        &decrypted_data, &message.data_len, &decrypted_ct);
 
                                 if (!decrypt_err) {
 
-                                    if (decrypted_ct && !strcmp("application/jose", decrypted_ct)) {
-                                        received_ct = CT_JOSE_COMPACT;
-                                    } else if (decrypted_ct && !strcmp("application/jose+json", decrypted_ct)) {
-                                        received_ct = CT_JOSE_JSON;
+                                    // decrypted OK
+
+                                    if (decrypted_ct) {
+                                        message.content_type = decrypted_ct;
+                                        decrypted_ct = 0;
                                     } else {
-                                        BOLT_SAY(E_XL4BUS_DATA, "Can't process content type %s of decrypted message",
-                                                NULL_STR(decrypted_ct));
+                                        message.content_type = f_strdup("application/octet-stream");
                                     }
 
-                                    signed_data = decrypted_data;
-
+                                    message.data = decrypted_data;
                                     message.was_encrypted = 1;
 
+                                    // we were able to decrypt our data, which means that the remote
+                                    // has learned our public key, so we can drop sending it in full.
+                                    json_object_put(i_conn->x5c);
+                                    i_conn->x5c = 0;
+
                                 } else {
 
-                                    signed_data = stream->incoming_message_data.data;
-                                    signed_len = stream->incoming_message_data.len;
+                                    message.data = stream->incoming_message_data.data;
+                                    message.data_len = stream->incoming_message_data.len;
                                     message.was_encrypted = 0;
-
-                                }
-
-                                BOLT_SUB(validate_jws(signed_data, signed_len, received_ct,
-                                        conn, &jws, &bus_object));
-
-                                BOLT_CJOSE(cjose_jws_get_plaintext(jws, (uint8_t**)&message.message.data,
-                                        &message.message.data_len, &c_err));
-
-                                cjose_header_t * hdr = cjose_jws_get_protected(jws);
-                                const char * aux;
-                                BOLT_CJOSE(aux = cjose_header_get(hdr, CJOSE_HDR_CTY, &c_err));
-                                if (aux) {
-                                    if (!strchr(aux, '/')) {
-                                        // if there is no '/', that means we should append 'application/'
-                                        BOLT_MEM(message.message.content_type = f_asprintf("application/%s", aux));
-                                    } else {
-                                        BOLT_MEM(message.message.content_type = f_strdup(aux));
+                                    const char * ct = 0;
+                                    switch (stream->incoming_message_ct) {
+                                        case CT_JOSE_COMPACT:
+                                            ct = "application/jose";
+                                            break;
+                                        case CT_JOSE_JSON:
+                                            ct = "application/jose+json";
+                                            break;
+                                        default:
+                                            ct = "application/octet-stream";
+                                            break;
                                     }
-                                } else {
-                                    message.message.content_type = 0;
+                                    message.content_type = f_strdup(ct);
+
                                 }
 
                                 message.stream_id = stream_id;
                                 message.is_reply = stream->is_reply;
                                 message.is_final = stream->is_final;
-
-                                do {
-
-                                    if (!bus_object || !json_object_is_type(bus_object, json_type_object)) {
-                                        break;
-                                    }
-
-                                    json_object * addresses;
-                                    if (!json_object_object_get_ex(bus_object, "destinations", &addresses) ||
-                                            !json_object_is_type(addresses, json_type_array)) {
-                                        break;
-                                    }
-
-                                    BOLT_SUB(build_address_list(addresses, &message.message.address));
-
-                                } while(0);
-
-                                BOLT_NEST();
 
                                 BOLT_SUB(conn->on_message(conn, &message));
 
@@ -425,8 +397,9 @@ do {} while(0)
 
                         uint16_t stream_id;
                         json_object * bus_object = 0;
-                        if (validate_jws(frm.data.data + 1, frm.data.len - 1,
-                                (int)frm.data.data[0], conn, 0, &bus_object) == E_XL4BUS_OK) {
+                        validated_object_t vo;
+                        if (validate_jws(frm.data.data + 1, frm.data.len - 1, (int)frm.data.data[0],
+                                conn, &vo) == E_XL4BUS_OK) {
 
                             json_object *j;
                             if (bus_object && json_object_object_get_ex(bus_object, "stream-id", &j) &&
@@ -450,6 +423,8 @@ do {} while(0)
                             }
 
                             json_object_put(bus_object);
+
+                            clean_validated_object(&vo);
 
                         }
 
@@ -624,15 +599,16 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg) {
 
     uint8_t * frame = 0;
-    int err;
+    int err = E_XL4BUS_OK;
     json_object * x5c = 0;
     char * base64 = 0;
     uint8_t * signed_buf = 0;
-    size_t signed_buf_len = 0;
     json_object * bus_object = 0;
     connection_internal_t * i_conn = conn->_private;
 
     do {
+
+        uint8_t ct;
 
         size_t ser_len = 0;
 
@@ -658,61 +634,30 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
-        // if we can encrypt, then : sign + encrypt
-        // if we can't encrypt (no remote key), then : sign
-
-        int pad;
-        int offset;
-        uint8_t ** sign_to;
-        size_t * sign_to_len;
-
+        // encrypt if we can
         if (i_conn->remote_key) {
 
-            // we can encrypt, so we will need to encrypt after the signing
-            // is through.
+            BOLT_SUB(encrypt_jwe(i_conn->remote_key, conn->remote_x5t, msg->data, msg->data_len,
+                    msg->content_type, 13, 9, (char**)&frame, &ser_len));
+            ct = CT_JOSE_COMPACT;
 
-            pad = offset = 0;
-            sign_to = &signed_buf;
-            sign_to_len = &signed_buf_len;
+            DBG("Message encrypted with remote key");
 
         } else {
 
-            // whatever we sign goes straight into the frame.
+            DBG("Not encrypting message, remote public key not set");
 
-            pad = 13;
-            offset = 9;
-            sign_to = &frame;
-            sign_to_len = &ser_len;
+            if (!z_strcmp(msg->content_type, "application/jose")) {
+                ct = CT_JOSE_COMPACT;
+            } else if (!z_strcmp(msg->content_type, "application/jose+json")) {
+                ct = CT_JOSE_JSON;
+            } else {
+                BOLT_SAY(E_XL4BUS_ARG, "Unsupported content type %s", msg->content_type);
+            }
 
+            BOLT_MALLOC(frame, msg->data_len + 13);
+            memcpy(frame + 9, msg->data, ser_len = msg->data_len);
         }
-
-        BOLT_MEM(bus_object = json_object_new_object());
-        {
-            json_object * array;
-            BOLT_SUB(make_json_address(msg->message.address, &array));
-            json_object_object_add(bus_object, "destinations", array);
-        }
-
-        if (i_conn->x5c) {
-
-            BOLT_SUB(sign_jws(i_conn->private_key, json_object_get_string(i_conn->x5c), 1, bus_object,
-                    msg->message.data, msg->message.data_len, msg->message.content_type, pad, offset,
-                    (char **) sign_to, sign_to_len));
-            json_object_put(i_conn->x5c);
-            i_conn->x5c = 0;
-
-        } else {
-
-            BOLT_SUB(sign_jws(i_conn->private_key, conn->my_x5t, 0, bus_object, msg->message.data,
-                    msg->message.data_len, msg->message.content_type, pad, offset, (char **) sign_to, sign_to_len));
-
-        }
-
-        if (i_conn->remote_key) {
-            BOLT_SUB(encrypt_jwe(i_conn->remote_key, conn->remote_x5t, signed_buf, signed_buf_len,
-                    "jose", 13, 9, (char**)&frame, &ser_len));
-        }
-
 
         // $TODO: support large messages!
         if (ser_len > 65000) { break; }
@@ -727,7 +672,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         *((uint16_t*)(frame+4)) = htons(stream->stream_id);
         *((uint16_t*)(frame+6)) = htons(stream->frame_seq_out++);
-        *(frame+8) = CT_JOSE_COMPACT;
+        *(frame+8) = ct;
 
         calculate_frame_crc(frame, (uint32_t)(ser_len + 13)); // size with crc
 

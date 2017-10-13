@@ -163,7 +163,7 @@ int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
 int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
     int err = E_XL4BUS_OK;
-    char * base64 = 0;
+    json_object * json_cert = 0;
 
     do {
 
@@ -216,19 +216,16 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             // load chain
             for (xl4bus_asn1_t ** buf = conn->identity.x509.chain; buf && *buf; buf++) {
 
-                size_t base64_len = 0;
+                BOLT_SUB(asn1_to_json(*buf, &json_cert));
 
                 switch ((*buf)->enc) {
 
                     case XL4BUS_ASN1ENC_DER:
 
-                        BOLT_CJOSE(cjose_base64_encode((*buf)->buf.data, (*buf)->buf.len, &base64, &base64_len, &c_err));
-
                         if (buf == conn->identity.x509.chain) {
                             // first cert, need to build my x5t
-                            BOLT_MEM(conn->my_x5t = make_cert_hash((*buf)->buf.data, (*buf)->buf.len));
+                            BOLT_SUB(make_cert_hash((*buf)->buf.data, (*buf)->buf.len, &conn->my_x5t));
                         }
-
                         BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->buf.data, (*buf)->buf.len));
 
                         break;
@@ -236,61 +233,17 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
                     case XL4BUS_ASN1ENC_PEM:
                     {
 
-                        // encoding must be PEM, we already have the base64 data,
-                        // but we need to remove PEM headers and join the lines.
-
-                        base64 = f_malloc((*buf)->buf.len);
-                        base64_len = 0;
-
-                        int skipping_comment = 1;
-
-                        const char * line_start = (const char *) (*buf)->buf.data;
-
-                        for (int i=0; i<(*buf)->buf.len; i++) {
-
-                            char c = (*buf)->buf.data[i];
-
-                            if (c == '\n') {
-
-                                if (!strncmp("-----BEGIN ", line_start, 11)) {
-
-                                    skipping_comment = 0;
-
-                                } else if (!strncmp("-----END ", line_start, 9)) {
-
-                                    skipping_comment = 1;
-
-                                } else if (!skipping_comment) {
-
-                                    for (const char * cc = line_start; (void*)cc < (void*)(*buf)->buf.data+i; cc++) {
-
-                                        c = *cc;
-
-                                        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-                                            (c == '+') || (c == '/') || (c == '=')) {
-
-                                            base64[base64_len++] = c;
-
-                                        }
-
-                                    }
-
-                                }
-
-                                line_start = (const char *) ((*buf)->buf.data + i + 1);
-
-                            }
-
-                        }
-
                         if (buf == conn->identity.x509.chain) {
                             // first cert, need to build my x5t
 
                             uint8_t * der;
                             size_t der_len;
 
-                            BOLT_CJOSE(cjose_base64_decode(base64, base64_len, &der, &der_len, &c_err));
-                            BOLT_MEM(conn->my_x5t = make_cert_hash(der, der_len));
+                            const char * pem = json_object_get_string(json_cert);
+                            size_t pem_len = strlen(pem);
+
+                            BOLT_CJOSE(cjose_base64_decode(pem, pem_len, &der, &der_len, &c_err));
+                            BOLT_SUB(make_cert_hash(der, der_len, &conn->my_x5t));
 
                         }
 
@@ -304,9 +257,8 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
                 BOLT_NEST();
 
-                json_object_array_add(i_conn->x5c, json_object_new_string_len(base64, (int) base64_len));
-                cfg.free(base64);
-                base64 = 0;
+                BOLT_MEM(!json_object_array_add(i_conn->x5c, json_cert));
+                json_cert = 0;
 
                 chain_count++;
 
@@ -347,6 +299,8 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
     if (err != E_XL4BUS_OK) {
         shutdown_connection_ts(conn);
     }
+
+    json_object_put(json_cert);
 
     return err;
 
@@ -568,94 +522,6 @@ char * f_asprintf(char * fmt, ...) {
 
 }
 
-int xl4bus_chain_address(xl4bus_address_t ** rec, xl4bus_address_type_t type, ...) {
-
-    int err = E_XL4BUS_OK;
-    xl4bus_address_t * addr = 0;
-
-    va_list ap;
-    va_start(ap, type);
-
-    do {
-
-        BOLT_MALLOC(addr, sizeof(xl4bus_address_t));
-        addr->type = type;
-        switch (type) {
-
-            case XL4BAT_SPECIAL:
-                addr->special = va_arg(ap, xl4bus_address_special_t);
-                break;
-
-            case XL4BAT_UPDATE_AGENT:
-            {
-                char * ua = va_arg(ap, char*);
-                int copy = va_arg(ap, int);
-                if (copy) {
-                    BOLT_MEM(addr->update_agent = f_strdup(ua));
-                } else {
-                    addr->update_agent = ua;
-                }
-            }
-                break;
-            case XL4BAT_GROUP:
-            {
-                char * grp = va_arg(ap, char*);
-                int copy = va_arg(ap, int);
-                if (copy) {
-                    BOLT_MEM(addr->group = f_strdup(grp));
-                } else {
-                    addr->group = grp;
-                }
-            }
-            break;
-            default:
-                BOLT_SAY(E_XL4BUS_ARG, "Unknown address type %d", type);
-        }
-
-    } while(0);
-
-    if (!err) {
-        addr->next = *rec;
-        *rec = addr;
-    } else {
-        // no need to clean up addr->update_agent or addr->group
-        cfg.free(addr);
-    }
-
-    return err;
-
-}
-
-
-void xl4bus_free_address(xl4bus_address_t * addr, int chain) {
-
-    while (addr) {
-
-        xl4bus_address_t * next;
-        if (chain) {
-            next = addr->next;
-        } else {
-            next = 0;
-        }
-
-        switch (addr->type) {
-            case XL4BAT_SPECIAL:break;
-            case XL4BAT_UPDATE_AGENT:
-                cfg.free(addr->update_agent);
-                break;
-            case XL4BAT_GROUP:
-                cfg.free(addr->group);
-                break;
-        }
-
-        cfg.free(addr);
-
-        addr = next;
-
-    }
-
-}
-
 const char * xl4bus_version() {
 
     return BUILD_VERSION;
@@ -700,6 +566,33 @@ void clean_keyspec(cjose_jwk_rsa_keyspec * ks) {
     cfg.free(ks->dp);
     cfg.free(ks->dq);
     cfg.free(ks->qi);
+
+}
+
+char * inflate_content_type(char const * ct) {
+
+    if (!ct) { return f_strdup("application/octet-stream"); }
+    if (strchr(ct, 0)) {
+        return f_asprintf("application/%s", ct);
+    }
+    return f_strdup(ct);
+
+}
+
+const char * pack_content_type(const char * ct) {
+
+    // this is for https://tools.ietf.org/html/rfc7515#section-4.1.10,
+    // application/ can be omitted if there are no other slashes.
+
+    if (!ct) {
+        return "octet-stream";
+    }
+
+    if (!strncmp(ct, "application/", 12) && !strchr(ct+12, '/')) {
+        ct += 12;
+    }
+
+    return ct;
 
 }
 
@@ -749,133 +642,6 @@ char * make_chr_oid(mbedtls_asn1_buf * buf) {
         }
 
     }
-
-}
-
-int make_json_address(xl4bus_address_t * bus_addr, json_object ** json) {
-
-    int err = E_XL4BUS_OK;
-    json_object * addr = 0;
-
-    do {
-
-        BOLT_MEM(addr = json_object_new_array());
-
-        for (xl4bus_address_t * ma = bus_addr; ma; ma = ma->next) {
-
-            char * key = 0;
-            char * val = 0;
-
-            switch (ma->type) {
-
-                case XL4BAT_SPECIAL:
-                {
-                    key = "special";
-                    switch (ma->special) {
-                        case XL4BAS_DM_CLIENT:
-                            val = "dmclient";
-                            break;
-                        case XL4BAS_DM_BROKER:
-                            val = "broker";
-                            break;
-                        default:
-                        BOLT_SAY(E_XL4BUS_ARG, "Unknown special type %d", ma->special);
-                    }
-                }
-                    break;
-                case XL4BAT_UPDATE_AGENT:
-                    key = "update-agent";
-                    val = ma->update_agent;
-                    break;
-                case XL4BAT_GROUP:
-                    key = "group";
-                    val = ma->group;
-                    break;
-                default:
-                BOLT_SAY(E_XL4BUS_ARG, "Unknown addr type %d", ma->type);
-
-            }
-
-            BOLT_SUB(err);
-
-            json_object * aux;
-            json_object * bux;
-            BOLT_IF(!(aux = json_object_new_object()), E_XL4BUS_MEMORY, "");
-            json_object_array_add(addr, aux);
-            BOLT_IF(!(bux = json_object_new_string(val)), E_XL4BUS_MEMORY, "");
-            json_object_object_add(aux, key, bux);
-
-        }
-
-    } while(0);
-
-    if (err) {
-        json_object_put(addr);
-    } else {
-        *json = addr;
-    }
-
-    return err;
-
-}
-
-int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
-
-    int l = json_object_array_length(j_list);
-    xl4bus_address_t * last = 0;
-    xl4bus_address_t * next = 0;
-    int err = E_XL4BUS_OK;
-
-    for (int i=0; i<l; i++) {
-
-        if (!next) {
-            BOLT_MALLOC(next, sizeof(xl4bus_address_t));
-        }
-
-        json_object * el = json_object_array_get_idx(j_list, i);
-
-        DBG("BAL: Processing el %s", json_object_get_string(el));
-        json_object * aux;
-        if (json_object_object_get_ex(el, "update-agent", &aux) && json_object_is_type(aux, json_type_string)) {
-            next->type = XL4BAT_UPDATE_AGENT;
-            BOLT_MEM(next->update_agent = f_strdup(json_object_get_string(aux)));
-        } else if (json_object_object_get_ex(el, "group", &aux) && json_object_is_type(aux, json_type_string)) {
-            next->type = XL4BAT_GROUP;
-            BOLT_MEM(next->group = f_strdup(json_object_get_string(aux)));
-        } else if (json_object_object_get_ex(el, "special", &aux) && json_object_is_type(aux, json_type_string)) {
-
-            char const * bux = json_object_get_string(aux);
-            next->type = XL4BAT_SPECIAL;
-
-            if (!strcmp("dmclient", bux)) {
-                next->special = XL4BAS_DM_CLIENT;
-            } else if (!strcmp("broker", bux)) {
-                next->special = XL4BAS_DM_BROKER;
-            } else {
-                continue;
-            }
-
-        } else {
-            continue;
-        }
-
-        if (!last) {
-            *new_list = next;
-        } else {
-            last->next = next;
-        }
-        last = next;
-        next = 0;
-
-    }
-
-    cfg.free(next);
-
-    if (err) {
-        xl4bus_free_address(*new_list, 1);
-    }
-
-    return err;
 
 }
 
@@ -939,3 +705,149 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
     return err;
 
 }
+
+int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
+
+    int err = E_XL4BUS_OK;
+    char * base64 = 0;
+    size_t base64_len;
+    cjose_err c_err;
+
+    do {
+
+        switch (asn1->enc) {
+
+            case XL4BUS_ASN1ENC_DER:
+
+                BOLT_CJOSE(cjose_base64_encode(asn1->buf.data, asn1->buf.len, &base64, &base64_len, &c_err));
+                break;
+
+            case XL4BUS_ASN1ENC_PEM: {
+
+                // encoding must be PEM, we already have the base64 data,
+                // but we need to remove PEM headers and join the lines.
+
+                base64 = f_malloc(asn1->buf.len);
+                base64_len = 0;
+
+                int skipping_comment = 1;
+
+                const char *line_start = (const char *) asn1->buf.data;
+
+                for (int i = 0; i < asn1->buf.len; i++) {
+
+                    char c = asn1->buf.data[i];
+
+                    if (c == '\n') {
+
+                        if (!strncmp("-----BEGIN ", line_start, 11)) {
+
+                            skipping_comment = 0;
+
+                        } else if (!strncmp("-----END ", line_start, 9)) {
+
+                            skipping_comment = 1;
+
+                        } else if (!skipping_comment) {
+
+                            for (const char *cc = line_start; (void *) cc < (void *) asn1->buf.data + i; cc++) {
+
+                                c = *cc;
+
+                                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                                    (c == '+') || (c == '/') || (c == '=')) {
+
+                                    base64[base64_len++] = c;
+
+                                }
+
+                            }
+
+                        }
+
+                        line_start = (const char *) (asn1->buf.data + i + 1);
+
+                    }
+
+                }
+
+            }
+                break;
+            default:
+            BOLT_SAY(E_XL4BUS_DATA, "Unknown encoding %d", asn1->enc);
+        }
+
+        BOLT_NEST();
+
+        BOLT_MEM(*to = json_object_new_string_len(base64, (int) base64_len));
+
+    } while (0);
+
+    cfg.free(base64);
+
+    return err;
+
+}
+
+void clean_validated_object(validated_object_t * vo) {
+
+    cjose_jws_release(vo->exp_jws);
+    json_object_put(vo->bus_object);
+    json_object_put(vo->x5c);
+    release_remote_info(vo->remote_info);
+    cfg.free(vo->content_type);
+
+}
+
+int xl4bus_copy_address(xl4bus_address_t * src, int chain, xl4bus_address_t ** receiver) {
+
+    xl4bus_address_t * new_chain = 0;
+    xl4bus_address_t * last = 0;
+    int err = E_XL4BUS_OK;
+
+    while (src) {
+
+        xl4bus_address_t * new;
+        BOLT_MALLOC(new, sizeof(xl4bus_address_t));
+
+        if (!new_chain) {
+            new_chain = new;
+            last = new;
+        } else {
+            last->next = new;
+            last = new;
+        }
+
+        switch (new->type = src->type) {
+
+            case XL4BAT_SPECIAL:
+                new->special = src->special;
+                break;
+            case XL4BAT_UPDATE_AGENT:
+                BOLT_MEM(new->update_agent = f_strdup(src->update_agent));
+                break;
+            case XL4BAT_GROUP:
+                BOLT_MEM(new->group = f_strdup(src->group));
+                break;
+            default:
+                BOLT_SAY(E_XL4BUS_ARG, "Unknown address type %d", src->type);
+        }
+
+        BOLT_NEST();
+
+        if (!chain) { break; }
+        src = src->next;
+
+    }
+
+    if (err == E_XL4BUS_OK) {
+        last->next = *receiver;
+        *receiver = new_chain;
+    } else {
+        xl4bus_free_address(new_chain, 1);
+    }
+
+    return err;
+
+}
+

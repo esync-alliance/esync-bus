@@ -6,6 +6,7 @@
 #include <string.h>
 #include <time.h>
 #include <stdlib.h>
+#include <cjose/cjose.h>
 
 extern int debug;
 
@@ -62,15 +63,45 @@ extern int debug;
 #define BOLT_M1(a, m, x...) if ((a)==-1) { DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
 #define BOLT_SYS(a, m, x...) if ((a)) { DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
 #define BOLT_SUB(a) { err = (a); if (err != E_XL4BUS_OK) { BOLT_SAY(err, #a); }} do{}while(0)
-#define BOLT_CJOSE(a) { a; if (c_err.code != CJOSE_ERR_NONE) { BOLT_SAY(cjose_to_err(&c_err), "cjose failure %d %s:%s", c_err.code, c_err.message, #a);}}
+#define BOLT_CJOSE(a) { c_err.code = CJOSE_ERR_NONE; a; if (c_err.code != CJOSE_ERR_NONE) { BOLT_SAY(cjose_to_err(&c_err), "cjose failure %d %s:%s", c_err.code, c_err.message, #a);}}
 #define BOLT_ARES(a) { int __err = (a); if (__err != ARES_SUCCESS) { if (__err == ARES_ENOMEM) { __err = E_XL4BUS_MEMORY; } else { __err = E_XL4BUS_INTERNAL; } BOLT_SAY(__err, "%s", #a); } } do{} while(0)
 #define BOLT_MALLOC(var, how_much) { if (!((var) = f_malloc(how_much))) { BOLT_SAY(E_XL4BUS_MEMORY, "failed to alloc %d for %s", how_much, #var); } } do{}while(0)
 #define BOLT_NEST() BOLT_SUB(err)
+#define BOLT_MTLS(a) do { \
+    int __mtls_err = (a); \
+    if (__mtls_err) { \
+        if (debug) { \
+            char e_buf[512]; \
+            mbedtls_strerror(__mtls_err, e_buf, 512); \
+            DBG("%s failed with (%x) %s", #a, __mtls_err, e_buf); \
+        } \
+        err = E_XL4BUS_SYS; \
+    } \
+} while(0); \
+if (err) { break; } \
+do {} while(0)
 
 static inline const char * chop_path(const char * path) {
     const char * aux = strrchr(path, '/');
     if (aux) { return aux + 1; }
     return path;
+}
+
+static inline int cjose_to_err(cjose_err * err) {
+
+    switch (err->code) {
+
+        case CJOSE_ERR_NONE:
+            return E_XL4BUS_OK;
+        case CJOSE_ERR_NO_MEMORY:
+            return E_XL4BUS_MEMORY;
+            // case CJOSE_ERR_CRYPTO:
+            // case CJOSE_ERR_INVALID_ARG:
+            // case CJOSE_ERR_INVALID_STATE:
+        default:
+            return E_XL4BUS_INTERNAL;
+    }
+
 }
 
 #endif

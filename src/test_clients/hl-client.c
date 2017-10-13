@@ -126,9 +126,27 @@ static void msg_info(struct xl4bus_client * clt, xl4bus_message_t * msg, void * 
 
 void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
 
-    char * fmt = f_asprintf("And the message %s has come : %%%ds\n", msg->content_type, msg->data_len);
+    char * src = 0;
+    xl4bus_address_t * src_addr = msg->address;
+    while (src_addr) {
+        if (src) {
+            char * aux = addr_to_string(src_addr);
+            src = f_asprintf("%s,%s", src, aux);
+            free(aux);
+        } else {
+            src = addr_to_string(src_addr);
+        }
+        src_addr = src_addr->next;
+    }
+
+    if (!src) {
+        src = f_strdup("no source!");
+    }
+
+    char * fmt = f_asprintf("From %s came message of %s : %%%ds\n", src, msg->content_type, msg->data_len);
     printf(fmt, msg->data);
     free(fmt);
+    free(src);
 
 }
 

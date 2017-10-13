@@ -5,6 +5,7 @@
 #include "porting.h"
 #include "itc.h"
 #include <libxl4bus/low_level.h>
+#include <libxl4bus/high_level.h>
 
 #include "json-c-rename.h"
 #include <json.h>
@@ -161,6 +162,20 @@ typedef enum message_info_state {
     MIS_WAIT_CONFIRM
 } message_info_state_t;
 
+typedef struct remote_info {
+
+    UT_hash_handle hh;
+    // $TODO: we don't use crt after we processed incoming x5c, may
+    // be we should dump it?
+    mbedtls_x509_crt crt;
+    char * x5t;
+    cjose_jwk_t * key;
+    // parsed xl4 bus addresses declared in the cert.
+    xl4bus_address_t * addresses;
+    int ref_count;
+
+} remote_info_t;
+
 typedef struct message_internal {
 
     xl4bus_message_t * msg;
@@ -170,8 +185,7 @@ typedef struct message_internal {
     UT_hash_handle hh;
     message_info_state_t mis;
     json_object * addr;
-    cjose_jwk_t ** keys;
-    char ** x5t;
+    remote_info_t ** remotes;
     size_t key_count;
     size_t key_idx;
     void * custom;
@@ -219,6 +233,23 @@ typedef struct client_internal {
 
 } client_internal_t;
 
+typedef struct validated_object {
+
+    // these need to be cleaned up
+    cjose_jws_t * exp_jws;
+    json_object * bus_object;
+    json_object * x5c;
+    remote_info_t * remote_info;
+    char * content_type;
+
+    // these are internal, and are maintained by the ones above
+    uint8_t * data;
+    size_t data_len;
+    cjose_header_t * p_headers;
+
+} validated_object_t;
+
+
 typedef int (*x509_lookup_t)(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
 
 extern xl4bus_ll_cfg_t cfg;
@@ -232,16 +263,24 @@ extern void * cert_cache_lock;
 #define check_conn_io XI(check_conn_io)
 int check_conn_io(xl4bus_connection_t*);
 
-/* secure.c */
+/* signed.c */
 // $TODO: validate incoming JWS message
 #define validate_jws XI(validate_jws)
 #define sign_jws XI(sign_jws)
 #define encrypt_jwe XI(encrypt_jwe)
 #define decrypt_jwe XI(decrypt_jwe)
-int validate_jws(void * bin, size_t bin_len, int ct, xl4bus_connection_t * i_conn, cjose_jws_t ** exp_jws, json_object ** bus_object);
-int sign_jws(cjose_jwk_t * key, const char * x5, int is_full_x5, json_object * bus_object, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
+int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t * conn, validated_object_t * vo);
+int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void * data, size_t data_len, char const * ct, char ** jws_data, size_t * jws_len);
 int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
 int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * key, void ** decrypted, size_t * decrypted_len, char ** cty);
+
+/* addr.c */
+
+#define make_json_address XI(make_json_address)
+#define build_address_list XI(build_address_list)
+
+int make_json_address(xl4bus_address_t * addr, json_object ** json);
+int build_address_list(json_object *, xl4bus_address_t **);
 
 /* misc.c */
 
@@ -257,9 +296,11 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * ke
 #define get_oid XI(get_oid)
 #define make_chr_oid XI(make_chr_oid)
 #define z_strcmp XI(z_strcmp)
-#define make_json_address XI(make_json_address)
-#define build_address_list XI(build_address_list)
 #define make_private_key XI(make_private_key)
+#define pack_content_type XI(pack_content_type)
+#define inflate_content_type XI(inflate_content_type)
+#define asn1_to_json XI(asn1_to_json)
+#define clean_validated_object XI(clean_validated_object)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -273,19 +314,24 @@ void clean_keyspec(cjose_jwk_rsa_keyspec *);
 int get_oid(unsigned char ** p, unsigned char *, mbedtls_asn1_buf * oid);
 char * make_chr_oid(mbedtls_asn1_buf *);
 int z_strcmp(const char *, const char *);
-int make_json_address(xl4bus_address_t * addr, json_object ** json);
-int build_address_list(json_object *, xl4bus_address_t **);
 int make_private_key(xl4bus_identity_t *, mbedtls_pk_context *, cjose_jwk_t **);
+const char * pack_content_type(const char *);
+int asn1_to_json(xl4bus_asn1_t *, json_object **);
+char * inflate_content_type(char const *);
+void clean_validated_object(validated_object_t * );
 
 /* x509.c */
 
-#define find_key_by_x5t XI(find_key_by_x5t)
+#define find_by_x5t XI(find_by_x5t)
 #define accept_x5c XI(accept_x5c)
 #define make_cert_hash XI(make_cert_hash)
+#define release_remote_info XI(release_remote_info)
 
-char * make_cert_hash(void *, size_t);
+
+int make_cert_hash(void *, size_t, char **);
 // finds the cjose key object for the specified tag.
-cjose_jwk_t * find_key_by_x5t(const char * x5t);
-int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose_jwk_t ** key);
+remote_info_t * find_by_x5t(const char * x5t);
+void release_remote_info(remote_info_t *);
+int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t **);
 
 #endif

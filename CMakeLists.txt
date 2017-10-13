@@ -205,6 +205,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/printf.c
     src/client.c
     src/x509.c
+    src/addr.c
     src/itc.h
     src/include/libxl4bus/low_level.h
     src/include/libxl4bus/high_level.h
@@ -300,15 +301,10 @@ if (BUILD_BINS)
     endif()
 
     targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES ${USE_LIB})
+    targets_link_libraries("xl4bus-broker" LIBRARIES ${CJOSE_LIB} ${MBEDTLS_LIB})
 
-    # target_link_libraries("ll-server" ${USE_LIB})
-    # target_link_libraries("ll-client" ${USE_LIB})
-    # target_link_libraries("hl-client" ${USE_LIB})
-    # target_link_libraries("xl4bus-broker" ${USE_LIB})
     if (XL4_PROVIDE_THREADS)
         targets_link_libraries(ll-server hl-server LIBRARIES Threads::Threads)
-        # target_link_libraries(ll-server Threads::Threads)
-        # target_link_libraries(hl-client Threads::Threads)
     else()
         message(FATAL_ERROR "Binaries require threading support that is not enabled. You probably want to disable binaries being built as well.")
     endif()

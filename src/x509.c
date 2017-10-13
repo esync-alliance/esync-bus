@@ -27,20 +27,8 @@
 // $TODO: On second thought, the certificate cache must be bound to a trust.
 // If trusts are different for connections, the certificates must not be
 // held together, since they won't authenticate against different trust
-typedef struct x5t_cache {
 
-    UT_hash_handle hh;
-    // $TODO: we don't use crt after we processed incoming x5c, may
-    // be we should dump it?
-    mbedtls_x509_crt crt;
-    char * x5t;
-    cjose_jwk_t * key;
-
-} x5t_cache_t;
-
-x5t_cache_t * x5t_cache = 0;
-
-static void free_cache_entry(x5t_cache_t *);
+remote_info_t * x5t_cache = 0;
 
 #if XL4_SUPPORT_THREADS
 void * cert_cache_lock;
@@ -131,17 +119,16 @@ void print_time(char * time, mbedtls_x509_time * x509_time) {
 }
 #endif
 
-int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose_jwk_t ** key) {
+int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** rmi) {
 
     int err = E_XL4BUS_OK;
-    x5t_cache_t * entry = 0;
+    remote_info_t * entry = 0;
     uint8_t * der = 0;
     cjose_jwk_rsa_keyspec rsa_ks;
 
     memset(&rsa_ks, 0, sizeof(cjose_jwk_rsa_keyspec));
 
-    if (x5t) { *x5t = 0; }
-    if (key) { *key = 0; }
+    if (rmi) { *rmi = 0; }
 
     do {
 
@@ -159,7 +146,8 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose
             l = 1;
         }
 
-        BOLT_MEM(entry = f_malloc(sizeof(x5t_cache_t)));
+        BOLT_MEM(entry = f_malloc(sizeof(remote_info_t)));
+        entry->ref_count = 1;
 
         mbedtls_x509_crt_init(&entry->crt);
 
@@ -180,7 +168,7 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose
             BOLT_MTLS(mbedtls_x509_crt_parse_der(&entry->crt, der, der_len));
             if (!i) {
 
-                BOLT_MEM(entry->x5t = make_cert_hash(der, der_len));
+                BOLT_SUB(make_cert_hash(der, der_len, &entry->x5t));
 
             }
         }
@@ -290,8 +278,8 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose
                             BOLT_MALLOC(bus_address, sizeof(xl4bus_address_t));
                             bus_address->type = XL4BAT_GROUP;
                             BOLT_MEM(bus_address->group = f_strndup(start, inner_len));
-                            bus_address->next = conn->remote_address_list;
-                            conn->remote_address_list = bus_address;
+                            bus_address->next = entry->addresses;
+                            entry->addresses = bus_address;
 
                             DBG("Identity has group %s", bus_address->group);
 
@@ -372,8 +360,8 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose
                                 }
 
                                 if (bus_address_ok) {
-                                    bus_address->next = conn->remote_address_list;
-                                    conn->remote_address_list = bus_address;
+                                    bus_address->next = entry->addresses;
+                                    entry->addresses = bus_address;
                                     bus_address = 0;
                                 }
 
@@ -414,22 +402,25 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose
         BOLT_SYS(pf_lock(&cert_cache_lock), "");
 #endif
 
-        x5t_cache_t * old;
+        remote_info_t * old;
         HASH_FIND_STR(x5t_cache, entry->x5t, old);
         if (old) {
             HASH_DEL(x5t_cache, old);
-            free_cache_entry(old);
+            release_remote_info(old);
         }
+        entry->ref_count++; // it's going to be in the hash, so rev up the ref_count,
+                            // no need for atomicity here, however, it's not visible anywhere yet.
         HASH_ADD_KEYPTR(hh, x5t_cache, entry->x5t, strlen(entry->x5t), entry);
-        if (x5t) {
-            *x5t = f_strdup(entry->x5t);
-        }
-        if (key) {
-            *key = cjose_jwk_retain(entry->key, 0);
+
+        if (rmi) {
+            // still, nobody can have access to the record, because we are still
+            // holding the lock, required to do the cache lookup. So no atomic operation required
+            entry->ref_count++;
+            *rmi = entry;
         }
 
 #if XL4_SUPPORT_THREADS
-        BOLT_SYS(pf_unlock(&cert_cache_lock), "");
+        pf_unlock(&cert_cache_lock);
 #endif
 
     } while (0);
@@ -437,20 +428,15 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, char ** x5t, cjose
     cfg.free(der);
     clean_keyspec(&rsa_ks);
 
-    if (err) {
-        // we failed, so let's clean up.
-        free_cache_entry(entry);
-        free(*x5t);
-    }
+    release_remote_info(entry);
 
     return err;
 
 }
 
-cjose_jwk_t * find_key_by_x5t(const char * x5t) {
+remote_info_t * find_by_x5t(const char * x5t) {
 
-    x5t_cache_t * entry;
-    cjose_jwk_t * key;
+    remote_info_t * entry;
 
     if (!x5t) { return 0; }
 
@@ -462,32 +448,32 @@ cjose_jwk_t * find_key_by_x5t(const char * x5t) {
 
     HASH_FIND_STR(x5t_cache, x5t, entry);
     if (entry) {
-        key = cjose_jwk_retain(entry->key, 0);
-    } else {
-        key = 0;
+        pf_add_and_get(&entry->ref_count, 1);
     }
 
 #if XL4_SUPPORT_THREADS
     pf_unlock(&cert_cache_lock);
 #endif
 
-    return key;
+    return entry;
 
 }
 
-
-static void free_cache_entry(x5t_cache_t * entry) {
+void release_remote_info(remote_info_t * entry) {
 
     if (!entry) { return; }
+
+    if (pf_add_and_get(&entry->ref_count, -1)) { return; }
 
     mbedtls_x509_crt_free(&entry->crt);
     cfg.free(entry->x5t);
     cjose_jwk_release(entry->key);
+    xl4bus_free_address(entry->addresses, 1);
     cfg.free(entry);
 
 }
 
-char * make_cert_hash(void * der, size_t der_len) {
+int make_cert_hash(void * der, size_t der_len, char ** cert_hash) {
 
     int err = E_XL4BUS_OK;
     mbedtls_md_context_t mdc;
@@ -515,7 +501,13 @@ char * make_cert_hash(void * der, size_t der_len) {
 
     mbedtls_md_free(&mdc);
 
-    return x5t;
+    if (err == E_XL4BUS_OK) {
+        *cert_hash = x5t;
+    } else {
+        cfg.free(x5t);
+    }
+
+    return err;
 
 }
 

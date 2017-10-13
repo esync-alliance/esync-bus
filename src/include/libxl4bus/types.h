@@ -88,7 +88,7 @@ typedef enum xl4bus_address_type {
      * Use ::xl4bus_address_t.special to specify the
      * special destination.
      */
-    XL4BAT_SPECIAL,
+    XL4BAT_SPECIAL = 1,
 
     /**
      * Indicates that the address is an update agent
@@ -152,6 +152,15 @@ typedef struct xl4bus_message {
     xl4bus_address_t * address;
 
     /**
+     * List of addresses the message was sent from. For received messages,
+     * this contains the address that the message sent from (declared, or inferred).
+     * For sent messages, this can be set to declare the "sent" address. Note that
+     * the sent address must be present in the identity, otherwise the message will
+     * not be delivered.
+     */
+    xl4bus_address_t * source_address;
+
+    /**
      * Payload data
      */
     void const * data;
@@ -162,15 +171,53 @@ typedef struct xl4bus_message {
      * missing on receipt).
      */
     size_t data_len;
+
+   /**
+    * If !0, then the message was encrypted by the sender, and was decrypted
+    * successfully before being passed down.
+    */
+    int was_encrypted;
+
 } xl4bus_message_t;
 
 typedef struct xl4bus_ll_message {
 
-    xl4bus_message_t message;
+    /**
+     * message data
+     */
+    void const * data;
 
+    /**
+     * Message data length
+     */
+    size_t data_len;
+
+    /**
+     * Declared content type of the message.
+     */
+    char const * content_type;
+
+    /**
+     * Low-level stream ID that the data came over on
+     */
     uint16_t stream_id;
+
+    /**
+     * If !0, then the message is final, i.e. no more messages
+     * can be exchanged on the same stream ID.
+     */
     int is_final;
+
+    /**
+     * If !0, then the message is a reply, i.e. not the first message
+     * in the stream.
+     */
     int is_reply;
+
+    /**
+     * If !0, then the message was encrypted by the sender, and was decrypted
+     * successfully before being passed down.
+     */
     int was_encrypted;
 
 } xl4bus_ll_message_t;
@@ -395,9 +442,14 @@ typedef struct xl4bus_connection {
 
     xl4bus_address_t * remote_address_list;
 
-    char * remote_x5t;
-    char * remote_x5c;
-    char * my_x5t;
+    union {
+        // X.509 support
+        struct {
+            char * remote_x5t;
+            char * remote_x5c;
+            char * my_x5t;
+        };
+    };
 
 #if XL4_SUPPORT_THREADS
     int mt_support;

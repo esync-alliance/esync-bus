@@ -26,6 +26,7 @@
 #define XL4_NEED_DGRAM 1
 #endif
 
+#define pf_add_and_get XI(pf_add_and_get)
 #define pf_send XI(pf_send)
 #define pf_recv XI(pf_recv)
 #define pf_recv_dgram XI(pf_recv_dgram)
@@ -49,6 +50,12 @@
  */
 
 typedef void * (*pf_malloc_fun)(size_t);
+
+// atomic get and add (or subtract, if second argument is negative)
+// needed for simple memory barriers. Nothing must interfere with
+// the add operation, and the result is the value at address after
+// the operation.
+int pf_add_and_get(int * addr, int value);
 
 // SEND(2), but flags are always 0
 ssize_t pf_send(int sockfd, const void *buf, size_t len);
