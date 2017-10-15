@@ -14,16 +14,17 @@ if test -n "$USE_ANDROID_TOOLCHAIN"; then
     TCR="$USE_ANDROID_TOOLCHAIN"
 fi
 
+TCH=arm-linux-gnueabi
+TCP="${TCR}/bin/${TCH}-"
+export CC=${TCP}gcc
 export SYSROOT="${TCR}/sysroot"
 
-export CROSS_COMPILE=arm-linux-androideabi
+export CROSS_COMPILE=${TCH}
 export PROJECT_ROOT=`pwd`
-export CFLAGS="-I $SYSROOT/usr/include -DANDROID_NDK=1 -I $PROJECT_ROOT/android/include"
-export LDFLAGS="-L $SYSROOT/usr/lib -lm -lz -L $PROJECT_ROOT/android/lib "
+export CFLAGS="-I$SYSROOT/usr/include -DANDROID_NDK=1 -I$PROJECT_ROOT/android/include"
+export LDFLAGS="-L$SYSROOT/usr/lib -lm -lz -L$PROJECT_ROOT/android/lib "
 
 export PKG_CONFIG_PATH="${SYSROOT}/lib/pkgconfig:${SYSROOT}/usr/lib/pkgconfig"
-
-export CC="$TCR/bin/arm-linux-androideabi-gcc --sysroot=$SYSROOT"
 
 rm -rf android_build
 mkdir -p android_build
