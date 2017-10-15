@@ -30,7 +30,7 @@ cd arm_src
 
 if test ! -f cares.ok; then
     rm -rf c-ares
-    proxychains git clone https://github.com/c-ares/c-ares.git
+    git clone https://github.com/c-ares/c-ares.git
     cd c-ares
     autoreconf -f -i
     ./configure --prefix=$USR --host=$TCH
