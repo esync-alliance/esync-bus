@@ -14,7 +14,7 @@ if test -n "$USE_ANDROID_TOOLCHAIN"; then
     TCR="$USE_ANDROID_TOOLCHAIN"
 fi
 
-TCH=arm-linux-gnueabi
+TCH=arm-linux-androideabi
 TCP="${TCR}/bin/${TCH}-"
 export CC=${TCP}gcc
 export SYSROOT="${TCR}/sysroot"
@@ -30,7 +30,7 @@ rm -rf android_build
 mkdir -p android_build
 
 (cd android_build && {
-    ${CMK} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_ANDROID_ARM_MODE=ON -DCMAKE_SYSTEM_NAME=Android -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${TCR} ..
+    ${CMK} -DCMAKE_SYSROOT=${SYSROOT} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_ANDROID_ARM_MODE=ON -DCMAKE_SYSTEM_NAME=Android -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${TCR} ..
     make
 }
 )
