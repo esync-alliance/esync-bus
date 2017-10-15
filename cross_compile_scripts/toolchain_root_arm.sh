@@ -107,7 +107,7 @@ if test ! -f jsonc.ok; then
     autoreconf -f -i
     CFLAGS="-fPIC -fvisibility=hidden -Wno-error" CPPFLAGS="-include $(pwd)/../../json-c-rename.h" ./configure --prefix=$USR --host=$TCH --enable-static --disable-shared
 # AC_FUNC_MALLOC fails
-    ed config.status < ../../arm_scripts/jsonced
+    ed config.status < ../../cross_compile_scripts/jsonced
     make
     cd ..
     touch jsonc.ok
