@@ -234,7 +234,7 @@ static conn_info_t * connections;
 static xl4bus_identity_t broker_identity;
 static mbedtls_x509_crt trust;
 static mbedtls_x509_crl crl;
-static remote_info_t * x5t_cache = 0;
+static remote_info_t * tag_cache = 0;
 static char * my_x5t;
 static json_object * my_x5c;
 static cjose_jwk_t * private_key;
@@ -1620,12 +1620,12 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
         BOLT_NEST();
 
         remote_info_t * old;
-        HASH_FIND_STR(x5t_cache, entry->x5t, old);
+        HASH_FIND_STR(tag_cache, entry->x5t, old);
         if (old) {
-            HASH_DEL(x5t_cache, old);
+            HASH_DEL(tag_cache, old);
         }
 
-        HASH_ADD_KEYPTR(hh, x5t_cache, entry->x5t, strlen(entry->x5t), entry);
+        HASH_ADD_KEYPTR(hh, tag_cache, entry->x5t, strlen(entry->x5t), entry);
 
         if (rmi) {
             *rmi = entry;
@@ -1654,7 +1654,7 @@ remote_info_t * find_by_x5t(const char * x5t) {
 
     remote_info_t * entry;
     if (!x5t) { return 0; }
-    HASH_FIND_STR(x5t_cache, x5t, entry);
+    HASH_FIND_STR(tag_cache, x5t, entry);
     return entry;
 
 }
