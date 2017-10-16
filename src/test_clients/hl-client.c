@@ -1,22 +1,16 @@
 
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <stdio.h>
-#include <netinet/in.h>
-#include <errno.h>
-#include <pthread.h>
-#include <poll.h>
-#include <unistd.h>
-#include <stdlib.h>
+
+#include "lib/common.h"
 
 #include <libxl4bus/low_level.h>
 #include <libxl4bus/high_level.h>
-#include <lib/common.h>
+
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
 
 int debug = 1;
-
-static char *addr_to_string(xl4bus_address_t *);
 
 static void conn_info(struct xl4bus_client *, xl4bus_client_condition_t);
 static void msg_info(struct xl4bus_client *, xl4bus_message_t *, void *, int);
@@ -126,18 +120,7 @@ static void msg_info(struct xl4bus_client * clt, xl4bus_message_t * msg, void * 
 
 void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
 
-    char * src = 0;
-    xl4bus_address_t * src_addr = msg->address;
-    while (src_addr) {
-        if (src) {
-            char * aux = addr_to_string(src_addr);
-            src = f_asprintf("%s,%s", src, aux);
-            free(aux);
-        } else {
-            src = addr_to_string(src_addr);
-        }
-        src_addr = src_addr->next;
-    }
+    char * src = addr_to_str(msg->address);
 
     if (!src) {
         src = f_strdup("no source!");
@@ -152,42 +135,12 @@ void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
 
 void handle_presence(struct xl4bus_client * clt, xl4bus_address_t * connected, xl4bus_address_t * disconnected) {
 
-    for (xl4bus_address_t * a = connected; a; a=a->next) {
-        char * as = addr_to_string(a);
-        printf("CONNECTED: %s\n", as);
-        free(as);
-    }
-    for (xl4bus_address_t * a = disconnected; a; a=a->next) {
-        char * as = addr_to_string(a);
-        printf("DISCONNECTED: %s\n", as);
-        free(as);
-    }
+    char * as = addr_to_str(connected);
+    printf("CONNECTED: %s\n", as);
+    free(as);
 
-}
-
-char *addr_to_string(xl4bus_address_t * addr) {
-
-    switch (addr->type) {
-
-        case XL4BAT_SPECIAL:
-
-            switch (addr->special) {
-
-                case XL4BAS_DM_CLIENT:
-                    return f_strdup("<DM-CLIENT>");
-                case XL4BAS_DM_BROKER:
-                    return f_strdup("<BROKER>");
-                default:
-                    return f_asprintf("<UNKNOWN SPECIAL %d>", addr->special);
-            }
-
-            break;
-        case XL4BAT_UPDATE_AGENT:
-            return f_asprintf("<UA: %s>", addr->update_agent);
-        case XL4BAT_GROUP:
-            return f_asprintf("<GRP: %s>", addr->group);
-        default:
-            return f_asprintf("<UNKNOWN TYPE %d>", addr->type);
-    }
+    as = addr_to_str(disconnected);
+    printf("DISCONNECTED: %s\n", as);
+    free(as);
 
 }

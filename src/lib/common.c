@@ -1,6 +1,9 @@
 
 #define _GNU_SOURCE
 
+#include "lib/common.h"
+#include "lib/debug.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -13,8 +16,6 @@
 #include <mbedtls/x509_crt.h>
 
 #include "libxl4bus/types.h"
-#include "lib/common.h"
-#include "lib/debug.h"
 
 static xl4bus_asn1_t * load_full(char * path);
 static char * simple_password (struct xl4bus_X509v3_Identity *);
@@ -292,4 +293,69 @@ int pick_timeout(int t1, int t2) {
     if (t2 < 0) { return t1; }
     if (t1 < t2) { return t1; }
     return t2;
+}
+
+char * addr_to_str(xl4bus_address_t * addr) {
+
+    if (!addr) {
+        // special case handling of 0
+        return f_strdup("(NULL)");
+    }
+
+    char * so_far = 0;
+
+    while (addr) {
+
+        char * new = 0;
+
+        switch (addr->type) {
+
+            case XL4BAT_SPECIAL:
+
+                switch (addr->special) {
+
+                    case XL4BAS_DM_CLIENT:
+                        new = f_strdup("<DM-CLIENT>");
+                        break;
+                    case XL4BAS_DM_BROKER:
+                        new = f_strdup("<BROKER>");
+                        break;
+                    default:
+                        new = f_asprintf("<UNKNOWN SPECIAL %d>", addr->special);
+                }
+
+                break;
+            case XL4BAT_UPDATE_AGENT:
+                new = f_asprintf("<UA: %s>", addr->update_agent);
+                break;
+            case XL4BAT_GROUP:
+                new = f_asprintf("<GRP: %s>", addr->group);
+                break;
+            default:
+                new = f_asprintf("<UNKNOWN TYPE %d>", addr->type);
+        }
+
+        addr = addr->next;
+
+        if (!new) {
+            // something didn't go right...
+            free(so_far);
+            return 0;
+        }
+
+        if (!so_far) {
+            so_far = new;
+        } else {
+            // concatenate!
+            char * aux = f_asprintf("%s,%s", so_far, new);
+            free(so_far);
+            free(new);
+            if (!aux) { return 0; }
+            so_far = aux;
+        }
+
+    }
+
+    return so_far;
+
 }
