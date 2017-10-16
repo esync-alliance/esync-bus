@@ -3,7 +3,6 @@
 #include <libxl4bus/low_level.h>
 #include <netdb.h>
 #include "internal.h"
-#include "porting.h"
 #include "misc.h"
 
 #if XL4_PROVIDE_THREADS
@@ -38,11 +37,12 @@ static int get_xl4bus_message(validated_object_t const *, json_object **, char c
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
 static int handle_presence(xl4bus_client_t * clt, json_object*);
 static int pick_timeout(int t1, int t2);
-static int send_json_message(xl4bus_client_t * clt, int is_reply, uint16_t stream_id, const char * type, json_object * body);
+static int send_json_message(xl4bus_client_t * clt, int is_reply, int is_final, uint16_t stream_id, const char * type, json_object * body);
 static const cjose_jwk_t * key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *);
 static void stop_client_ts(xl4bus_client_t * clt);
 static int to_broker(xl4bus_client_t *, xl4bus_ll_message_t *, xl4bus_address_t * addr, int);
 static void free_outgoing_message(xl4bus_ll_message_t *);
+static int receive_cert_details(xl4bus_client_t *, message_internal_t *, xl4bus_ll_message_t *, json_object *);
 
 #if XL4_SUPPORT_THREADS
 static int handle_mt_message(struct xl4bus_connection *, void *, size_t);
@@ -769,8 +769,6 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     cjose_header_t * unprotected_headers [mint->key_idx];
     xl4bus_ll_message_t * x_msg = 0;
 
-    client_internal_t * i_clt = clt->_private;
-
     do {
 
         BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
@@ -839,11 +837,18 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     validated_object_t vot;
     xl4bus_identity_t id;
+    message_internal_t * mint;
+    int clean_mint = 0;
+
+    char * missing_remote = 0;
 
     memset(&vot, 0, sizeof(vot));
     memset(&id, 0, sizeof(id));
 
     do {
+
+        // $TODO: a lot of errors here will lead to client dropping the connection
+        // all together. In most of the cases, this should be just dropping a stream
 
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
@@ -854,7 +859,14 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         BOLT_IF(z_strcmp(msg->content_type, "application/jose"), E_XL4BUS_DATA,
                 "JWS compact message required, got %s", NULL_STR(msg->content_type));
 
-        BOLT_SUB(validate_jws(msg->data, msg->data_len, CT_JOSE_COMPACT, i_clt->ll, &vot));
+        err = validate_jws(msg->data, msg->data_len, CT_JOSE_COMPACT, i_clt->ll, &vot, &missing_remote);
+        if (err != E_XL4BUS_OK) {
+            if (missing_remote) {
+                err = E_XL4BUS_OK;
+            } else {
+                BOLT_NEST();
+            }
+        }
 
         if (vot.x5c) {
 
@@ -882,15 +894,33 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             DBG("XCHG: Incoming stream %d", msg->stream_id);
 
-            message_internal_t * mint;
             HASH_FIND(hh, i_clt->stream_hash, &msg->stream_id, 2, mint);
-            if (mint) {
+
+            if (mint && !mint->in_restart) {
+
+                BOLT_IF(missing_remote, E_XL4BUS_DATA,
+                        "Can not cope with missing remote in internal message exchange");
 
                 BOLT_SUB(get_xl4bus_message(&vot, &root, &type));
 
                 DBG("mint state %d, received %s", mint->mis, json_object_get_string(root));
 
-                if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", type)) {
+                if (mint->mis == MIS_NEED_REMOTE && !strcmp("xl4bus.cert-details", type)) {
+
+                    clean_mint = 1;
+                    HASH_DEL(i_clt->stream_hash, mint);
+
+                    // we thing we got the certificate for a message pending delivery.
+                    receive_cert_details(clt, mint, msg, root);
+                    mint->in_restart = 1;
+                    err = ll_msg_cb(conn, &mint->ll_msg);
+                    if (err != E_XL4BUS_OK) {
+                        xl4bus_abort_stream(conn, msg->stream_id);
+                    }
+
+                    BOLT_NEST();
+
+                } else if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", type)) {
 
                     if (msg->is_final) {
 
@@ -950,7 +980,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                             BOLT_MEM(body = json_object_new_object());
                             json_object_object_add(body, "x5t#S256", json_object_get(req_destinations));
 
-                            BOLT_SUB(send_json_message(clt, 1, mint->stream_id, "xl4bus.request-cert", body));
+                            BOLT_SUB(send_json_message(clt, 1, 0, mint->stream_id, "xl4bus.request-cert", body));
 
                             mint->mis = MIS_WAIT_DETAILS;
 
@@ -965,48 +995,11 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     }
 
-
                 } else if (mint->mis == MIS_WAIT_DETAILS && !strcmp("xl4bus.cert-details", type)) {
 
                     DBG("XCHG: got certificate details");
 
-                    json_object *body;
-                    json_object *tags;
-                    int l;
-
-                    if (!json_object_object_get_ex(root, "body", &body) ||
-                        !json_object_is_type(body, json_type_object) ||
-                        !json_object_object_get_ex(body, "x5c", &tags) ||
-                        !json_object_is_type(tags, json_type_array) ||
-                        (l = json_object_array_length(tags)) <= 0) {
-
-                        DBG("XCHG: can't find any certificates in %s", json_object_get_string(root));
-                        xl4bus_abort_stream(conn, msg->stream_id);
-                        release_message(clt, mint, 0);
-                        break;
-
-                    }
-
-                    for (int i=0; i<l; i++) {
-
-                        if (mint->key_idx == mint->key_count) {
-                            DBG("XCHG: requested certificate response overflows key count?");
-                            break;
-                        }
-
-                        if (!accept_x5c(json_object_array_get_idx(tags, i), conn, &mint->remotes[mint->key_idx])) {
-                             mint->key_idx++;
-                        }
-
-                    }
-
-                    if (mint->key_idx) {
-                        BOLT_SUB(send_main_message(clt, mint));
-                    } else {
-                        DBG("No keys were constructed for encrypting payload");
-                        xl4bus_abort_stream(conn, mint->stream_id);
-                        release_message(clt, mint, 0);
-                    }
+                    BOLT_SUB(receive_cert_details(clt, mint, msg, root));
 
                 } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", type)) {
 
@@ -1024,6 +1017,9 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 if (!z_strcmp(vot.content_type, "application/vnd.xl4.busmessage+json")) {
 
+                    BOLT_IF(missing_remote, E_XL4BUS_DATA,
+                            "Remote must not be missing for system messages");
+
                     BOLT_SUB(get_xl4bus_message(&vot, &root, &type));
 
                     if (!strcmp(type, "xl4bus.presence")) {
@@ -1035,6 +1031,43 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     }
 
                 } else {
+
+                    // if remote is missing, we must ask for the key, and table the message for now.
+
+                    if (missing_remote) {
+
+                        BOLT_IF(msg->is_final, E_XL4BUS_DATA, "Can not follow up, and no remote");
+                        BOLT_IF(mint, E_XL4BUS_DATA, "No remote after remote request");
+
+                        clean_mint = 1;
+
+                        BOLT_MALLOC(mint, sizeof(message_internal_t));
+                        mint->mis = MIS_NEED_REMOTE;
+
+                        BOLT_MEM(mint->ll_msg.content_type = f_strdup(msg->content_type));
+                        mint->ll_msg.data_len = msg->data_len;
+                        BOLT_MALLOC(mint->ll_msg.data, msg->data_len);
+                        memcpy((void*)mint->ll_msg.data, msg->data, msg->data_len);
+                        mint->ll_msg.was_encrypted = msg->was_encrypted;
+                        mint->ll_msg.stream_id = msg->stream_id;
+                        mint->ll_msg.is_reply = msg->is_reply;
+                        mint->ll_msg.is_final = 0;
+
+                        BOLT_MEM(root = json_object_new_object());
+                        json_object * aux;
+                        json_object * bux;
+                        BOLT_MEM(aux = json_object_new_string(missing_remote));
+                        BOLT_MEM(bux = json_object_new_array());
+                        BOLT_MEM(!json_object_array_add(bux, aux));
+                        json_object_object_add(root, "x5t#S256", bux);
+                        BOLT_SUB(send_json_message(clt, 1, 0, msg->stream_id, "xl4bus.request-cert", root));
+
+                        HASH_ADD(hh, i_clt->stream_hash, stream_id, 2, mint);
+                        clean_mint = 0;
+
+                        break;
+
+                    }
 
                     xl4bus_address_t * to_addr = 0;
 
@@ -1056,7 +1089,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         BOLT_IF(z_strcmp(vot.content_type, "application/jose+json"),
                                 E_XL4BUS_DATA, "Payload not jose message");
 
-                        BOLT_IF(((char *) vot.data)[vot.data_len - 1] != 0, E_XL4BUS_DATA, "json must be 0 terminated");
+                        BOLT_IF(((char *) vot.data)[vot.data_len - 1] != 0,
+                                E_XL4BUS_DATA, "json must be 0 terminated");
 
                         BOLT_CJOSE(jwe = cjose_jwe_import_json((char *) vot.data, vot.data_len - 1, &c_err));
 
@@ -1099,6 +1133,9 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     xl4bus_free_address(to_addr, 1);
 
+                    // tell broker we are done
+                    send_json_message(clt, 1, 1, msg->stream_id, "xl4bus.message-confirm", 0);
+
                 }
 
             }
@@ -1106,6 +1143,9 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             break;
 
         }
+
+        BOLT_IF(missing_remote, E_XL4BUS_DATA,
+                "Can not cope with missing remote during connection negotiation");
 
         BOLT_SUB(get_xl4bus_message(&vot, &root, &type));
 
@@ -1115,7 +1155,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             // send registration request.
             // https://gitlab.excelfore.com/schema/json/xl4bus/registration-request.json
-            BOLT_SUB(send_json_message(clt, 1, msg->stream_id, "xl4bus.registration-request", 0));
+            BOLT_SUB(send_json_message(clt, 1, 0, msg->stream_id, "xl4bus.registration-request", 0));
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
                 !strcmp(type, "xl4bus.presence") && msg->is_final) {
@@ -1152,6 +1192,14 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     }
     cfg.free(id.x509.chain);
 
+    if (clean_mint) {
+        cfg.free((void*)mint->ll_msg.data);
+        cfg.free((void*)mint->ll_msg.content_type);
+        cfg.free(mint);
+    }
+
+    cfg.free(missing_remote);
+
     clean_validated_object(&vot);
     json_object_put(root);
     json_object_put(req_destinations);
@@ -1162,7 +1210,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
 int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg) {
 
-    int err = E_XL4BUS_OK;
+    int err/* = E_XL4BUS_OK*/;
     json_object * addr = 0;
     message_internal_t * mint = 0;
 
@@ -1264,7 +1312,7 @@ static int process_message_out(xl4bus_client_t * clt, message_internal_t * msg) 
 
         BOLT_MEM(json = json_object_new_object());
         json_object_object_add(json, "destinations", json_object_get(msg->addr));
-        send_json_message(clt, 0, msg->stream_id, "xl4bus.request-destinations", json);
+        send_json_message(clt, 0, 0, msg->stream_id, "xl4bus.request-destinations", json);
         msg->mis = MIS_WAIT_DESTINATIONS;
 
     }
@@ -1412,7 +1460,8 @@ int pick_timeout(int t1, int t2) {
     return t2;
 }
 
-int send_json_message(xl4bus_client_t * clt, int is_reply, uint16_t stream_id, const char * type, json_object * body) {
+int send_json_message(xl4bus_client_t * clt, int is_reply, int is_final,
+        uint16_t stream_id, const char * type, json_object * body) {
 
     int err /* = E_XL4BUS_OK */;
 
@@ -1438,6 +1487,7 @@ int send_json_message(xl4bus_client_t * clt, int is_reply, uint16_t stream_id, c
         x_msg->content_type = "application/vnd.xl4.busmessage+json";
         x_msg->stream_id = stream_id;
         x_msg->is_reply = is_reply;
+        x_msg->is_final = is_final;
 
         DBG("XCGH: sending json on stream %d : %s",
                 x_msg->stream_id, json_object_get_string(json));
@@ -1546,3 +1596,71 @@ static int handle_mt_message(struct xl4bus_connection * conn, void * buf, size_t
 
 }
 #endif
+
+
+int receive_cert_details(xl4bus_client_t * clt, message_internal_t * mint, xl4bus_ll_message_t * msg, json_object * root) {
+
+    int err = E_XL4BUS_OK;
+
+    client_internal_t * i_clt = clt->_private;
+    xl4bus_connection_t * conn = i_clt->ll;
+
+    int outgoing = mint->mis != MIS_NEED_REMOTE;
+
+    do {
+
+        json_object *body;
+        json_object *tags;
+        int l;
+
+        if (!json_object_object_get_ex(root, "body", &body) ||
+            !json_object_is_type(body, json_type_object) ||
+            !json_object_object_get_ex(body, "x5c", &tags) ||
+            !json_object_is_type(tags, json_type_array) ||
+            (l = json_object_array_length(tags)) <= 0) {
+
+            DBG("XCHG: can't find any certificates in %s", json_object_get_string(root));
+            if (outgoing) {
+                xl4bus_abort_stream(conn, msg->stream_id);
+                release_message(clt, mint, 0);
+            }
+            break;
+
+        }
+
+        for (int i=0; i<l; i++) {
+
+            json_object * single = json_object_array_get_idx(tags, i);
+
+            if (outgoing) {
+                if (mint->key_idx == mint->key_count) {
+                    DBG("XCHG: requested certificate response overflows key count?");
+                    break;
+                }
+
+                if (!accept_x5c(single, conn, &mint->remotes[mint->key_idx])) {
+                    mint->key_idx++;
+                }
+            } else {
+
+                accept_x5c(single, conn, 0);
+
+            }
+
+        }
+
+        if (outgoing) {
+            if (mint->key_idx) {
+                BOLT_SUB(send_main_message(clt, mint));
+            } else {
+                DBG("No keys were constructed for encrypting payload");
+                xl4bus_abort_stream(conn, mint->stream_id);
+                release_message(clt, mint, 0);
+            }
+        }
+
+    } while (0);
+
+    return err;
+
+}

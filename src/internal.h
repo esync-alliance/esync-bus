@@ -156,10 +156,13 @@ typedef struct ip_addr {
 } ip_addr_t;
 
 typedef enum message_info_state {
+    /* for outgoing messages */
     MIS_VIRGIN,
     MIS_WAIT_DESTINATIONS,
     MIS_WAIT_DETAILS,
-    MIS_WAIT_CONFIRM
+    MIS_WAIT_CONFIRM,
+    /* for incoming messages */
+    MIS_NEED_REMOTE
 } message_info_state_t;
 
 typedef struct remote_info {
@@ -178,16 +181,31 @@ typedef struct remote_info {
 
 typedef struct message_internal {
 
-    xl4bus_message_t * msg;
-    struct message_internal * next;
-    struct message_internal * prev;
-    uint16_t stream_id;
-    UT_hash_handle hh;
     message_info_state_t mis;
-    json_object * addr;
-    remote_info_t ** remotes;
-    size_t key_count;
-    size_t key_idx;
+    int in_restart;
+
+    union {
+
+        // outgoing message
+        struct {
+            struct message_internal * next;
+            struct message_internal * prev;
+            xl4bus_message_t * msg;
+            uint16_t stream_id;
+            UT_hash_handle hh;
+            json_object * addr;
+            remote_info_t ** remotes;
+            size_t key_count;
+            size_t key_idx;
+        };
+
+        // incoming message
+        struct {
+            xl4bus_ll_message_t ll_msg;
+        };
+
+    };
+
     void * custom;
 
 } message_internal_t;
@@ -269,7 +287,7 @@ int check_conn_io(xl4bus_connection_t*);
 #define sign_jws XI(sign_jws)
 #define encrypt_jwe XI(encrypt_jwe)
 #define decrypt_jwe XI(decrypt_jwe)
-int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t * conn, validated_object_t * vo);
+int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t * conn, validated_object_t * vo, char ** missing_remote);
 int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void * data, size_t data_len, char const * ct, char ** jws_data, size_t * jws_len);
 int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
 int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * key, void ** decrypted, size_t * decrypted_len, char ** cty);

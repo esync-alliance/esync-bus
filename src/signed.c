@@ -5,7 +5,8 @@
 #include "misc.h"
 #include "debug.h"
 
-int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t * conn, validated_object_t * vo) {
+int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
+        validated_object_t * vo, char ** missing_remote) {
 
     if (ct != CT_JOSE_COMPACT) {
         // cjose library only supports compact!
@@ -47,7 +48,12 @@ int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t *
         } else {
             const char * x5t;
             BOLT_CJOSE(x5t = cjose_header_get(vo->p_headers, "x5t#S256", &c_err));
-            BOLT_IF(!(remote_info = find_by_x5t(x5t)), E_XL4BUS_SYS, "Could not find JWK for tag %s", NULL_STR(x5t));
+            // BOLT_IF(!(remote_info = find_by_x5t(x5t)), E_XL4BUS_SYS, "Could not find JWK for tag %s", NULL_STR(x5t));
+            remote_info = find_by_x5t(x5t);
+            if (!remote_info) {
+                if (missing_remote) { *missing_remote = f_strdup(x5t); }
+                BOLT_SAY(E_XL4BUS_DATA, "No remote info for tag %s", x5t);
+            }
         }
 
         BOLT_CJOSE(hdr_str = cjose_header_get(vo->p_headers, "x-xl4bus", &c_err));
