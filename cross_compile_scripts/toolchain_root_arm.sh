@@ -2,13 +2,13 @@
 
 set -e
 
-TCR=${HOME}/tmp/arm-23
+TCR=${HOME}/tmp/linaro
 
-if test -n "$USE_ANDROID_TOOLCHAIN"; then
-    TCR="$USE_ANDROID_TOOLCHAIN"
+if test -n "$USE_ARM_TOOLCHAIN"; then
+    TCR="$USE_ARM_TOOLCHAIN"
 fi
 
-TCH=arm-linux-androideabi
+TCH=arm-linux-gnueabi
 TCP="${TCR}/bin/${TCH}-"
 export CPP=${TCP}cpp
 export AR=${TCP}ar
@@ -18,13 +18,13 @@ export CC=${TCP}gcc
 export CXX=${TCP}g++
 export LD=${TCP}ld
 export RANLIB=${TCP}ranlib
-export PKG_CONFIG_PATH=${TCR}/lib/pkgconfig
 export MAKEFLAGS=-j
-export SYSRT="${TCR}/sysroot"
-export USR="${SYSRT}/usr"
+export SYSROOT="${TCR}/sysroot"
+export USR="${SYSROOT}/usr"
+export PKG_CONFIG_PATH=${USR}/lib/pkgconfig
 
-mkdir -p android_src
-cd android_src
+mkdir -p arm_src
+cd arm_src
 
 #** ares
 
@@ -33,7 +33,7 @@ if test ! -f cares.ok; then
     git clone https://github.com/c-ares/c-ares.git
     cd c-ares
     autoreconf -f -i
-    ./configure --prefix=$USR --host=$TCH --enable-static=yes --enable-shared=no
+    ./configure --prefix=$USR --host=$TCH
     make install
     cd ..
     touch cares.ok
@@ -46,8 +46,8 @@ if test ! -f openssl.ok; then
     git clone https://github.com/openssl/openssl.git
     cd openssl
     git checkout OpenSSL_1_0_2k
-    ./Configure android --prefix=$USR no-shared
-    make -j1
+    ./config --prefix=$USR
+    ./Configure dist -fPIC --prefix=$USR
     make -j1 install
     cd ..
     touch openssl.ok
@@ -60,7 +60,7 @@ if test ! -f jansson.ok; then
     git clone https://github.com/akheron/jansson.git
     cd jansson
     autoreconf -f -i
-    ./configure --prefix=$USR --host=$TCH --enable-static=yes --enable-shared=no
+    ./configure --prefix=$USR --host=$TCH
     make install
     cd ..
     touch jansson.ok
@@ -90,7 +90,7 @@ if test ! -f mbedtls.ok; then
     git checkout 45d269555b3cb9785a75e804fe74413baffd4f0a
     ./scripts/config.pl set MBEDTLS_PLATFORM_MEMORY
     mkdir -p build && cd build
-    cmake -DENABLE_TESTING=OFF -DCMAKE_C_FLAGS="-fPIC -fvisibility=hidden" ..
+    cmake -DCMAKE_C_FLAGS="-fPIC -fvisibility=hidden" ..
     make
     cd ../..
     touch mbedtls.ok
@@ -103,11 +103,11 @@ if test ! -f jsonc.ok; then
     rm -rf json-c
     git clone https://github.com/json-c/json-c.git
     cd json-c
-    git checkout json-c-0.12
+    git checkout json-c-0.12-20140410
     autoreconf -f -i
     CFLAGS="-fPIC -fvisibility=hidden -Wno-error" CPPFLAGS="-include $(pwd)/../../json-c-rename.h" ./configure --prefix=$USR --host=$TCH --enable-static --disable-shared
-    # AC_FUNC_MALLOC fails
-    ed config.status < ../../android_scripts/jsonced
+# AC_FUNC_MALLOC fails
+    ed config.status < ../../cross_compile_scripts/jsonced
     make
     cd ..
     touch jsonc.ok
