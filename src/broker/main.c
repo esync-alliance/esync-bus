@@ -1,4 +1,10 @@
 
+#include "lib/common.h"
+
+#include <libxl4bus/low_level.h>
+#include <libxl4bus/high_level.h>
+#include "lib/debug.h"
+
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -21,14 +27,10 @@
 #include <mbedtls/error.h>
 #include <mbedtls/oid.h>
 
-#include <libxl4bus/low_level.h>
-#include <libxl4bus/high_level.h>
 #include <uthash.h>
 #include <utarray.h>
 #include <utlist.h>
 
-#include "lib/debug.h"
-#include "lib/common.h"
 
 #define REMOVE_FROM_ARRAY(array, item, msg, x...) do { \
     void * __addr = utarray_find(array, &item, void_cmp_fun); \
@@ -108,6 +110,22 @@ typedef struct poll_info {
     struct conn_info * ci;
 
 } poll_info_t;
+
+#define MAGIC_CLIENT_MESSAGE 0xed989b71
+#define MAGIC_SYS_MESSAGE 0xd6588fb0
+
+typedef struct msg_context {
+
+    uint32_t magic;
+    union {
+        struct {
+            char * in_msg_id;
+            xl4bus_address_t * from;
+            xl4bus_address_t * to;
+        };
+    };
+
+} msg_context_t;
 
 typedef struct conn_info {
 
@@ -201,6 +219,8 @@ static int sign_jws(conn_info_t * ci, json_object * bus_object, const void *data
 static int init_x509_values(void);
 static int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to);
 static int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_t ** jwk);
+static void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to);
+static void free_message_context(msg_context_t *);
 
 int debug = 1;
 
@@ -214,7 +234,7 @@ static conn_info_t * connections;
 static xl4bus_identity_t broker_identity;
 static mbedtls_x509_crt trust;
 static mbedtls_x509_crl crl;
-static remote_info_t * x5t_cache = 0;
+static remote_info_t * tag_cache = 0;
 static char * my_x5t;
 static json_object * my_x5c;
 static cjose_jwk_t * private_key;
@@ -549,6 +569,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     xl4bus_address_t * forward_to = 0;
     xl4bus_identity_t id;
     cjose_err c_err;
+    char * in_msg_id = 0;
 
     memset(&vot, 0, sizeof(vot));
     memset(&id, 0, sizeof(id));
@@ -830,6 +851,9 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             } else if (!strcmp("xl4bus.message-confirm", type)) {
                 // do nothing, it's the client telling us it's OK.
+
+                e900(f_asprintf("Confirmed receipt of %p-%04x", conn, msg->stream_id), conn->remote_address_list, 0);
+
                 BOLT_IF(!msg->is_final, E_XL4BUS_CLIENT, "Message confirmation must be final");
                 break;
             }
@@ -844,8 +868,14 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             json_object * destinations;
 
-            BOLT_IF(!json_object_object_get_ex(vot.bus_object, "destinations", &destinations),
-                    E_XL4BUS_DATA, "Not XL4 message, no destinations in bus object");
+            uint16_t stream_id = msg->stream_id;
+
+            in_msg_id = f_asprintf("%p-%04x", conn, (unsigned int)stream_id);
+
+            if (!json_object_object_get_ex(vot.bus_object, "destinations", &destinations)) {
+                BOLT_SAY(E_XL4BUS_DATA, "Not XL4 message, no destinations in bus object");
+                e900(f_asprintf("Rejected message %s - no destinations", in_msg_id), conn->remote_address_list, 0);
+            }
 
             BOLT_SUB(xl4bus_json_to_address(json_object_get_string(destinations), &forward_to));
 
@@ -855,7 +885,9 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             DBG("Received application message, has %d send list elements", l);
 
-            uint16_t stream_id = msg->stream_id;
+            e900(f_asprintf("Incoming message %s", in_msg_id), conn->remote_address_list, forward_to);
+
+            int sent_to_any = 0;
 
             for (int i=0; i<l; i++) {
                 conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(&send_list, i);
@@ -864,6 +896,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     // prevent loopback
                     continue;
                 }
+
+                sent_to_any = 1;
 
                 // the message is not final, the other side may return a certificate request.
                 msg->is_final = 0;
@@ -875,15 +909,42 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 // but eventually we should not do that, nor use incoming message
                 // structure for anything.
 
-                if (xl4bus_send_ll_message(ci2->conn, msg, 0, 0)) {
-                    printf("failed to send a message : %s\n", xl4bus_strerr(err));
-                    xl4bus_shutdown_connection(ci2->conn);
-                    i--;
-                    l--;
-                }
+                msg_context_t * ctx = 0;
 
-                DBG("application message forwarded to connection %p", ci2);
+                do {
 
+                    BOLT_MALLOC(ctx, sizeof(msg_context_t));
+
+                    ctx->magic = MAGIC_CLIENT_MESSAGE;
+                    ctx->in_msg_id = in_msg_id;
+                    // $TODO: we should respond to failures
+                    BOLT_SUB(xl4bus_copy_address(conn->remote_address_list, 1, &ctx->from));
+                    BOLT_SUB(xl4bus_copy_address(forward_to, 1, &ctx->to));
+                    BOLT_MEM(ctx->in_msg_id = f_strdup(in_msg_id));
+
+                    if (xl4bus_send_ll_message(ci2->conn, msg, ctx, 0)) {
+                        // printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                        e900(f_asprintf("Failed to send message %s as %p-%04x: %s", in_msg_id, ci2->conn,
+                                (unsigned int)msg->stream_id), conn->remote_address_list, forward_to);
+                        xl4bus_shutdown_connection(ci2->conn);
+                        i--;
+                        l--;
+                    } else {
+                        // to be released in callback
+                        ctx = 0;
+                    }
+
+                    // DBG("application message forwarded to connection %p", ci2);
+
+                } while (0);
+
+                free_message_context(ctx);
+
+            }
+
+            if (!sent_to_any) {
+                e900(f_asprintf("Message %s perished - no effective destinations", in_msg_id),
+                        conn->remote_address_list, forward_to);
             }
 
             send_json_message(ci, "xl4bus.message-confirm", 0, stream_id, 1, 1);
@@ -906,6 +967,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     json_object_put(vot.bus_object);
     json_object_put(vot.x5c);
     free(vot.content_type);
+    free(in_msg_id);
 
     return err;
 
@@ -1176,9 +1238,14 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
 
         DBG("Outgoing on %p/%p fd %d : %s", ci, conn, conn->fd, json_object_get_string(json));
 
-        if ((err = xl4bus_send_ll_message(conn, &x_msg, (void*)1, 0)) != E_XL4BUS_OK) {
+        msg_context_t * ctx = 0;
+        BOLT_MALLOC(ctx, sizeof(msg_context_t));
+        ctx->magic = MAGIC_SYS_MESSAGE;
+
+        if ((err = xl4bus_send_ll_message(conn, &x_msg, ctx, 0)) != E_XL4BUS_OK) {
             printf("failed to send a message : %s\n", xl4bus_strerr(err));
             xl4bus_shutdown_connection(conn);
+            free_message_context(ctx);
         }
 
     } while(0);
@@ -1553,12 +1620,12 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
         BOLT_NEST();
 
         remote_info_t * old;
-        HASH_FIND_STR(x5t_cache, entry->x5t, old);
+        HASH_FIND_STR(tag_cache, entry->x5t, old);
         if (old) {
-            HASH_DEL(x5t_cache, old);
+            HASH_DEL(tag_cache, old);
         }
 
-        HASH_ADD_KEYPTR(hh, x5t_cache, entry->x5t, strlen(entry->x5t), entry);
+        HASH_ADD_KEYPTR(hh, tag_cache, entry->x5t, strlen(entry->x5t), entry);
 
         if (rmi) {
             *rmi = entry;
@@ -1587,7 +1654,7 @@ remote_info_t * find_by_x5t(const char * x5t) {
 
     remote_info_t * entry;
     if (!x5t) { return 0; }
-    HASH_FIND_STR(x5t_cache, x5t, entry);
+    HASH_FIND_STR(tag_cache, x5t, entry);
     return entry;
 
 }
@@ -1753,9 +1820,27 @@ int sign_jws(conn_info_t * ci, json_object * bus_object, const void *data, size_
 
 void on_sent_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void * arg, int err) {
 
-    if (arg) {
+    msg_context_t * ctx = arg;
+    if (ctx->magic == MAGIC_CLIENT_MESSAGE) {
+
+        if (err == E_XL4BUS_OK) {
+            e900(f_asprintf("Low level accepted %s as %p-%04x", ctx->in_msg_id, conn,
+                    (unsigned int)msg->stream_id), ctx->from, ctx->to);
+        } else {
+            e900(f_asprintf("Low level rejected %s as %p-%04x : %s", ctx->in_msg_id, conn,
+                    (unsigned int)msg->stream_id, xl4bus_strerr(err)), ctx->from, ctx->to);
+        }
+
+    } else if (ctx->magic == MAGIC_SYS_MESSAGE) {
+
         free((void*)msg->data);
+
+    } else {
+        printf("Unknown magic %x in call back, something is really wrong", ctx->magic);
+        abort();
     }
+
+    free_message_context(ctx);
 
 }
 
@@ -2016,5 +2101,60 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
     clean_keyspec(&rsa_ks);
 
     return err;
+
+}
+
+void free_message_context(msg_context_t * ctx) {
+
+    if (!ctx) { return; }
+
+    if (ctx->magic == MAGIC_CLIENT_MESSAGE) {
+        xl4bus_free_address(ctx->from, 1);
+        xl4bus_free_address(ctx->to, 1);
+        free(ctx->in_msg_id);
+    }
+
+    free(ctx);
+
+}
+
+void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
+
+    char my_time[20];
+
+    my_str_time(my_time);
+
+    int alloc_src = 1;
+    int alloc_dst = 1;
+    int alloc_msg = 1;
+
+    char * from_str = addr_to_str(from);
+    if (!from_str) {
+        from_str = "(FAIL)";
+        alloc_src = 0;
+    }
+    char * to_str = addr_to_str(to);
+    if (!from_str) {
+        to_str = "(FAIL)";
+        alloc_dst = 0;
+    }
+
+    if (!msg) {
+        alloc_msg = 0;
+        msg = "(NULL MSG!)";
+    }
+
+    printf("E900 %s (%s)->(%s) : %s\n", my_time, from_str, to_str, msg);
+    fflush(stdout);
+
+    if (alloc_msg) {
+        free(msg);
+    }
+    if (alloc_src) {
+        free(from_str);
+    }
+    if (alloc_dst) {
+        free(to_str);
+    }
 
 }
