@@ -1,4 +1,6 @@
 
+#include "lib/common.h"
+
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -11,7 +13,6 @@
 #include <stdlib.h>
 
 #include <libxl4bus/low_level.h>
-#include "lib/common.h"
 
 static int on_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 static void * run_conn(void *);

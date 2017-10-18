@@ -31,7 +31,6 @@
 #include <utarray.h>
 #include <utlist.h>
 
-
 #define REMOVE_FROM_ARRAY(array, item, msg, x...) do { \
     void * __addr = utarray_find(array, &item, void_cmp_fun); \
     if (__addr) { \
@@ -221,8 +220,10 @@ static int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to);
 static int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_t ** jwk);
 static void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to);
 static void free_message_context(msg_context_t *);
+static void count(int in, int out);
+static void help(void);
 
-int debug = 1;
+int debug = 0;
 
 static conn_info_hash_list_t * ci_by_name = 0;
 static conn_info_hash_list_t * ci_by_group = 0;
@@ -241,6 +242,16 @@ static cjose_jwk_t * private_key;
 
 static const mbedtls_md_info_t * hash_sha256;
 
+static struct {
+    int enabled;
+    time_t second;
+    int in;
+    int out;
+} perf = {
+        .enabled = 0,
+        .second = 0
+};
+
 static inline int void_cmp_fun(void const * a, void const * b) {
 
     void * const * ls = a;
@@ -254,11 +265,41 @@ static inline int void_cmp_fun(void const * a, void const * b) {
     return -1;
 }
 
+
+void help() {
+
+    printf("%s",
+            "-d turn on debugging output\n"
+            "-p turn on performance output\n"
+    );
+    _exit(1);
+
+}
+
 int main(int argc, char ** argv) {
 
     xl4bus_ll_cfg_t ll_cfg;
+    int c;
 
     printf("xl4-broker %s\n", xl4bus_version());
+
+    while ((c = getopt(argc, argv, "dp")) != -1) {
+
+        switch (c) {
+
+            case 'd':
+                debug = 1;
+                break;
+            case 'p':
+                perf.enabled = 1;
+                break;
+
+            default: help(); break;
+
+        }
+
+    }
+
 
 #if 0
     ll_cfg.realloc = realloc;
@@ -266,7 +307,9 @@ int main(int argc, char ** argv) {
     ll_cfg.free = free;
 #else
     memset(&ll_cfg, 0, sizeof(xl4bus_ll_cfg_t));
-    ll_cfg.debug_f = print_out;
+    if (debug) {
+        ll_cfg.debug_f = print_out;
+    }
 #endif
 
     if (xl4bus_init_ll(&ll_cfg)) {
@@ -887,6 +930,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             e900(f_asprintf("Incoming message %s", in_msg_id), conn->remote_address_list, forward_to);
 
+            count(1, 0);
+
             int sent_to_any = 0;
 
             for (int i=0; i<l; i++) {
@@ -903,6 +948,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 msg->is_final = 0;
                 msg->is_reply = 0;
                 msg->stream_id = ci2->out_stream_id+=2;
+
+                count(0, 1);
 
                 // note: we are sending data that is inside the incoming message.
                 // this only works so far because we are not using multi-threading
@@ -2156,5 +2203,34 @@ void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
     if (alloc_dst) {
         free(to_str);
     }
+
+}
+
+void count(int in, int out) {
+
+    clockid_t clk =
+#ifdef CLOCK_MONOTONIC_COARSE
+            CLOCK_MONOTONIC_COARSE
+#elif defined(CLOCK_MONOTONIC_RAW)
+    CLOCK_MONOTONIC_RAW
+#else
+    CLOCK_MONOTONIC
+#endif
+    ;
+
+    struct timespec ts;
+
+    clock_gettime(clk, &ts);
+    if (perf.second != ts.tv_sec) {
+        if (perf.second) {
+            printf("E872 %d IN %d OUT\n", perf.in, perf.out);
+        }
+        perf.in = 0;
+        perf.out = 0;
+        perf.second = ts.tv_sec;
+    }
+
+    perf.in += in;
+    perf.out += out;
 
 }
