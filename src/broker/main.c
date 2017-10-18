@@ -818,10 +818,12 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
 
                 json_object *x5t = 0;
+                char const * req_dest = "(NONE)";
 
                 if (json_object_object_get_ex(root, "body", &aux) && json_object_is_type(aux, json_type_object)) {
                     json_object *array;
                     if (json_object_object_get_ex(aux, "destinations", &array)) {
+                        req_dest = json_object_get_string(array);
                         gather_destinations(array, &x5t, 0);
                     }
                 }
@@ -833,8 +835,13 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     json_object_object_add(body, "x5t#S256", x5t);
                 }
 
-                send_json_message(ci, "xl4bus.destination-info", body, msg->stream_id, 1,
-                        !x5t || (json_object_array_length(x5t) == 0));
+                int has_dest = x5t && (json_object_array_length(x5t) > 0);
+
+                send_json_message(ci, "xl4bus.destination-info", body, msg->stream_id, 1, !has_dest);
+
+                if (!has_dest) {
+                    e900(f_asprintf("%p-%04x has no viable destinations for %s", conn, msg->stream_id, req_dest), conn->remote_address_list, 0);
+                }
 
                 break;
 

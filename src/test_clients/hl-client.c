@@ -29,8 +29,9 @@ int main(int argc, char ** argv) {
     int c;
     char * cert_dir = 0;
     int debug = 0;
+    int flood = 0;
 
-    while ((c = getopt(argc, argv, "c:d")) != -1) {
+    while ((c = getopt(argc, argv, "c:df")) != -1) {
 
         switch (c) {
 
@@ -40,6 +41,9 @@ int main(int argc, char ** argv) {
                 break;
             case 'd':
                 debug = 1;
+                break;
+            case 'f':
+                flood = 1;
                 break;
 
             default: help(); break;
@@ -81,20 +85,24 @@ int main(int argc, char ** argv) {
     clt.on_release = reconnect;
     reconnect(&clt);
 
-    xl4bus_message_t * msg = f_malloc(sizeof(xl4bus_message_t));
+    do {
 
-    xl4bus_address_t addr = {
-            .type = XL4BAT_UPDATE_AGENT,
-            .update_agent = "test1",
-            .next = 0
-    };
+        xl4bus_message_t * msg = f_malloc(sizeof(xl4bus_message_t));
 
-    xl4bus_copy_address(&addr, 1, &msg->address);
-    msg->content_type = "application/json";
-    msg->data = "{\"say\":\"hello\"}";
-    msg->data_len = strlen(msg->data) + 1;
+        xl4bus_address_t addr = {
+                .type = XL4BAT_UPDATE_AGENT,
+                .update_agent = "test1",
+                .next = 0
+        };
 
-    xl4bus_send_message(&clt, msg, 0);
+        xl4bus_copy_address(&addr, 1, &msg->address);
+        msg->content_type = "application/json";
+        msg->data = "{\"say\":\"hello\"}";
+        msg->data_len = strlen(msg->data) + 1;
+
+        xl4bus_send_message(&clt, msg, 0);
+
+    } while (flood);
 
     while (1) {
         sleep(60);
@@ -116,6 +124,7 @@ void help() {
 #endif
             "-c <cert> : certificate directory to use for authentication\n"
             "-d        : turn on debug output\n"
+            "-f        : flood\n"
     );
     _exit(1);
 
