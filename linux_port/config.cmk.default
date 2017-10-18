@@ -1,5 +1,6 @@
 
 set(XL4_PROVIDE_DEBUG 1)
+set(XL4_PROVIDE_PERF 1)
 
 # uncomment to link executables against ElectricFence
 # set(WITH_EFENCE 1)

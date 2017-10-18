@@ -773,6 +773,11 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
 
         BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
 
+        x_msg->stream_id = mint->stream_id;
+        x_msg->is_reply = 1;
+
+#if !XL4_DISABLE_ENCRYPTION
+
         DBG("Will encrypt with %d keys", mint->key_idx);
 
         // encrypt the original message to all destinations
@@ -802,11 +807,21 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
                 cjose_jwe_encrypt_full(keys, unprotected_headers,
                         mint->key_idx, hdr, 0, mint->msg->data, mint->msg->data_len, &c_err));
 
-        x_msg->stream_id = mint->stream_id;
-        x_msg->is_reply = 1;
-        x_msg->data = cjose_jwe_export_json(encrypted, &c_err);
+        BOLT_CJOSE(x_msg->data = cjose_jwe_export_json(encrypted, &c_err));
         x_msg->data_len = strlen(x_msg->data) + 1;
-        x_msg->content_type = f_strdup("application/jose+json");
+        BOLT_MEM(x_msg->content_type = f_strdup("application/jose+json"));
+
+#else
+
+        // we don't need to copy the data, but this code path should not be normally used,
+        // and if we don't copy, then we need to implement logic for freeing the data with discrimination
+        // on whether it's allocated or not.
+
+        BOLT_MALLOC(x_msg->data, x_msg->data_len = mint->msg->data_len);
+        memcpy((void*)x_msg->data, mint->msg->data, x_msg->data_len);
+        BOLT_MEM(x_msg->content_type = f_strdup(mint->msg->content_type));
+
+#endif
 
         BOLT_SUB(to_broker(clt, x_msg, mint->msg->address, 1, 1));
 
@@ -1088,22 +1103,36 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     do {
 
-                        BOLT_IF(z_strcmp(vot.content_type, "application/jose+json"),
-                                E_XL4BUS_DATA, "Payload not jose message");
+                        if (z_strcmp(vot.content_type, "application/jose+json")) {
 
-                        BOLT_IF(((char *) vot.data)[vot.data_len - 1] != 0,
-                                E_XL4BUS_DATA, "json must be 0 terminated");
+                            DBG("Payload is not jose message");
 
-                        BOLT_CJOSE(jwe = cjose_jwe_import_json((char *) vot.data, vot.data_len - 1, &c_err));
+#if !XL4_DISABLE_ENCRYPTION
+                            BOLT_SAY(E_XL4BUS_DATA, "Encryption is required");
+#else
+                            BOLT_MEM(message.content_type = f_strdup(vot.content_type));
+                            BOLT_MALLOC(message.data, vot.data_len);
+                            memcpy((void*)message.data, vot.data, vot.data_len);
+                            message.data_len = vot.data_len;
+#endif
 
-                        BOLT_CJOSE(message.data = cjose_jwe_decrypt_full(jwe, key_locator, clt, &message.data_len,
-                                &c_err));
+                        } else {
 
-                        cjose_header_t *hdr = cjose_jwe_get_protected(jwe);
+                            BOLT_IF(((char *) vot.data)[vot.data_len - 1] != 0,
+                                    E_XL4BUS_DATA, "json must be 0 terminated");
 
-                        const char *ct;
-                        BOLT_CJOSE(ct = cjose_header_get(hdr, CJOSE_HDR_CTY, &c_err));
-                        BOLT_MEM(message.content_type = inflate_content_type(ct));
+                            BOLT_CJOSE(jwe = cjose_jwe_import_json((char *) vot.data, vot.data_len - 1, &c_err));
+
+                            BOLT_CJOSE(message.data = cjose_jwe_decrypt_full(jwe, key_locator, clt, &message.data_len,
+                                    &c_err));
+
+                            cjose_header_t *hdr = cjose_jwe_get_protected(jwe);
+
+                            const char *ct;
+                            BOLT_CJOSE(ct = cjose_header_get(hdr, CJOSE_HDR_CTY, &c_err));
+                            BOLT_MEM(message.content_type = inflate_content_type(ct));
+
+                        }
 
                         message.was_encrypted = 1;
 

@@ -42,6 +42,7 @@
 
 #define CT_JOSE_COMPACT 0
 #define CT_JOSE_JSON    1
+#define CT_APPLICATION_JSON 2
 
 #define KU_FLAG_ENCRYPT (1<<0)
 #define KU_FLAG_SIGN (1<<1)
