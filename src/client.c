@@ -869,11 +869,11 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
         char const * type;
-        int ct = CT_JOSE_COMPACT;
+        int x_ct = CT_JOSE_COMPACT;
 
 #if XL4_DISABLE_JWS
         if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage-trust+json")) {
-            ct = CT_TRUST_MESSAGE;
+            x_ct = CT_TRUST_MESSAGE;
         } else {
 
 #endif
@@ -887,7 +887,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         }
 #endif
 
-        err = validate_jws(msg->data, msg->data_len, ct, i_clt->ll, &vot, &missing_remote);
+        err = validate_jws(msg->data, msg->data_len, x_ct, i_clt->ll, &vot, &missing_remote);
         if (err != E_XL4BUS_OK) {
             if (missing_remote) {
                 err = E_XL4BUS_OK;
@@ -1136,8 +1136,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             BOLT_CJOSE(jwe = cjose_jwe_import_json((char *) vot.data, vot.data_len - 1, &c_err));
 
-                            BOLT_CJOSE(message.data = cjose_jwe_decrypt_full(jwe, key_locator, clt, &message.data_len,
-                                    &c_err));
+                            BOLT_CJOSE(message.data = cjose_jwe_decrypt_full(jwe, key_locator, clt,
+                                    &message.data_len, &c_err));
 
                             cjose_header_t *hdr = cjose_jwe_get_protected(jwe);
 
@@ -1145,9 +1145,9 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                             BOLT_CJOSE(ct = cjose_header_get(hdr, CJOSE_HDR_CTY, &c_err));
                             BOLT_MEM(message.content_type = inflate_content_type(ct));
 
-                        }
+                            message.was_encrypted = 1;
 
-                        message.was_encrypted = 1;
+                        }
 
                         clt->on_message(clt, &message);
 
