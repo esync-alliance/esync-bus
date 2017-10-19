@@ -869,13 +869,25 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
         char const * type;
+        int ct = CT_JOSE_COMPACT;
 
-        // all incoming messages must pass JWS validation, and hence must be JWS messages.
-        // note, since validate_jws only supports compact serialization, we only expect compact serialization here.
-        BOLT_IF(z_strcmp(msg->content_type, "application/jose"), E_XL4BUS_DATA,
-                "JWS compact message required, got %s", NULL_STR(msg->content_type));
+#if XL4_DISABLE_JWS
+        if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage-trust+json")) {
+            ct = CT_TRUST_MESSAGE;
+        } else {
 
-        err = validate_jws(msg->data, msg->data_len, CT_JOSE_COMPACT, i_clt->ll, &vot, &missing_remote);
+#endif
+            // all incoming messages must pass JWS validation, and hence must be JWS messages.
+            // note, since validate_jws only supports compact serialization, we only expect compact serialization here.
+            BOLT_IF(z_strcmp(msg->content_type, "application/jose"), E_XL4BUS_DATA,
+                    "JWS compact message required, got %s", NULL_STR(msg->content_type));
+
+
+#if XL4_DISABLE_JWS
+        }
+#endif
+
+        err = validate_jws(msg->data, msg->data_len, ct, i_clt->ll, &vot, &missing_remote);
         if (err != E_XL4BUS_OK) {
             if (missing_remote) {
                 err = E_XL4BUS_OK;

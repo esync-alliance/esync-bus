@@ -108,16 +108,6 @@ endif()
 
 include(${LOAD_CFG})
 
-set(LOAD_CFG ${PORT}/config.cmk)
-if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
-    set(LOAD_CFG ${PORT}/config.cmk.default)
-    if ((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
-        message(FATAL_ERROR "${PORT} must contain config.cmk or config.cmk.default file")
-    endif()
-endif()
-
-include(${LOAD_CFG})
-
 set(LOAD_CFG ${PORT}/config.h)
 if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
     set(LOAD_CFG ${PORT}/config.h.default)

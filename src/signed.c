@@ -30,13 +30,14 @@ int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t *
 
         if (ct == CT_TRUST_MESSAGE) {
 
-            BOLT_IF(trust = json_tokener_parse(bin), E_XL4BUS_DATA, "Incoming trust message doesn't parse");
+            BOLT_IF(!(trust = json_tokener_parse(bin)), E_XL4BUS_DATA, "Incoming trust message doesn't parse");
+
+            // printf(">>>%s\n", json_object_get_string(trust));
 
             // is there an x5c entry?
             if (json_object_object_get_ex(trust, "x5c", &x5c_json)) {
                 x5c_json = json_object_get(x5c_json);
                 BOLT_SUB(accept_x5c(x5c_json, conn, &remote_info));
-                vo->x5c = x5c_json;
             } else {
                 json_object * x5t_json;
                 const char * x5t = "<unspecified>";
@@ -56,9 +57,9 @@ int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t *
 
             json_object * j_aux;
             if (!json_object_object_get_ex(trust, "content-type", &j_aux)) {
-                BOLT_MEM(vo->content_type = f_strdup("application/octet-stream"));
+                BOLT_MEM(content_type = f_strdup("application/octet-stream"));
             } else {
-                BOLT_MEM(vo->content_type = f_strdup(json_object_get_string(j_aux)));
+                BOLT_MEM(content_type = f_strdup(json_object_get_string(j_aux)));
             }
 
             const char * in_data;
@@ -102,8 +103,6 @@ int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t *
                     E_XL4BUS_DATA, "x5c attribute is not a json array");
 
             BOLT_SUB(accept_x5c(x5c_json, conn, &remote_info));
-
-            vo->x5c = x5c_json;
 
         } else {
             const char * x5t;
@@ -197,8 +196,11 @@ int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void *d
         BOLT_CJOSE(cjose_base64_encode(data, data_len, &base64, &base64_len, &c_err));
 
         json_object * j_aux;
-        BOLT_MEM(j_aux = json_object_new_string_len(data, (int)data_len));
+        BOLT_MEM(j_aux = json_object_new_string_len(base64, (int)base64_len));
         json_object_object_add(trust, "data", j_aux);
+
+        BOLT_MEM(j_aux = json_object_new_string(ct));
+        json_object_object_add(trust, "content-type", j_aux);
 
         BOLT_MEM(*jws_data = f_strdup(json_object_get_string(trust)));
         *jws_len = strlen(*jws_data) + 1;

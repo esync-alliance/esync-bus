@@ -190,7 +190,7 @@ typedef struct validated_object {
     // these are internal, and are maintained by the ones above
     uint8_t * data;
     size_t data_len;
-    cjose_header_t * p_headers;
+    int data_copy; // if data to be release separately
 
 } validated_object_t;
 
@@ -206,7 +206,7 @@ static void gather_all_destinations(xl4bus_address_t * first, UT_array * conns);
 static void on_connection_shutdown(xl4bus_connection_t * conn);
 static void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except);
 static int send_json_message(conn_info_t *, const char *, json_object * body, uint16_t stream_id, int is_reply, int is_final);
-static int validate_jws(void const * data, size_t data_len, validated_object_t * vo);
+static int validate_jws(int trusted, void const * data, size_t data_len, validated_object_t * vo);
 static int accept_x5c(json_object * x5c, remote_info_t ** rmi);
 static remote_info_t * find_by_x5t(const char * x5t);
 static char * make_cert_hash(void * der, size_t der_len);
@@ -613,6 +613,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     xl4bus_identity_t id;
     cjose_err c_err;
     char * in_msg_id = 0;
+    int trusted = 0;
 
     memset(&vot, 0, sizeof(vot));
     memset(&id, 0, sizeof(id));
@@ -621,10 +622,22 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         // all incoming messages must pass JWS validation, and hence must be JWS messages.
         // note, since validate_jws only supports compact serialization, we only expect compact serialization here.
+
+#if XL4_DISABLE_JWS
+
+        if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage-trust+json")) {
+            trusted = 1;
+        } else {
+#endif
+
         BOLT_IF(z_strcmp(msg->content_type, "application/jose"), E_XL4BUS_DATA,
                 "JWS compact message required, got %s", NULL_STR(msg->content_type));
 
-        BOLT_SUB(validate_jws(msg->data, msg->data_len, &vot));
+#if XL4_DISABLE_JWS
+        }
+#endif
+
+        BOLT_SUB(validate_jws(trusted, msg->data, msg->data_len, &vot));
 
         BOLT_IF(ci->remote_x5t && z_strcmp(ci->remote_x5t, vot.remote_info->x5t),
                 E_XL4BUS_DATA, "Switching remote identities is not supported");
@@ -1021,6 +1034,9 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     json_object_put(vot.bus_object);
     json_object_put(vot.x5c);
     free(vot.content_type);
+    if (vot.data_copy) {
+        free(vot.data);
+    }
     free(in_msg_id);
 
     return err;
@@ -1284,7 +1300,11 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
                 &x_msg.data, &x_msg.data_len));
 
         // sign_jws always make objects of content type application/jose
+#if XL4_DISABLE_JWS
+        x_msg.content_type = "application/vnd.xl4.busmessage-trust+json";
+#else
         x_msg.content_type = "application/jose";
+#endif
 
         x_msg.stream_id = stream_id;
         x_msg.is_reply = is_reply;
@@ -1311,28 +1331,85 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
 
 }
 
-int validate_jws(void const * data, size_t data_len, validated_object_t * vo) {
+int validate_jws(int trusted, void const * data, size_t data_len, validated_object_t * vo) {
 
     cjose_err c_err;
 
     cjose_jws_t *jws = 0;
     json_object *hdr = 0;
     int err = E_XL4BUS_OK;
-    char * x5c = 0;
-    json_object * x5c_json = 0;
-    remote_info_t * remote_info = 0;
-    char * content_type = 0;
+    char *x5c = 0;
+    json_object *x5c_json = 0;
+    remote_info_t *remote_info = 0;
+    char *content_type = 0;
+
+#if XL4_DISABLE_JWS
+    json_object *trust = 0;
+#endif
 
     do {
 
-        BOLT_IF(!data_len || ((char*)data)[--data_len], E_XL4BUS_DATA, "Data is not ASCIIZ");
+        BOLT_IF(!data_len || ((char *) data)[--data_len], E_XL4BUS_DATA, "Data is not ASCIIZ");
+
+#if XL4_DISABLE_JWS
+
+        if (trusted) {
+
+            BOLT_IF(!(trust = json_tokener_parse(data)),
+                    E_XL4BUS_DATA, "Incoming trust message doesn't parse");
+
+            // is there an x5c entry?
+            if (json_object_object_get_ex(trust, "x5c", &x5c_json)) {
+                x5c_json = json_object_get(x5c_json);
+                BOLT_SUB(accept_x5c(x5c_json, &remote_info));
+            } else {
+                json_object *x5t_json;
+                const char *x5t = "<unspecified>";
+                if (json_object_object_get_ex(trust, "x5t#S256", &x5t_json)) {
+                    x5t = json_object_get_string(x5t_json);
+                    remote_info = find_by_x5t(x5t);
+                }
+                if (!remote_info) {
+                    BOLT_SAY(E_XL4BUS_DATA, "No remote info for tag %s", x5t);
+                }
+            }
+
+            if (!json_object_object_get_ex(trust, "x-xl4bus", &hdr) ||
+                !json_object_is_type(hdr = json_object_get(hdr), json_type_object)) {
+                BOLT_SAY(E_XL4BUS_DATA, "No x-xl4bus object property in the header");
+            }
+
+            json_object *j_aux;
+            if (!json_object_object_get_ex(trust, "content-type", &j_aux)) {
+                BOLT_MEM(content_type = f_strdup("application/octet-stream"));
+            } else {
+                BOLT_MEM(content_type = f_strdup(json_object_get_string(j_aux)));
+            }
+
+            const char *in_data;
+            if (!json_object_object_get_ex(trust, "data", &j_aux)) {
+                in_data = "";
+            } else {
+                in_data = json_object_get_string(j_aux);
+            }
+
+            BOLT_CJOSE(cjose_base64_decode(in_data, strlen(in_data), &vo->data, &vo->data_len, &c_err));
+            vo->data_copy = 1;
+
+            break;
+
+
+        }
+
+#endif
+
         BOLT_CJOSE(jws = cjose_jws_import(data, data_len, &c_err));
 
-        vo->p_headers = cjose_jws_get_protected(jws);
+        cjose_header_t *p_headers = cjose_jws_get_protected(jws);
         const char *hdr_str;
 
         // is there an x5c entry?
-        BOLT_CJOSE(x5c = cjose_header_get_raw(vo->p_headers, "x5c", &c_err));
+        BOLT_CJOSE(x5c = cjose_header_get_raw(p_headers, "x5c", &c_err));
 
         if (x5c) {
 
@@ -1342,18 +1419,16 @@ int validate_jws(void const * data, size_t data_len, validated_object_t * vo) {
 
             BOLT_SUB(accept_x5c(x5c_json, &remote_info));
 
-            vo->x5c = x5c_json;
-
         } else {
-            const char * x5t;
-            BOLT_CJOSE(x5t = cjose_header_get(vo->p_headers, "x5t#S256", &c_err));
+            const char *x5t;
+            BOLT_CJOSE(x5t = cjose_header_get(p_headers, "x5t#S256", &c_err));
             BOLT_IF(!(remote_info = find_by_x5t(x5t)), E_XL4BUS_SYS, "Could not find JWK for tag %s", NULL_STR(x5t));
         }
 
-        BOLT_CJOSE(hdr_str = cjose_header_get(vo->p_headers, "x-xl4bus", &c_err));
+        BOLT_CJOSE(hdr_str = cjose_header_get(p_headers, "x-xl4bus", &c_err));
 
-        const char * aux;
-        BOLT_CJOSE(aux = cjose_header_get(vo->p_headers, CJOSE_HDR_CTY, &c_err));
+        const char *aux;
+        BOLT_CJOSE(aux = cjose_header_get(p_headers, CJOSE_HDR_CTY, &c_err));
         BOLT_MEM(content_type = inflate_content_type(aux));
 
         hdr = json_tokener_parse(hdr_str);
@@ -1372,6 +1447,10 @@ int validate_jws(void const * data, size_t data_len, validated_object_t * vo) {
     // free stuff that we used temporary
 
     free(x5c);
+
+#if XL4_DISABLE_JWS
+    json_object_put(trust);
+#endif
 
     if (err == E_XL4BUS_OK) {
 
@@ -1835,7 +1914,39 @@ int sign_jws(conn_info_t * ci, json_object * bus_object, const void *data, size_
     cjose_header_t *j_hdr = 0;
     int err = E_XL4BUS_OK;
 
+#if XL4_DISABLE_JWS
+    json_object * trust = 0;
+    char * base64 = 0;
+#endif
+
     do {
+
+#if XL4_DISABLE_JWS
+        BOLT_MEM(trust = json_object_new_object());
+        if (!ci->sent_x5c) {
+            json_object_object_add(trust, "x5c", json_object_get(my_x5c));
+            ci->sent_x5c = 1;
+        } else {
+            json_object *j_aux;
+            BOLT_MEM(j_aux = json_object_new_string(my_x5t));
+            json_object_object_add(trust, "x5t#S256", j_aux);
+        }
+        json_object_object_add(trust, "x-xl4bus", json_object_get(bus_object));
+
+        size_t base64_len;
+        BOLT_CJOSE(cjose_base64_encode(data, data_len, &base64, &base64_len, &c_err));
+
+        json_object * j_aux;
+        BOLT_MEM(j_aux = json_object_new_string_len(base64, (int)base64_len));
+        json_object_object_add(trust, "data", j_aux);
+
+        BOLT_MEM(j_aux = json_object_new_string(ct));
+        json_object_object_add(trust, "content-type", j_aux);
+
+        BOLT_MEM(*jws_data = f_strdup(json_object_get_string(trust)));
+        *jws_len = strlen(*jws_data) + 1;
+
+#else
 
         BOLT_CJOSE(j_hdr = cjose_header_new(&c_err));
 
@@ -1863,10 +1974,17 @@ int sign_jws(conn_info_t * ci, json_object * bus_object, const void *data, size_
         *jws_data = f_strdup(jws_export);
         *jws_len = strlen(*jws_data) + 1;
 
+#endif
+
     } while (0);
 
     cjose_jws_release(jws);
     cjose_header_release(j_hdr);
+
+#if XL4_DISABLE_JWS
+    json_object_put(trust);
+    free(base64);
+#endif
 
     return err;
 
