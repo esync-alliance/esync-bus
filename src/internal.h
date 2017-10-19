@@ -43,6 +43,7 @@
 #define CT_JOSE_COMPACT 0
 #define CT_JOSE_JSON    1
 #define CT_APPLICATION_JSON 2
+#define CT_TRUST_MESSAGE 3
 
 #define KU_FLAG_ENCRYPT (1<<0)
 #define KU_FLAG_SIGN (1<<1)
@@ -261,10 +262,11 @@ typedef struct validated_object {
     remote_info_t * remote_info;
     char * content_type;
 
+    int data_copy;
+
     // these are internal, and are maintained by the ones above
     uint8_t * data;
     size_t data_len;
-    cjose_header_t * p_headers;
 
 } validated_object_t;
 

@@ -335,6 +335,9 @@ do {} while(0)
                                         case CT_APPLICATION_JSON:
                                             ct = "application/json";
                                             break;
+                                        case CT_TRUST_MESSAGE:
+                                            ct = "application/vnd.xl4.busmessage-trust+json";
+                                            break;
                                         default:
                                             ct = "application/octet-stream";
                                             break;
@@ -650,6 +653,12 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         } else {
 
+#else
+
+        // clear out x5c if encryption is disabled, it will never
+        // otherwise be cleared, and we'll be doing expensive validation
+        i_conn->x5c = 0;
+
 #endif /* !XL4_DISABLE_ENCRYPTION */
 
             DBG("Not encrypting message, remote public key not set");
@@ -660,6 +669,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
                 ct = CT_JOSE_JSON;
             } else if (!z_strcmp(msg->content_type, "application/json")) {
                 ct = CT_APPLICATION_JSON;
+            } else if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage-trust+json")) {
+                ct = CT_TRUST_MESSAGE;
             } else {
                 BOLT_SAY(E_XL4BUS_ARG, "Unsupported content type %s", msg->content_type);
             }

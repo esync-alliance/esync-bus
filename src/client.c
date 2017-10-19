@@ -817,6 +817,7 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
         // and if we don't copy, then we need to implement logic for freeing the data with discrimination
         // on whether it's allocated or not.
 
+        memset(unprotected_headers, 0, sizeof(void*) * mint->key_idx);
         BOLT_MALLOC(x_msg->data, x_msg->data_len = mint->msg->data_len);
         memcpy((void*)x_msg->data, mint->msg->data, x_msg->data_len);
         BOLT_MEM(x_msg->content_type = f_strdup(mint->msg->content_type));
@@ -1583,7 +1584,11 @@ int to_broker(xl4bus_client_t * clt, xl4bus_ll_message_t * msg, xl4bus_address_t
         BOLT_SUB(sign_jws(i_clt->ll, bus_object, msg->data, msg->data_len,
                 msg->content_type, (char**)&signed_data, &signed_data_len));
 
+#if XL4_DISABLE_JWS
+        BOLT_MEM(ct = f_strdup("application/vnd.xl4.busmessage-trust+json"));
+#else
         BOLT_MEM(ct = f_strdup("application/jose"));
+#endif
 
         // OK, everything worked, free old data if needed and replace.
         if (free_data) {

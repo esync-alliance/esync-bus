@@ -791,11 +791,14 @@ int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
 
 void clean_validated_object(validated_object_t * vo) {
 
-    cjose_jws_release(vo->exp_jws);
     json_object_put(vo->bus_object);
     json_object_put(vo->x5c);
     release_remote_info(vo->remote_info);
     cfg.free(vo->content_type);
+
+    if (vo->data_copy) {
+        cfg.free(vo->data);
+    }
 
 }
 
