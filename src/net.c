@@ -332,6 +332,12 @@ do {} while(0)
                                         case CT_JOSE_JSON:
                                             ct = "application/jose+json";
                                             break;
+                                        case CT_APPLICATION_JSON:
+                                            ct = "application/json";
+                                            break;
+                                        case CT_TRUST_MESSAGE:
+                                            ct = "application/vnd.xl4.busmessage-trust+json";
+                                            break;
                                         default:
                                             ct = "application/octet-stream";
                                             break;
@@ -634,6 +640,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
+#if !XL4_DISABLE_ENCRYPTION
+
         // encrypt if we can
         if (i_conn->remote_key) {
 
@@ -645,19 +653,34 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         } else {
 
+#else
+
+        // clear out x5c if encryption is disabled, it will never
+        // otherwise be cleared, and we'll be doing expensive validation
+        i_conn->x5c = 0;
+
+#endif /* !XL4_DISABLE_ENCRYPTION */
+
             DBG("Not encrypting message, remote public key not set");
 
             if (!z_strcmp(msg->content_type, "application/jose")) {
                 ct = CT_JOSE_COMPACT;
             } else if (!z_strcmp(msg->content_type, "application/jose+json")) {
                 ct = CT_JOSE_JSON;
+            } else if (!z_strcmp(msg->content_type, "application/json")) {
+                ct = CT_APPLICATION_JSON;
+            } else if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage-trust+json")) {
+                ct = CT_TRUST_MESSAGE;
             } else {
                 BOLT_SAY(E_XL4BUS_ARG, "Unsupported content type %s", msg->content_type);
             }
 
             BOLT_MALLOC(frame, msg->data_len + 13);
             memcpy(frame + 9, msg->data, ser_len = msg->data_len);
+
+#if !XL4_DISABLE_ENCRYPTION
         }
+#endif
 
         // $TODO: support large messages!
         if (ser_len > 65000) { break; }

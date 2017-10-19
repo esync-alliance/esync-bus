@@ -19,6 +19,12 @@
  */
 
 /**
+ * If 1, provide support for reporting back
+ * performance data on crypto operations
+ */
+#cmakedefine01 XL4_PROVIDE_PERF
+
+/**
  * If 1, turns on internal thread support for the library.
  * This is used for when library can launch its own threads.
  * ::XL4_SUPPORT_THREADS must be enabled.
@@ -74,5 +80,17 @@
  * such as `malloc`, `free` and `realloc`.
  */
 #cmakedefine01 XL4_HAVE_STD_MALLOC
+
+/**
+ * If 1, the library will not encrypt traffic, nor require
+ * encryption.
+ */
+#cmakedefine01 XL4_DISABLE_ENCRYPTION
+
+/**
+ * If 1, the library will disable signing, and not require
+ * JWS verification on the payload.
+ */
+#cmakedefine01 XL4_DISABLE_JWS
 
 #endif
