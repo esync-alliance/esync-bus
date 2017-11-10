@@ -4,6 +4,7 @@
  * @brief Contains build parameters defined for your copy of the library.
  * Note that this file is generated during build process, and changing
  * it will not affect the library, but may lead to compilation errors.
+ * To change the values, edit config.cmk in your port directory, and rebuild.
  */
 
 #ifndef _XL4BUS_BUILD_CONFIG_H_
@@ -92,5 +93,14 @@
  * JWS verification on the payload.
  */
 #cmakedefine01 XL4_DISABLE_JWS
+
+/**
+ * Limit the amount of path element that the user agent may have.
+ */
+#cmakedefine XL4_MAX_UA_PATHS
+
+#ifndef XL4_MAX_UA_PATHS
+#define XL4_MAX_UA_PATHS 10
+#endif
 
 #endif

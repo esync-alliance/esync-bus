@@ -168,6 +168,16 @@ typedef struct conn_info_hash_list {
     char * key;
 } conn_info_hash_list_t;
 
+typedef struct conn_info_hash_tree {
+
+    char * key;
+    UT_hash_handle hh; // key into parent's hash
+    UT_array items;
+    struct conn_info_hash_tree * nodes;
+    struct conn_info_hash_tree * parent;
+
+} conn_info_hash_tree_t;
+
 typedef struct remote_info {
 
     UT_hash_handle hh;
@@ -220,12 +230,17 @@ static int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to);
 static int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_t ** jwk);
 static void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to);
 static void free_message_context(msg_context_t *);
+static void hash_tree_add(conn_info_t *, const char * ua_name);
+static void hash_tree_remove(conn_info_t *);
+static void hash_tree_do_rec(conn_info_hash_tree_t * current, conn_info_t *, const char * full_name, const char * ua_name, int ok_more, int is_delete, UT_array * gather);
+static int hash_tree_maybe_delete(conn_info_hash_tree_t * current);
 static void count(int in, int out);
 static void help(void);
 
 int debug = 0;
 
-static conn_info_hash_list_t * ci_by_name = 0;
+static conn_info_hash_list_t * ci_by_name2 = 0;
+static conn_info_hash_tree_t * ci_ua_tree = 0;
 static conn_info_hash_list_t * ci_by_group = 0;
 static conn_info_hash_list_t * ci_by_x5t = 0;
 static UT_array dm_clients;
@@ -736,9 +751,11 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     } else if (r_addr->type == XL4BAT_UPDATE_AGENT) {
 
-                        ci->ua_names = f_realloc(ci->ua_names, sizeof(char *) * (ci->ua_count + 1));
-                        ci->ua_names[ci->ua_count] = f_strdup(r_addr->update_agent);
-                        HASH_LIST_ADD(ci_by_name, ci, ua_names[ci->ua_count]);
+                        // $TODO: If the update agent address is too long, this becomes
+                        // a silent failure. May be this should be detected?
+                        hash_tree_add(ci, r_addr->update_agent);
+                        HASH_LIST_ADD(ci_by_name2, ci, ua_names[ci->ua_count]);
+
                         ci->ua_count++;
 
                         json_object *cel;
@@ -782,7 +799,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     conn_info_hash_list_t *tmp;
                     conn_info_hash_list_t *cti;
 
-                    HASH_ITER(hh, ci_by_name, cti, tmp) {
+                    HASH_ITER(hh, ci_by_name2, cti, tmp) {
                         UTCOUNT_WITHOUT(&cti->items, ci, lc);
                         if (lc > 0) {
                             json_object *cux;
@@ -1066,9 +1083,11 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
         }
     }
 
+    hash_tree_remove(ci);
+
     for (int i=0; i< ci->ua_count; i++) {
         int n_len;
-        REMOVE_FROM_HASH(ci_by_name, ci, ua_names[i], n_len, "Removing by UA name");
+        REMOVE_FROM_HASH(ci_by_name2, ci, ua_names[i], n_len, "Removing by UA name");
         if (!n_len) {
             json_object * bux = json_object_new_object();
             json_object_object_add(bux, "update-agent", json_object_new_string(ci->ua_names[i]));
@@ -1199,25 +1218,20 @@ void gather_destinations(json_object * array, json_object ** x5t, UT_array * con
 static void gather_destination(xl4bus_address_t * addr, str_t ** x5t, UT_array * conns) {
 
     UT_array * send_list = 0;
-    conn_info_hash_list_t * use_hl = 0;
-    char const * key = 0;
+    int clear_send_list = 0;
 
     if (addr->type == XL4BAT_UPDATE_AGENT) {
-        use_hl = ci_by_name;
-        key = addr->update_agent;
+        utarray_new(send_list, &ut_ptr_icd);
+        hash_tree_do_rec(ci_ua_tree, 0, 0, addr->update_agent, XL4_MAX_UA_PATHS, 0, send_list);
+        clear_send_list = 1;
     } else if (addr->type == XL4BAT_GROUP) {
-        use_hl = ci_by_group;
-        key = addr->group;
-    } else if (addr->type == XL4BAT_SPECIAL && addr->special == XL4BAS_DM_CLIENT) {
-        send_list = &dm_clients;
-    }
-
-    if (use_hl) {
         conn_info_hash_list_t * val;
-        HASH_FIND(hh, use_hl, key, strlen(key)+1, val);
+        HASH_FIND(hh, ci_by_group, addr->group, strlen(addr->group)+1, val);
         if (val) {
             send_list = &val->items;
         }
+    } else if (addr->type == XL4BAT_SPECIAL && addr->special == XL4BAS_DM_CLIENT) {
+        send_list = &dm_clients;
     }
 
     if (!send_list) {
@@ -1245,6 +1259,10 @@ static void gather_destination(xl4bus_address_t * addr, str_t ** x5t, UT_array *
             ADD_TO_ARRAY_ONCE(conns, ci2);
         }
 
+    }
+
+    if (clear_send_list) {
+        utarray_free(send_list);
     }
 
 
@@ -2357,5 +2375,133 @@ void count(int in, int out) {
 
     perf.in += in;
     perf.out += out;
+
+}
+
+void hash_tree_add(conn_info_t * ci, const char * ua_name) {
+
+    ci->ua_names = f_realloc(ci->ua_names, sizeof(char *) * (ci->ua_count + 1));
+    ci->ua_names[ci->ua_count] = f_strdup(ua_name);
+    // HASH_LIST_ADD(ci_by_name, ci, ua_names[ci->ua_count]);
+
+    // we have to deal with root, before calling in recursive tree storage.
+    if (!ci_ua_tree) {
+        ci_ua_tree = f_malloc(sizeof(conn_info_hash_tree_t));
+        utarray_init(&ci_ua_tree->items, &ut_ptr_icd);
+    }
+
+    hash_tree_do_rec(ci_ua_tree, ci, ua_name, ua_name, XL4_MAX_UA_PATHS, 0, 0);
+
+#if 0
+    // honestly, there is no point to deleting the root.
+    if (hash_tree_maybe_delete(ci_ua_tree)) {
+        // root died.
+        ci_ua_tree = 0;
+    }
+#endif
+
+}
+
+void hash_tree_do_rec(conn_info_hash_tree_t * current, conn_info_t * ci, const char * full_name,
+        const char * ua_name, int ok_more, int is_delete, UT_array * gather) {
+
+    // NOTE! Gathering - we need to add all conn_info_t objects at each level we encounter.
+    if (gather && utarray_len(&current->items)) {
+        utarray_concat(gather, &current->items);
+    }
+
+    while (*ua_name && (*ua_name == '/')) { ua_name++; }
+
+    if (!*ua_name) {
+        // we ran out of name, so this is the place where we need to drop this conn_info.
+        if (is_delete) {
+            REMOVE_FROM_ARRAY(&current->items, ci, "Removing %s from terminal array", full_name);
+        } else if (!gather) {
+            ADD_TO_ARRAY_ONCE(&current->items, ci);
+        }
+        return;
+    }
+
+    if (!ok_more) { return; }
+
+    size_t key_len;
+
+    char * ua_name_sep = strchr(ua_name, '/');
+    if (ua_name_sep) {
+        // there is a separator
+        key_len = (size_t)(ua_name_sep - ua_name);
+    } else {
+        key_len = strlen(ua_name);
+    }
+
+    conn_info_hash_tree_t * child;
+    HASH_FIND(hh, current->nodes, ua_name, key_len, child);
+    if (!child) {
+        if (is_delete) {
+            printf("While looking for sub-tree %s, for UA %s, next sub-node could not be found", ua_name, full_name);
+        } else {
+            child = f_malloc(sizeof(conn_info_hash_tree_t));
+            child->key = f_strndup(ua_name, key_len);
+            HASH_ADD_KEYPTR(hh, current->nodes, child->key, key_len, child);
+            utarray_init(&child->items, &ut_ptr_icd);
+        }
+    }
+
+    ua_name += key_len;
+
+    if (child) {
+        hash_tree_do_rec(child, ci, full_name, ua_name, ok_more - 1, is_delete, gather);
+    }
+
+    // NOTE! We only check if we can delete the child container, but not current.
+    // This is because current can be root, and deleting root without resetting it's
+    // address is fatal. So we never delete root (if we did, this would be in hash_tree_add/hash_tree_remove
+    // functions.
+    if (!gather) {
+        // only if !gather, for !!gather, we are not making any changes, only looking
+        hash_tree_maybe_delete(child);
+    }
+
+}
+
+int hash_tree_maybe_delete(conn_info_hash_tree_t * current) {
+
+    // do I have property at this level?
+    if (utarray_len(&current->items)) {
+        return 0;
+    }
+
+    // no property at this level, but do I have kids?
+    if (HASH_COUNT(current->nodes)) {
+        // yeah, pesky kids, have to stay on
+        return 0;
+    }
+
+    // no property, no kids, no reason to live.
+    if (current->parent) {
+        // if I have a parent, check out from it.
+        HASH_DEL(current->parent->nodes, current);
+        free(current->key);
+    }
+
+    free(current);
+    return 1;
+
+}
+
+static void hash_tree_remove(conn_info_t * ci) {
+
+    for (int i = 0; i<ci->ua_count; i++) {
+
+        const char * ua_name = ci->ua_names[i];
+
+        if (!ci_ua_tree) {
+            printf("Cleaning UA %s - no root UA has tree root!", ua_name);
+            continue;
+        }
+
+        hash_tree_do_rec(ci_ua_tree, ci, ua_name, ua_name, XL4_MAX_UA_PATHS, 1, 0);
+
+    }
 
 }
