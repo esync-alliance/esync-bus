@@ -30,7 +30,9 @@ cd android_src
 
 if test ! -f cares.ok; then
     rm -rf c-ares
-    git clone https://github.com/c-ares/c-ares.git
+    wget https://c-ares.haxx.se/download/c-ares-1.13.0.tar.gz --no-check-certificate
+    tar -xvzf ./c-ares-1.13.0.tar.gz
+    mv ./c-ares-1.13.0 ./c-ares
     cd c-ares
     autoreconf -f -i
     ./configure --prefix=$USR --host=$TCH --enable-static=yes --enable-shared=no
