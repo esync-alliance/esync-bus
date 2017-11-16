@@ -42,5 +42,5 @@ LINUX
 * Build cjose:
   - ( rm -rf cjose-build && cp -fr cjose cjose-build && cd cjose-build && \
       CFLAGS="-fPIC -fvisibility=hidden" ./configure --with-openssl=/usr --with-jansson=/usr \
-       --enable-static --disable-shared && make -j )
+       --enable-static --disable-shared && make -j && make install )
 
