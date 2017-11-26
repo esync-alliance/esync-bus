@@ -680,15 +680,25 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
         BOLT_IF(!id->x509.private_key, E_XL4BUS_ARG, "Private key must be supplied");
 
 
-        if (id->x509.password) {
-            pwd = id->x509.password(&id->x509);
-            pwd_len = strlen(pwd);
+        int try_pk = mbedtls_pk_parse_key(&prk, id->x509.private_key->buf.data,
+                id->x509.private_key->buf.len, 0, 0);
+
+        if (try_pk == MBEDTLS_ERR_PK_PASSWORD_REQUIRED || try_pk == MBEDTLS_ERR_PK_PASSWORD_MISMATCH) {
+
+            if (id->x509.password) {
+                pwd = id->x509.password(&id->x509);
+                pwd_len = strlen(pwd);
+            }
+
+            BOLT_MTLS(mbedtls_pk_parse_key(&prk, id->x509.private_key->buf.data,
+                    id->x509.private_key->buf.len, (const unsigned char*)"", 0));
+
+        } else {
+            BOLT_MTLS(try_pk);
         }
 
-        BOLT_MTLS(mbedtls_pk_parse_key(&prk, id->x509.private_key->buf.data,
-                id->x509.private_key->buf.len, (char unsigned const *)pwd, pwd_len));
-
-        BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA keys are supported");
+        BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA),
+                E_XL4BUS_ARG, "Only RSA keys are supported");
 
         if (pk) {
             BOLT_MTLS(mbedtls_pk_check_pair(pk, &prk));

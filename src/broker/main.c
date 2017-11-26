@@ -236,6 +236,8 @@ static void hash_tree_do_rec(conn_info_hash_tree_t * current, conn_info_t *, con
 static int hash_tree_maybe_delete(conn_info_hash_tree_t * current);
 static void count(int in, int out);
 static void help(void);
+static void load_pem_array(char ** file_list, xl4bus_asn1_t ***asn_list, char const *string);
+
 
 int debug = 0;
 
@@ -284,10 +286,46 @@ static inline int void_cmp_fun(void const * a, void const * b) {
 void help() {
 
     printf("%s",
-            "-d turn on debugging output\n"
-            "-p turn on performance output\n"
+"-h\n"
+"   print this text\n"
+"-k <path>\n"
+"   specify private key file (PEM format) to use\n"
+"-K <text>\n"
+"   specify private key file password, if needed\n"
+"-c <path>\n"
+"   certificate to use (PEM format), specify multiple times for a chain\n"
+"-t <path>\n"
+"   trust anchor to use (PEM format), \n"
+"   specify multiple times for multiple anchors\n"
+"-D <dir>\n"
+"   use demo PKI directory layout, \n"
+"   reading credentials from specified directory in ../pki\n"
+"   The current directory id determined by the location of this binary\n"
+"-d\n"
+"   turn on debugging output\n"
+"-p\n"
+"   turn on performance output\n"
     );
     _exit(1);
+
+}
+
+static void add_to_str_array(char *** array, char * str) {
+
+    if (!*array) {
+        *array = f_malloc(sizeof(void*) * 2);
+        *array[0] = f_strdup(str);
+    } else {
+
+    }
+
+}
+
+static size_t str_array_len(char ** array) {
+
+    char ** i;
+    for (i = array; *i; i++);
+    return (size_t)(i - array);
 
 }
 
@@ -296,12 +334,42 @@ int main(int argc, char ** argv) {
     xl4bus_ll_cfg_t ll_cfg;
     int c;
 
-    printf("xl4-broker %s\n", xl4bus_version());
+    MSG("xl4-broker %s", xl4bus_version());
+    MSG("Use -h to see help options");
 
-    while ((c = getopt(argc, argv, "dp")) != -1) {
+    char * key_path = 0;
+    char ** cert_path = 0;
+    char ** ca_list = 0;
+    char * demo_pki = 0;
+    char * key_password = 0;
+
+    while ((c = getopt(argc, argv, "k:K:c:t:D:dp")) != -1) {
 
         switch (c) {
 
+            case 'k':
+                if (key_path) {
+                    FATAL("Key can only be specified once");
+                }
+                key_path = f_strdup(optarg);
+                break;
+            case 'K':
+                key_password = f_strdup(optarg);
+                secure_bzero(optarg, strlen(optarg));
+                *optarg = '*';
+                break;
+            case 'c':
+                add_to_str_array(&cert_path, optarg);
+                break;
+            case 't':
+                add_to_str_array(&ca_list, optarg);
+                break;
+            case 'D':
+                if (demo_pki) {
+                    FATAL("demo PKI label dir can only be specified once");
+                }
+                demo_pki = f_strdup(optarg);
+                break;
             case 'd':
                 debug = 1;
                 break;
@@ -327,9 +395,12 @@ int main(int argc, char ** argv) {
     }
 #endif
 
+    if (demo_pki && (key_path || ca_list || cert_path)) {
+        FATAL("Demo PKI label can not be used with X.509 identity parameters");
+    }
+
     if (xl4bus_init_ll(&ll_cfg)) {
-        printf("failed to initialize xl4bus\n");
-        return 1;
+        FATAL("failed to initialize xl4bus");
     }
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -344,49 +415,85 @@ int main(int argc, char ** argv) {
     b_addr.sin_port = htons(9133);
     b_addr.sin_addr.s_addr = INADDR_ANY;
 
-    load_test_x509_creds(&broker_identity, "broker", argv[0]);
+    memset(&broker_identity, 0, sizeof(broker_identity));
+
+    if (demo_pki) {
+        load_test_x509_creds(&broker_identity, demo_pki, argv[0]);
+        free(demo_pki);
+    } else {
+
+        broker_identity.type = XL4BIT_X509;
+
+        if (key_path) {
+            if (!(broker_identity.x509.private_key = load_pem(key_path))) {
+                ERR("Key file %s could not be loaded", key_path);
+            }
+            free(key_path);
+        } else {
+            ERR("No key file specified");
+        }
+
+        if (ca_list) {
+            load_pem_array(ca_list, &broker_identity.x509.trust, "trust");
+            free(ca_list);
+        } else {
+            ERR("No trust anchors specified");
+        }
+
+        if (cert_path) {
+            load_pem_array(cert_path, &broker_identity.x509.chain, "certificate");
+            free(cert_path);
+        } else {
+            ERR("No certificate/certificate chain specified");
+        }
+
+        if (key_password) {
+            broker_identity.x509.custom = key_password;
+            broker_identity.x509.password = simple_password_input;
+        } else if (key_path) {
+            // $TODO: Using console_password_input ATM is a bad idea
+            // because it will ask the password every time it's needed.
+            broker_identity.x509.password = console_password_input;
+            broker_identity.x509.custom = f_strdup(key_path);
+        }
+
+    }
 
     if (!(hash_sha256 = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256))) {
-        fprintf(stderr, "Can not find SHA-256 hash implementation\n");
-        return 1;
+        FATAL("Can not find SHA-256 hash implementation");
     }
 
     if (init_x509_values() != E_XL4BUS_OK) {
-        fprintf(stderr, "Failed to initialize X.509 values\n");
-        return 1;
+        FATAL("Failed to initialize X.509 values");
     }
 
     int reuse = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0) {
-        perror("setsockopt(SO_REUSEADDR) failed");
+        ERR_SYS("setsockopt(SO_REUSEADDR)");
     }
 #ifdef SO_REUSEPORT
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (const char*)&reuse, sizeof(reuse)) < 0) {
-        perror("setsockopt(SO_REUSEPORT) failed");
+        ERR_SYS("setsockopt(SO_REUSEPORT)");
     }
 #endif
 
     utarray_init(&dm_clients, &ut_ptr_icd);
 
     if (bind(fd, (struct sockaddr*)&b_addr, sizeof(b_addr))) {
-        perror("bind");
-        return 1;
+        FATAL_SYS("Can't bind listening socket");
     }
 
     if (listen(fd, 5)) {
-        perror("listen");
-        return 1;
+        FATAL_SYS("Can't set up TCP listen queue");
     }
 
     if (set_nonblocking(fd)) {
-        perror("non-blocking");
-        return 1;
+        FATAL_SYS("Can't set non-blocking socket mode");
     }
 
     poll_fd = epoll_create1(0);
     if (poll_fd < 0) {
-        perror("epoll_create");
-        return 1;
+        FATAL_SYS("Can't create epoll socket");
     }
 
     poll_info_t main_pit = {
@@ -399,8 +506,7 @@ int main(int argc, char ** argv) {
     ev.data.ptr = &main_pit;
 
     if (epoll_ctl(poll_fd, EPOLL_CTL_ADD, fd, &ev)) {
-        perror("epoll_ctl");
-        return 1;
+        FATAL_SYS("epoll_ctl() failed");
     }
 
     int max_ev = 1;
@@ -409,7 +515,7 @@ int main(int argc, char ** argv) {
     while (1) {
 
         struct epoll_event rev[max_ev];
-        uint64_t before;
+        uint64_t before = 0;
 
         if (timeout >= 0) {
             before = msvalue();
@@ -425,8 +531,7 @@ int main(int argc, char ** argv) {
         }
         if (ec < 0) {
             if (errno == EINTR) { continue; }
-            perror("epoll_wait");
-            return 1;
+            FATAL_SYS("epoll_wait() failed");
         }
 
         if (ec == max_ev) { max_ev++; }
@@ -438,8 +543,7 @@ int main(int argc, char ** argv) {
 
                 if (rev[i].events & POLLERR) {
                     get_socket_error(pit->fd);
-                    perror("Error on incoming socket");
-                    return 1;
+                    FATAL_SYS("Connection socket error");
                 }
 
                 if (rev[i].events & POLLIN) {
@@ -447,8 +551,7 @@ int main(int argc, char ** argv) {
                     socklen_t b_addr_len = sizeof(b_addr);
                     int fd2 = accept(fd, (struct sockaddr*)&b_addr, &b_addr_len);
                     if (fd2 < 0) {
-                        perror("accept");
-                        return 1;
+                        FATAL_SYS("accept() failed");
                     }
 
                     xl4bus_connection_t * conn = f_malloc(sizeof(xl4bus_connection_t));
@@ -562,6 +665,26 @@ int main(int argc, char ** argv) {
 
 }
 
+void load_pem_array(char ** file_list, xl4bus_asn1_t ***asn_list, char const * f_type) {
+
+    size_t cnt = str_array_len(file_list) + 1;
+    *asn_list = f_malloc(cnt * sizeof(void*));
+    int i = 0, j = 0;
+    for (;i<cnt; i++) {
+        if (!file_list[i]) {
+            (*asn_list)[j] = 0;
+            break;
+        }
+        if (!((*asn_list)[j] = load_pem(file_list[i]))) {
+            ERR("Problem loading %s file %s", f_type, file_list[i]);
+        }
+        free(file_list[i]);
+        j++;
+
+    }
+
+}
+
 int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
     conn_info_t * ci = conn->custom;
@@ -665,10 +788,10 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             int certs = json_object_array_length(vot.x5c);
 
-            BOLT_MALLOC(id.x509.chain, sizeof(void*) * (certs+1));
+            id.x509.chain = f_malloc(sizeof(void*) * (certs+1));
 
             for (int i=0; i<certs; i++) {
-                BOLT_MALLOC(id.x509.chain[i], sizeof(xl4bus_asn1_t));
+                id.x509.chain[i] = f_malloc(sizeof(xl4bus_asn1_t));
                 id.x509.chain[i]->enc = XL4BUS_ASN1ENC_DER;
                 const char * in = json_object_get_string(json_object_array_get_idx(vot.x5c, i));
                 size_t in_len = strlen(in);
@@ -830,7 +953,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 }
 
                 if ((err = send_json_message(ci, "xl4bus.presence", body, msg->stream_id, 1, 1)) != E_XL4BUS_OK) {
-                    printf("failed to send a message : %s\n", xl4bus_strerr(err));
+                    ERR("failed to send a message : %s", xl4bus_strerr(err));
                     xl4bus_shutdown_connection(conn);
                 } else {
                     // tell everybody else this client arrived.
@@ -997,10 +1120,9 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 do {
 
-                    BOLT_MALLOC(ctx, sizeof(msg_context_t));
+                    ctx = f_malloc(sizeof(msg_context_t));
 
                     ctx->magic = MAGIC_CLIENT_MESSAGE;
-                    ctx->in_msg_id = in_msg_id;
                     // $TODO: we should respond to failures
                     BOLT_SUB(xl4bus_copy_address(conn->remote_address_list, 1, &ctx->from));
                     BOLT_SUB(xl4bus_copy_address(forward_to, 1, &ctx->to));
@@ -1331,7 +1453,7 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
         DBG("Outgoing on %p/%p fd %d : %s", ci, conn, conn->fd, json_object_get_string(json));
 
         msg_context_t * ctx = 0;
-        BOLT_MALLOC(ctx, sizeof(msg_context_t));
+        ctx = f_malloc(sizeof(msg_context_t));
         ctx->magic = MAGIC_SYS_MESSAGE;
 
         if ((err = xl4bus_send_ll_message(conn, &x_msg, ctx, 0)) != E_XL4BUS_OK) {
@@ -1647,7 +1769,7 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
                             }
 
                             free(bus_address);
-                            BOLT_MALLOC(bus_address, sizeof(xl4bus_address_t));
+                            bus_address = f_malloc(sizeof(xl4bus_address_t));
                             bus_address->type = XL4BAT_GROUP;
                             BOLT_MEM(bus_address->group = f_strndup((char*)start, inner_len));
                             bus_address->next = entry->addresses;
@@ -1698,7 +1820,7 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
                                 // DBG("extension oid %s", NULL_STR(x_oid));
 
                                 free(bus_address);
-                                BOLT_MALLOC(bus_address, sizeof(xl4bus_address_t));
+                                bus_address = f_malloc(sizeof(xl4bus_address_t));
                                 int bus_address_ok = 0;
 
                                 if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.1")) {
@@ -2153,7 +2275,7 @@ int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
 
     int err = E_XL4BUS_OK;
     char * base64 = 0;
-    size_t base64_len;
+    size_t base64_len = 0;
     cjose_err c_err;
 
     do {
@@ -2251,14 +2373,22 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
         BOLT_IF(id->type != XL4BIT_X509, E_XL4BUS_ARG, "Only x.509 is supported");
         BOLT_IF(!id->x509.private_key, E_XL4BUS_ARG, "Private key must be supplied");
 
+        int try_pk = mbedtls_pk_parse_key(&prk, id->x509.private_key->buf.data,
+                id->x509.private_key->buf.len, 0, 0);
 
-        if (id->x509.password) {
-            pwd = id->x509.password(&id->x509);
-            pwd_len = strlen(pwd);
+        if (try_pk == MBEDTLS_ERR_PK_PASSWORD_REQUIRED || try_pk == MBEDTLS_ERR_PK_PASSWORD_MISMATCH) {
+
+            if (id->x509.password) {
+                pwd = id->x509.password(&id->x509);
+                pwd_len = strlen(pwd);
+            }
+
+            BOLT_MTLS(mbedtls_pk_parse_key(&prk, id->x509.private_key->buf.data,
+                    id->x509.private_key->buf.len, (const unsigned char*)"", 0));
+
+        } else {
+            BOLT_MTLS(try_pk);
         }
-
-        BOLT_MTLS(mbedtls_pk_parse_key(&prk, id->x509.private_key->buf.data,
-                id->x509.private_key->buf.len, (char unsigned const *)pwd, pwd_len));
 
         BOLT_IF(!mbedtls_pk_can_do(&prk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA keys are supported");
 

@@ -10,49 +10,43 @@
 
 extern int debug;
 
-#define _ltime_ \
-    char now[20]; \
-    struct tm tmnow; \
-    struct timeval tv; \
-    memset(now, 0, 20); \
-    gettimeofday(&tv, 0); \
-    localtime_r(&tv.tv_sec, &tmnow); \
-    strftime(now, 19, "%m-%d:%H:%M:%S", &tmnow)
+#define HOW_ERR 1
+#define HOW_FATAL 2
+#define HOW_MSG 3
 
-#define DBG(a,b...) do { if (debug) { \
-    _ltime_; \
-    char * _str = f_asprintf("[%s] %s:%d " a, now, chop_path(__FILE__), __LINE__, ## b); \
-    if (_str) { \
-        printf("%s\n", _str); \
-        free(_str); \
-    } \
-} } while(0)
+#define LINE_ARGS(str, how, b...) "%s %s:%s:%d " how str "\n" , __now, \
+    __func__, chop_path(__FILE__), __LINE__, ## b
 
-#define DBG_SYS(a,b...) do { if (debug) { \
-    int _errno = errno; \
-    _ltime_; \
-    char * _str = f_asprintf("[%s] %s:%d error %s(%d): " a, now, chop_path(__FILE__), __LINE__, strerror(_errno), _errno, ## b); \
-    if (_str) { \
-        printf("%s\n", _str); \
-        free(_str); \
+#define LINE_OUT(how, str, args...) do { \
+    char __now[20]; \
+    struct tm __tmnow; \
+    struct timeval __tv; \
+    memset(__now, 0, 20); \
+    gettimeofday(&__tv, 0); \
+    localtime_r(&__tv.tv_sec, &__tmnow); \
+    strftime(__now, 19, "%m-%d_%H:%M:%S", &__tmnow); \
+    /* time func:file:line */ \
+    if (how == HOW_FATAL || how == HOW_ERR) { \
+        fprintf(stderr, LINE_ARGS(str, "ERR! ", ##args)); \
+        if (how == HOW_FATAL) { \
+            _exit(1); \
+        } \
+    } else { \
+        fprintf(stderr, LINE_ARGS(str, "", ##args)); \
     } \
-} } while(0)
+} while(0)
+
+#define LINE_OUT_SYS(how,a,b...) LINE_OUT(how, a " - %s (%d)", ##b, strerror(errno), errno)
+
+#define ERR(a,b...) LINE_OUT(HOW_ERR, a, ##b)
+#define ERR_SYS(a,b...) LINE_OUT_SYS(HOW_ERR, a, ##b)
+#define DBG(a,b...) do { if (debug) { LINE_OUT(HOW_MSG, a, ##b); } } while(0)
+#define MSG(a,b...) do { LINE_OUT(HOW_MSG, a, ##b); } while(0)
+#define FATAL(a,b...) do { if (debug) { LINE_OUT(HOW_FATAL, a, ##b); } } while(0)
+#define FATAL_SYS(a,b...) do { LINE_OUT_SYS(HOW_FATAL, a, ##b); } while(0)
 
 #define BOLT_MEM(a) if (!(a)) { \
-    err = E_XL4BUS_MEMORY; \
-    DBG("out of memory"); \
-    break; \
-} do{}while(0)
-
-// pointer to realloc
-// type of pointer
-// size
-#define BOLT_REALLOC(ptr,type,size,newsize) { \
-    int __size = size; \
-    void * __aux = realloc(ptr, (__size)*sizeof(type)); \
-    if (!__aux) { err = E_XL4BUS_MEMORY; DBG("out of memory, realloc %d", __size); break; } \
-    ptr = (type*)__aux; \
-    newsize = __size; \
+    FATAL("out of memory"); \
 } do{}while(0)
 
 #define SAFE_STR(s) (s?s:"(null)")
@@ -65,7 +59,6 @@ extern int debug;
 #define BOLT_SUB(a) { err = (a); if (err != E_XL4BUS_OK) { BOLT_SAY(err, #a); }} do{}while(0)
 #define BOLT_CJOSE(a) { c_err.code = CJOSE_ERR_NONE; a; if (c_err.code != CJOSE_ERR_NONE) { BOLT_SAY(cjose_to_err(&c_err), "cjose failure %d %s:%s", c_err.code, c_err.message, #a);}}
 #define BOLT_ARES(a) { int __err = (a); if (__err != ARES_SUCCESS) { if (__err == ARES_ENOMEM) { __err = E_XL4BUS_MEMORY; } else { __err = E_XL4BUS_INTERNAL; } BOLT_SAY(__err, "%s", #a); } } do{} while(0)
-#define BOLT_MALLOC(var, how_much) { if (!((var) = f_malloc(how_much))) { BOLT_SAY(E_XL4BUS_MEMORY, "failed to alloc %d for %s", how_much, #var); } } do{}while(0)
 #define BOLT_NEST() BOLT_SUB(err)
 #define BOLT_MTLS(a) do { \
     int __mtls_err = (a); \
