@@ -2481,6 +2481,8 @@ void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
 
 void count(int in, int out) {
 
+    if (!perf.enabled) { return; }
+
     clockid_t clk =
 #ifdef CLOCK_MONOTONIC_COARSE
             CLOCK_MONOTONIC_COARSE
