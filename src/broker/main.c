@@ -287,7 +287,7 @@ void help() {
 
     printf("%s",
 "-h\n"
-"   print this text\n"
+"   print this text (no other options can be used with -h)\n"
 "-k <path>\n"
 "   specify private key file (PEM format) to use\n"
 "-K <text>\n"
@@ -343,10 +343,13 @@ int main(int argc, char ** argv) {
     char * demo_pki = 0;
     char * key_password = 0;
 
-    while ((c = getopt(argc, argv, "k:K:c:t:D:dp")) != -1) {
+    while ((c = getopt(argc, argv, "hk:K:c:t:D:dp")) != -1) {
 
         switch (c) {
 
+            case 'h':
+                help();
+                break;
             case 'k':
                 if (key_path) {
                     FATAL("Key can only be specified once");
