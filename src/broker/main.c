@@ -2540,6 +2540,11 @@ void hash_tree_add(conn_info_t * ci, const char * ua_name) {
 void hash_tree_do_rec(conn_info_hash_tree_t * current, conn_info_t * ci, const char * full_name,
         const char * ua_name, int ok_more, int is_delete, UT_array * gather) {
 
+    // ESYNC-1155
+    // If there is no current (can be called in from main code, before any UA connected)
+    // then there is nothing we can do, no matter what the requested operation is.
+    if (!current) { return; }
+
     // NOTE! Gathering - we need to add all conn_info_t objects at each level we encounter.
     if (gather && utarray_len(&current->items)) {
         utarray_concat(gather, &current->items);
@@ -2613,11 +2618,14 @@ int hash_tree_maybe_delete(conn_info_hash_tree_t * current) {
     }
 
     // no property, no kids, no reason to live.
+
     if (current->parent) {
         // if I have a parent, check out from it.
         HASH_DEL(current->parent->nodes, current);
         free(current->key);
     }
+
+    utarray_done(&current->items);
 
     free(current);
     return 1;
@@ -2631,7 +2639,7 @@ static void hash_tree_remove(conn_info_t * ci) {
         const char * ua_name = ci->ua_names[i];
 
         if (!ci_ua_tree) {
-            printf("Cleaning UA %s - no root UA has tree root!", ua_name);
+            ERR("Cleaning UA %s - no root UA has tree root!", ua_name);
             continue;
         }
 
