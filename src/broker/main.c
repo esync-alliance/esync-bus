@@ -2613,11 +2613,14 @@ int hash_tree_maybe_delete(conn_info_hash_tree_t * current) {
     }
 
     // no property, no kids, no reason to live.
+
     if (current->parent) {
         // if I have a parent, check out from it.
         HASH_DEL(current->parent->nodes, current);
         free(current->key);
     }
+
+    utarray_done(&current->items);
 
     free(current);
     return 1;
