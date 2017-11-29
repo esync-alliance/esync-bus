@@ -24,8 +24,12 @@ uint64_t msvalue();
 int get_socket_error(int fd);
 char * f_strndup(const char * s, size_t n);
 char * addr_to_str(xl4bus_address_t *);
+char * simple_password_input(struct xl4bus_X509v3_Identity *);
+char * console_password_input(struct xl4bus_X509v3_Identity *);
 
 int load_test_x509_creds(xl4bus_identity_t * identity, char * key, char * argv0);
+
+xl4bus_asn1_t * load_pem(char *path);
 
 int load_simple_x509_creds(xl4bus_identity_t * identity, char * p_key_path,
         char * cert_path, char * ca_path, char * password);

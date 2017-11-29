@@ -16,9 +16,7 @@
 #include <mbedtls/x509_crt.h>
 
 #include "libxl4bus/types.h"
-
-static xl4bus_asn1_t * load_full(char * path);
-static char * simple_password (struct xl4bus_X509v3_Identity *);
+#include <termios.h>
 
 void print_out(const char * msg) {
 
@@ -67,8 +65,7 @@ void * f_malloc(size_t t) {
 
     void * r = malloc(t);
     if (!r) {
-        DBG("Failed to malloc %ld bytes", t);
-        abort();
+        FATAL("Failed to malloc %ld bytes", t);
     }
 
     memset(r, 0, t);
@@ -81,7 +78,7 @@ void * f_realloc(void * m, size_t t) {
 
     void * r = realloc(m, t);
     if (!r) {
-        DBG("Failed to realloc %p to %ld bytes", m, t);
+        FATAL("Failed to realloc %p to %ld bytes", m, t);
         abort();
     }
 
@@ -191,22 +188,22 @@ int load_simple_x509_creds(xl4bus_identity_t * identity, char * p_key_path,
 
     do {
 
-        identity->x509.private_key = load_full(p_key_path);
+        identity->x509.private_key = load_pem(p_key_path);
         if (!(identity->x509.trust = f_malloc(2 * sizeof(void*)))) {
             break;
         }
         if (!(identity->x509.chain = f_malloc(2 * sizeof(void*)))) {
             break;
         }
-        if (!(identity->x509.trust[0] = load_full(ca_path))) {
+        if (!(identity->x509.trust[0] = load_pem(ca_path))) {
             break;
         }
-        if (!(identity->x509.chain[0] = load_full(cert_path))) {
+        if (!(identity->x509.chain[0] = load_pem(cert_path))) {
             break;
         }
         if (password) {
             identity->x509.custom = f_strdup(password);
-            identity->x509.password = simple_password;
+            identity->x509.password = simple_password_input;
         }
 
         ok = 1;
@@ -224,12 +221,12 @@ int load_simple_x509_creds(xl4bus_identity_t * identity, char * p_key_path,
 // note that we return buffer with PEM, and a terminating
 // 0, and length includes the terminating 0. This is what
 // mbedtls requires.
-xl4bus_asn1_t * load_full(char * path) {
+xl4bus_asn1_t * load_pem(char *path) {
 
     int fd = open(path, O_RDONLY);
     int ok = 0;
     if (fd < 0) {
-        DBG_SYS("Failed to open %s", path);
+        ERR_SYS("Failed to open %s", path);
         return 0;
     }
 
@@ -240,11 +237,11 @@ xl4bus_asn1_t * load_full(char * path) {
 
         off_t size = lseek(fd, 0, SEEK_END);
         if (size == (off_t)-1) {
-            DBG_SYS("Failed to seek %s", path);
+            ERR_SYS("Failed to seek %s", path);
             break;
         }
         if (lseek(fd, 0, SEEK_SET) == (off_t)-1) {
-            DBG_SYS("Failed to rewind %s", path);
+            ERR_SYS("Failed to rewind %s", path);
             break;
         }
 
@@ -253,7 +250,7 @@ xl4bus_asn1_t * load_full(char * path) {
         while (size) {
             ssize_t rd = read(fd, ptr, (size_t) size);
             if (rd < 0) {
-                DBG_SYS("Failed to read from %s", path);
+                ERR_SYS("Failed to read from %s", path);
                 break;
             }
             if (!rd) {
@@ -282,7 +279,58 @@ xl4bus_asn1_t * load_full(char * path) {
 
 }
 
-static char * simple_password (struct xl4bus_X509v3_Identity * id) {
+char * console_password_input(struct xl4bus_X509v3_Identity * id) {
+
+    // code from https://stackoverflow.com/a/39792014/622266
+
+    static struct termios old_terminal;
+    static struct termios new_terminal;
+
+    //get settings of the actual terminal
+    if (tcgetattr(STDIN_FILENO, &old_terminal)) {
+        FATAL_SYS("Not running at terminal?");
+    }
+
+    // do not echo the characters
+    new_terminal = old_terminal;
+    new_terminal.c_lflag &= ~(ECHO);
+
+    // set this as the new terminal options
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &new_terminal)) {
+        FATAL_SYS("Failed to change terminal settings");
+    }
+
+    fprintf(stdout, "Enter password for %s: ", (char*)id->custom);
+    fflush(stdout);
+
+    // $TODO: what is the max?
+    char password[128];
+    memset(password, 0, 128);
+
+    // get the password
+    // the user can add chars and delete if he puts it wrong
+    // the input process is done when he hits the enter
+    // the \n is stored, we replace it with \0
+    if (fgets(password, 127, stdin) == NULL) {
+        password[0] = '\0';
+    } else {
+        password[strlen(password) - 1] = '\0';
+    }
+
+    // go back to the old settings
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &old_terminal)) {
+        ERR_SYS("Failed to restore terminal");
+    }
+
+    fprintf(stdout, "\n");
+
+    char * ret = f_strdup(password);
+    secure_bzero(password, 128);
+    return ret;
+
+}
+
+char * simple_password_input(struct xl4bus_X509v3_Identity *id) {
 
     return id->custom;
 

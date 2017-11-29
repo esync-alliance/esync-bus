@@ -1,4 +1,5 @@
 
+
 #include <libxl4bus/high_level.h>
 #include <libxl4bus/low_level.h>
 #include <netdb.h>
@@ -709,6 +710,9 @@ static int create_ll_connection(xl4bus_client_t * clt) {
 
         memcpy(&i_clt->ll->identity, &clt->identity, sizeof(clt->identity));
 
+        // $TODO: The problem here is that we will ask for the private key
+        // when this happens. If the user types it, it will be asked for
+        // numerously, it's especially bad in case of the broker.
         BOLT_SUB(make_private_key(&i_clt->ll->identity, 0, &i_clt->private_key));
 
         BOLT_SUB(xl4bus_init_connection(i_clt->ll));
