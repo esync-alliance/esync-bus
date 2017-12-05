@@ -2582,6 +2582,7 @@ void hash_tree_do_rec(conn_info_hash_tree_t * current, conn_info_t * ci, const c
         } else {
             child = f_malloc(sizeof(conn_info_hash_tree_t));
             child->key = f_strndup(ua_name, key_len);
+            child->parent = current;
             HASH_ADD_KEYPTR(hh, current->nodes, child->key, key_len, child);
             utarray_init(&child->items, &ut_ptr_icd);
         }
