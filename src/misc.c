@@ -236,14 +236,21 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
                         if (buf == conn->identity.x509.chain) {
                             // first cert, need to build my x5t
 
-                            uint8_t * der;
-                            size_t der_len;
+                            uint8_t * der = 0;
 
-                            const char * pem = json_object_get_string(json_cert);
-                            size_t pem_len = strlen(pem);
+                            do {
+                                size_t der_len;
 
-                            BOLT_CJOSE(cjose_base64_decode(pem, pem_len, &der, &der_len, &c_err));
-                            BOLT_SUB(make_cert_hash(der, der_len, &conn->my_x5t));
+                                const char * pem = json_object_get_string(json_cert);
+                                size_t pem_len = strlen(pem);
+
+                                BOLT_CJOSE(cjose_base64_decode(pem, pem_len, &der, &der_len, &c_err));
+                                BOLT_SUB(make_cert_hash(der, der_len, &conn->my_x5t));
+                            } while (0);
+
+                            free(der);
+                            BOLT_NEST();
+
 
                         }
 
@@ -450,7 +457,9 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
     cjose_jwk_release(i_conn->remote_key);
     cfg.free(conn->my_x5t);
     cfg.free(conn->remote_x5t);
+    cfg.free(conn->remote_x5c);
     json_object_put(i_conn->x5c);
+    xl4bus_free_address(conn->remote_address_list, 1);
 
     cfg.free(i_conn);
 

@@ -63,6 +63,7 @@
     if (__list) { \
         REMOVE_FROM_ARRAY(&__list->items, obj, msg " - key %s", ##x, __keyval); \
         if (!(n_len = utarray_len(&__list->items))) { \
+            utarray_done(&__list->items); \
             HASH_DEL(root, __list); \
             free(__list->key); \
             free(__list); \
@@ -752,9 +753,9 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 }
 
-                HASH_LIST_ADD(ci_by_x5t, ci, remote_x5t);
-
                 BOLT_NEST();
+
+                HASH_LIST_ADD(ci_by_x5t, ci, remote_x5t);
 
                 // send current presence
                 // https://gitlab.excelfore.com/schema/json/xl4bus/presence.json
@@ -1578,6 +1579,8 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
 
                 for (mbedtls_asn1_sequence * cur_seq = &seq; cur_seq; cur_seq = cur_seq->next) {
 
+                    free(x_oid);
+
                     start = cur_seq->buf.p;
                     end = start + cur_seq->buf.len;
 
@@ -2077,14 +2080,22 @@ int init_x509_values() {
                         if (buf == broker_identity.x509.chain) {
                             // first cert, need to build my x5t
 
-                            uint8_t * der;
-                            size_t der_len;
+                            uint8_t * der = 0;
 
-                            const char * pem = json_object_get_string(json_cert);
-                            size_t pem_len = strlen(pem);
+                            do {
 
-                            BOLT_CJOSE(cjose_base64_decode(pem, pem_len, &der, &der_len, &c_err));
-                            BOLT_MEM(my_x5t = make_cert_hash(der, der_len));
+                                size_t der_len;
+
+                                const char * pem = json_object_get_string(json_cert);
+                                size_t pem_len = strlen(pem);
+
+                                BOLT_CJOSE(cjose_base64_decode(pem, pem_len, &der, &der_len, &c_err));
+                                BOLT_MEM(my_x5t = make_cert_hash(der, der_len));
+
+                            } while (0);
+
+                            free(der);
+                            BOLT_NEST();
 
                         }
 
