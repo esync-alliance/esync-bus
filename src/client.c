@@ -1153,6 +1153,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                         }
 
+                        message.tracking_id = msg->stream_id;
+
                         clt->on_message(clt, &message);
 
                     } while (0);
@@ -1277,7 +1279,7 @@ int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * ar
         BOLT_MALLOC(mint, sizeof(message_internal_t));
 
         mint->msg = msg;
-        mint->stream_id = i_clt->stream_id += 2;
+        msg->tracking_id = mint->stream_id = i_clt->stream_id += 2;
         mint->mis = MIS_VIRGIN;
         mint->addr = addr;
         mint->custom = arg;
