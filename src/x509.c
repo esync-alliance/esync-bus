@@ -237,6 +237,7 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** r
                         continue;
                     }
 
+                    cfg.free(x_oid);
                     x_oid = make_chr_oid(&oid);
                     // DBG("extension oid %s", NULL_STR(x_oid));
 
