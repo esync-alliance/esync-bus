@@ -756,7 +756,9 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     cjose_err c_err;
     char * in_msg_id = 0;
     int trusted = 0;
+    UT_array send_list;
 
+    utarray_init(&send_list, &ut_ptr_icd);
     memset(&vot, 0, sizeof(vot));
     memset(&id, 0, sizeof(id));
 
@@ -1069,10 +1071,6 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         } else {
 
-            UT_array send_list;
-
-            utarray_init(&send_list, &ut_ptr_icd);
-
             json_object * destinations;
 
             uint16_t stream_id = msg->stream_id;
@@ -1080,8 +1078,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             in_msg_id = f_asprintf("%p-%04x", conn, (unsigned int)stream_id);
 
             if (!json_object_object_get_ex(vot.bus_object, "destinations", &destinations)) {
-                BOLT_SAY(E_XL4BUS_DATA, "Not XL4 message, no destinations in bus object");
                 e900(f_asprintf("Rejected message %s - no destinations", in_msg_id), conn->remote_address_list, 0);
+                BOLT_SAY(E_XL4BUS_DATA, "Not XL4 message, no destinations in bus object");
             }
 
             BOLT_SUB(xl4bus_json_to_address(json_object_get_string(destinations), &forward_to));
@@ -1168,6 +1166,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         free(*asn1);
     }
     free(id.x509.chain);
+
+    utarray_done(&send_list);
 
     json_object_put(root);
     json_object_put(connected);
@@ -1722,8 +1722,6 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
 
                 for (mbedtls_asn1_sequence * cur_seq = &seq; cur_seq; cur_seq = cur_seq->next) {
 
-                    free(x_oid);
-
                     start = cur_seq->buf.p;
                     end = start + cur_seq->buf.len;
 
@@ -1737,6 +1735,7 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
                         continue;
                     }
 
+                    free(x_oid);
                     x_oid = make_chr_oid(&oid);
                     // DBG("extension oid %s", NULL_STR(x_oid));
 
