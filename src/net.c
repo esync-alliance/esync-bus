@@ -306,9 +306,9 @@ do {} while(0)
 
                                     if (decrypted_ct) {
                                         message.content_type = decrypted_ct;
-                                        decrypted_ct = 0;
                                     } else {
-                                        message.content_type = f_strdup("application/octet-stream");
+                                        message.content_type = decrypted_ct =
+                                                f_strdup("application/octet-stream");
                                     }
 
                                     message.data = decrypted_data;
@@ -342,7 +342,7 @@ do {} while(0)
                                             ct = "application/octet-stream";
                                             break;
                                     }
-                                    message.content_type = f_strdup(ct);
+                                    message.content_type = decrypted_ct = f_strdup(ct);
 
                                 }
 
@@ -657,6 +657,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         // clear out x5c if encryption is disabled, it will never
         // otherwise be cleared, and we'll be doing expensive validation
+        json_object_put(i_conn->x5c);
         i_conn->x5c = 0;
 
 #endif /* !XL4_DISABLE_ENCRYPTION */
