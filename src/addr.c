@@ -169,10 +169,10 @@ int xl4bus_json_to_address(char const *json, xl4bus_address_t **addr) {
 
     int err/* = E_XL4BUS_OK*/;
     xl4bus_address_t * new_addr = 0;
+    json_object * json_obj = 0;
 
     do {
 
-        json_object * json_obj;
         BOLT_IF(!(json_obj = json_tokener_parse(json)), E_XL4BUS_ARG, "Can't parse address json %s", json);
         if (!json_object_is_type(json_obj, json_type_array)) {
             json_object * top;
@@ -199,6 +199,8 @@ int xl4bus_json_to_address(char const *json, xl4bus_address_t **addr) {
     if (err != E_XL4BUS_OK) {
         xl4bus_free_address(new_addr, 1);
     }
+
+    json_object_put(json_obj);
 
     return err;
 

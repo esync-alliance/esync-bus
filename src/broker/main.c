@@ -63,6 +63,7 @@
     if (__list) { \
         REMOVE_FROM_ARRAY(&__list->items, obj, msg " - key %s", ##x, __keyval); \
         if (!(n_len = utarray_len(&__list->items))) { \
+            utarray_done(&__list->items); \
             HASH_DEL(root, __list); \
             free(__list->key); \
             free(__list); \
@@ -755,7 +756,9 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     cjose_err c_err;
     char * in_msg_id = 0;
     int trusted = 0;
+    UT_array send_list;
 
+    utarray_init(&send_list, &ut_ptr_icd);
     memset(&vot, 0, sizeof(vot));
     memset(&id, 0, sizeof(id));
 
@@ -895,9 +898,9 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 }
 
-                HASH_LIST_ADD(ci_by_x5t, ci, remote_x5t);
-
                 BOLT_NEST();
+
+                HASH_LIST_ADD(ci_by_x5t, ci, remote_x5t);
 
                 // send current presence
                 // https://gitlab.excelfore.com/schema/json/xl4bus/presence.json
@@ -1068,10 +1071,6 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         } else {
 
-            UT_array send_list;
-
-            utarray_init(&send_list, &ut_ptr_icd);
-
             json_object * destinations;
 
             uint16_t stream_id = msg->stream_id;
@@ -1079,8 +1078,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             in_msg_id = f_asprintf("%p-%04x", conn, (unsigned int)stream_id);
 
             if (!json_object_object_get_ex(vot.bus_object, "destinations", &destinations)) {
-                BOLT_SAY(E_XL4BUS_DATA, "Not XL4 message, no destinations in bus object");
                 e900(f_asprintf("Rejected message %s - no destinations", in_msg_id), conn->remote_address_list, 0);
+                BOLT_SAY(E_XL4BUS_DATA, "Not XL4 message, no destinations in bus object");
             }
 
             BOLT_SUB(xl4bus_json_to_address(json_object_get_string(destinations), &forward_to));
@@ -1167,6 +1166,8 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         free(*asn1);
     }
     free(id.x509.chain);
+
+    utarray_done(&send_list);
 
     json_object_put(root);
     json_object_put(connected);
@@ -1734,6 +1735,7 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
                         continue;
                     }
 
+                    free(x_oid);
                     x_oid = make_chr_oid(&oid);
                     // DBG("extension oid %s", NULL_STR(x_oid));
 
@@ -2220,14 +2222,22 @@ int init_x509_values() {
                         if (buf == broker_identity.x509.chain) {
                             // first cert, need to build my x5t
 
-                            uint8_t * der;
-                            size_t der_len;
+                            uint8_t * der = 0;
 
-                            const char * pem = json_object_get_string(json_cert);
-                            size_t pem_len = strlen(pem);
+                            do {
 
-                            BOLT_CJOSE(cjose_base64_decode(pem, pem_len, &der, &der_len, &c_err));
-                            BOLT_MEM(my_x5t = make_cert_hash(der, der_len));
+                                size_t der_len;
+
+                                const char * pem = json_object_get_string(json_cert);
+                                size_t pem_len = strlen(pem);
+
+                                BOLT_CJOSE(cjose_base64_decode(pem, pem_len, &der, &der_len, &c_err));
+                                BOLT_MEM(my_x5t = make_cert_hash(der, der_len));
+
+                            } while (0);
+
+                            free(der);
+                            BOLT_NEST();
 
                         }
 
