@@ -979,32 +979,30 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 do {
 
-                    BOLT_MALLOC(ctx, sizeof(msg_context_t));
+                    ctx = f_malloc(sizeof(msg_context_t));
 
                     ctx->magic = MAGIC_CLIENT_MESSAGE;
-                    ctx->in_msg_id = in_msg_id;
                     // $TODO: we should respond to failures
                     BOLT_SUB(xl4bus_copy_address(conn->remote_address_list, 1, &ctx->from));
                     BOLT_SUB(xl4bus_copy_address(forward_to, 1, &ctx->to));
                     BOLT_MEM(ctx->in_msg_id = f_strdup(in_msg_id));
 
-                    if (xl4bus_send_ll_message(ci2->conn, msg, ctx, 0)) {
+                    int sub_err = xl4bus_send_ll_message(ci2->conn, msg, ctx, 0);
+
+                    if (sub_err) {
                         // printf("failed to send a message : %s\n", xl4bus_strerr(err));
                         e900(f_asprintf("Failed to send message %s as %p-%04x: %s", in_msg_id, ci2->conn,
-                                (unsigned int)msg->stream_id), conn->remote_address_list, forward_to);
+                                (unsigned int)msg->stream_id, xl4bus_strerr(sub_err)),
+                                conn->remote_address_list, forward_to);
                         xl4bus_shutdown_connection(ci2->conn);
                         i--;
                         l--;
-                    } else {
-                        // to be released in callback
-                        ctx = 0;
                     }
 
-                    // DBG("application message forwarded to connection %p", ci2);
+                    // ESYNC-1345 - the on_sent_message is always called in m/t model.
+                    // so the context will be cleaned up in callback.
 
                 } while (0);
-
-                free_message_context(ctx);
 
             }
 
@@ -1313,14 +1311,12 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
 
         DBG("Outgoing on %p/%p fd %d : %s", ci, conn, conn->fd, json_object_get_string(json));
 
-        msg_context_t * ctx = 0;
-        BOLT_MALLOC(ctx, sizeof(msg_context_t));
+        msg_context_t * ctx = f_malloc(sizeof(msg_context_t));
         ctx->magic = MAGIC_SYS_MESSAGE;
 
         if ((err = xl4bus_send_ll_message(conn, &x_msg, ctx, 0)) != E_XL4BUS_OK) {
             printf("failed to send a message : %s\n", xl4bus_strerr(err));
             xl4bus_shutdown_connection(conn);
-            free_message_context(ctx);
         }
 
     } while(0);
@@ -2145,7 +2141,7 @@ int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
 
     int err = E_XL4BUS_OK;
     char * base64 = 0;
-    size_t base64_len;
+    size_t base64_len = 0;
     cjose_err c_err;
 
     do {
