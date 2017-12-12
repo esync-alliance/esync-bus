@@ -475,11 +475,6 @@ int main(int argc, char ** argv) {
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0) {
         ERR_SYS("setsockopt(SO_REUSEADDR)");
     }
-#ifdef SO_REUSEPORT
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (const char*)&reuse, sizeof(reuse)) < 0) {
-        ERR_SYS("setsockopt(SO_REUSEPORT)");
-    }
-#endif
 
     utarray_init(&dm_clients, &ut_ptr_icd);
 
