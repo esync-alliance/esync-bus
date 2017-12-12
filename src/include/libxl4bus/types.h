@@ -178,6 +178,13 @@ typedef struct xl4bus_message {
     */
     int was_encrypted;
 
+    /**
+     * Set by the library, when message is scheduled for delivery,
+     * or when message is delivered to the user, this value is set
+     * to help identify the message through its routing.
+     */
+    int tracking_id;
+
 } xl4bus_message_t;
 
 typedef struct xl4bus_ll_message {
