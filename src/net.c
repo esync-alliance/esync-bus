@@ -116,9 +116,12 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
                     // are not hoarding too much memory here, so let's not.
                 }
 
+                // ESYNC-1364, don't flush everything
+                break;
+
             }
 
-            if (err != E_XL4BUS_OK) { break; }
+            BOLT_NEST();
 
         }
 
@@ -448,6 +451,10 @@ do {} while(0)
                 // we dealt with the frame
                 free_dbuf(&frm.data, 0);
                 memset(&frm, 0, sizeof(frm));
+
+                // ESYNC-1364 break out before reading next
+                // frame, to let other connections process.
+                break;
 
             }
 

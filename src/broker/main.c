@@ -1113,11 +1113,10 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 // but eventually we should not do that, nor use incoming message
                 // structure for anything.
 
-                msg_context_t * ctx = 0;
+                msg_context_t * ctx = f_malloc(sizeof(msg_context_t));
 
                 do {
 
-                    ctx = f_malloc(sizeof(msg_context_t));
 
                     ctx->magic = MAGIC_CLIENT_MESSAGE;
                     // $TODO: we should respond to failures
@@ -1137,10 +1136,14 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         l--;
                     }
 
+                    ctx = 0;
+
                     // ESYNC-1345 - the on_sent_message is always called in m/t model.
                     // so the context will be cleaned up in callback.
 
                 } while (0);
+
+                free_message_context(ctx);
 
             }
 
