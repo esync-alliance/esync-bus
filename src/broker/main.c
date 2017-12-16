@@ -19,6 +19,7 @@
 #include <sys/epoll.h>
 #include <errno.h>
 #include <stdio.h>
+#include <signal.h>
 #include "json-c-rename.h"
 #include "json.h"
 
@@ -238,6 +239,7 @@ static int hash_tree_maybe_delete(conn_info_hash_tree_t * current);
 static void count(int in, int out);
 static void help(void);
 static void load_pem_array(char ** file_list, xl4bus_asn1_t ***asn_list, char const *string);
+static void signal_f(int);
 
 
 int debug = 0;
@@ -337,6 +339,9 @@ int main(int argc, char ** argv) {
 
     MSG("xl4-broker %s", xl4bus_version());
     MSG("Use -h to see help options");
+
+    // in case we are under gprof
+    signal(SIGINT, signal_f);
 
     char * key_path = 0;
     char ** cert_path = 0;
@@ -2652,5 +2657,12 @@ static void hash_tree_remove(conn_info_t * ci) {
         hash_tree_do_rec(ci_ua_tree, ci, ua_name, ua_name, XL4_MAX_UA_PATHS, 1, 0);
 
     }
+
+}
+
+static void signal_f(int s) {
+
+    ERR("Killed with %d", s);
+    exit(3);
 
 }
