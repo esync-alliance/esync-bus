@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <signal.h>
 
 int debug = 1;
 
@@ -17,6 +18,7 @@ static void msg_info(struct xl4bus_client *, xl4bus_message_t *, void *, int);
 static void handle_message(struct xl4bus_client *, xl4bus_message_t *);
 static void handle_presence(struct xl4bus_client *, xl4bus_address_t * connected, xl4bus_address_t * disconnected);
 static void handle_delivered(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok);
+static void signal_f(int);
 
 static void reconnect(xl4bus_client_t * clt) {
     xl4bus_init_client(clt, "tcp://localhost:9133");
@@ -30,6 +32,8 @@ int main(int argc, char ** argv) {
     char * cert_dir = 0;
     int debug = 0;
     int flood = 0;
+
+    signal(SIGINT, signal_f);
 
     while ((c = getopt(argc, argv, "c:df")) != -1) {
 
@@ -179,4 +183,8 @@ void handle_delivered(struct xl4bus_client * clt, xl4bus_message_t * msg, void *
     xl4bus_free_address(msg->address, 1);
     free(msg);
 
+}
+
+void signal_f(int s) {
+    exit(3);
 }

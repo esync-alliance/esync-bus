@@ -53,23 +53,20 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
 
         if (is_data_fd && (flags & XL4BUS_POLL_ERR)) {
             pf_set_errno(pf_get_socket_error(fd));
-            err = E_XL4BUS_SYS;
-            break;
+            BOLT_SYS(1, "poll error flag set");
         }
 
 #if XL4_SUPPORT_THREADS
 
         if (is_ctl_fd && (flags & XL4BUS_POLL_ERR)) {
             pf_set_errno(pf_get_socket_error(fd));
-            err = E_XL4BUS_SYS;
-            break;
+            BOLT_SYS(1, "poll error flag set");
         }
 
         if (is_ctl_fd && (flags & XL4BUS_POLL_READ)) {
             ssize_t buf_read = pf_recv_dgram(fd, &ctl_buf, f_malloc);
             if (buf_read <= 0) {
-                err = E_XL4BUS_SYS;
-                break;
+                BOLT_SYS(1, "recv() EOF/error");
             }
 
             if (buf_read == sizeof(itc_message_t) && ((itc_message_t*)ctl_buf)->magic == ITC_MESSAGE_MAGIC) {
@@ -97,8 +94,7 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
                     if (s_err == EWOULDBLOCK) {
                         break;
                     }
-                    err = E_XL4BUS_SYS;
-                    break;
+                    BOLT_SYS(1, "failed to send data");
                 }
 
                 if (res == top->len) {
@@ -116,9 +112,12 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
                     // are not hoarding too much memory here, so let's not.
                 }
 
+                // ESYNC-1364, don't flush everything
+                break;
+
             }
 
-            if (err != E_XL4BUS_OK) { break; }
+            BOLT_NEST();
 
         }
 
@@ -179,10 +178,7 @@ do {} while(0)
 
                 if (frm.data.cap < frm.frame_len) {
                     void * t = cfg.realloc(frm.data.data, frm.frame_len);
-                    if (!t) {
-                        err = E_XL4BUS_MEMORY;
-                        break;
-                    }
+                    BOLT_MEM(t);
                     frm.data.cap = frm.frame_len;
                     frm.data.data= t;
                 }
@@ -190,11 +186,7 @@ do {} while(0)
                 RDP(4, frm.data.data, frm.frame_len, "frame body");
                 frm.data.len = frm.total_read - 4;
 
-                if (frm.data.len < 4) {
-                    // not even enough for CRC
-                    err = E_XL4BUS_DATA;
-                    break;
-                }
+                BOLT_IF(frm.data.len < 4, E_XL4BUS_DATA, "frame smaller than CRC");
 
                 // calculate and validate CRC
                 crcFast(frm.data.data, frm.data.len -= 4, &frm.crc);
@@ -210,10 +202,7 @@ do {} while(0)
 
                         // we must have at least 4 bytes.
                         size_t offset = 4;
-                        if (frm.data.len < offset) {
-                            err = E_XL4BUS_DATA;
-                            break;
-                        }
+                        BOLT_IF(frm.data.len < offset, E_XL4BUS_DATA, "Not enough data for header");
 
                         stream_t * stream;
                         uint16_t stream_id = ntohs(*(uint16_t*)frm.data.data);
@@ -373,10 +362,7 @@ do {} while(0)
 
                     case FRAME_TYPE_CTEST: {
 
-                        if (frm.data.len != 32) {
-                            err = E_XL4BUS_DATA;
-                            break;
-                        }
+                        BOLT_IF(frm.data.len != 32, E_XL4BUS_DATA, "conn test frame must be 32 bytes");
 
                         if (frm.byte0 & FRAME_MSG_FIRST_MASK) {
                             // it's a response
@@ -396,10 +382,7 @@ do {} while(0)
                     case FRAME_TYPE_SABORT: {
 
                         // must at least be 1 byte that indicates the content type.
-                        if (!frm.data.len) {
-                            err = E_XL4BUS_DATA;
-                            break;
-                        }
+                        BOLT_IF(!frm.data.len, E_XL4BUS_DATA, "Abort frame must not be empty");
 
                         uint16_t stream_id;
                         json_object * bus_object = 0;
@@ -443,11 +426,15 @@ do {} while(0)
 
                 }
 
-                if (err != E_XL4BUS_OK) { break; }
+                BOLT_NEST();
 
                 // we dealt with the frame
                 free_dbuf(&frm.data, 0);
                 memset(&frm, 0, sizeof(frm));
+
+                // ESYNC-1364 break out before reading next
+                // frame, to let other connections process.
+                break;
 
             }
 
