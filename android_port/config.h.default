@@ -1,0 +1,15 @@
+
+#ifndef _XL4BUS_CONFIG_H_
+#define _XL4BUS_CONFIG_H_
+
+#include <stddef.h>
+#include <string.h>
+#include <errno.h>
+#include <stdint.h>
+#include <arpa/inet.h>
+#include <cjose/cjose.h>
+#include <ares.h>
+#include <stdio.h>
+#include <sys/time.h>
+
+#endif

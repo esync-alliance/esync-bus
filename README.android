@@ -19,6 +19,6 @@ toolchain.
 
 Once the toolchain is created
 
-* Run ./android_scripts/toolchain_root.sh
-* Run ./android_scripts/build-android.sh
+* Run ./cross_compile_scripts/toolchain_root_android.sh
+* Run ./cross_compile_scripts/build-android.sh
 

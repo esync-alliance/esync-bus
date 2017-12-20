@@ -1,0 +1,23 @@
+Readme to build libxl4bus for arm
+
+Create arm toolchain.
+
+You must have CMake 3.8, you may need to build it yourself.
+The scripts assume CMake 3.8 is either installed, or available
+in ~/cmake-3.8, or CMAKE_38 environment variable is exported
+to pointed to its binary.
+
+Download the suitable linaro toolchain from link below.
+and extract to ~/tmp/linaro directory:
+
+https://releases.linaro.org/components/toolchain/binaries/
+
+If you are using a different directory for toolchain target,
+set environment variable USE_ARM_TOOLCHAIN to the location of the
+toolchain.
+
+Once the toolchain is created
+
+* Run ./cross_compile_scripts/toolchain_root_arm.sh
+* Run ./cross_compile_scripts/build-arm.sh
+

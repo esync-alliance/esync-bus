@@ -1,0 +1,11 @@
+
+set(XL4_PROVIDE_DEBUG 1)
+set(XL4_PROVIDE_PERF 1)
+set(XL4_DISABLE_ENCRYPTION 1)
+set(XL4_DISABLE_JWS 1)
+
+# uncomment to link executables against ElectricFence
+# set(WITH_EFENCE 1)
+
+set(LIB_SOURCE ${LIB_SOURCE} linux_port/config.h linux_port/port.c)
+

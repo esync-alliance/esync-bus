@@ -1,12 +1,16 @@
 #!/bin/bash
 
 CMK=$(type -p cmake)
-if test -d ${HOME}/cmake-3.8/bin/cmake; then
+if test -d ${HOME}/cmake-3.8; then
     CMK=${HOME}/cmake-3.8/bin/cmake
+fi
+if test -d ${HOME}/Android/Sdk/cmake; then
+    CMK=${HOME}/Android/Sdk/cmake/*/bin/cmake
 fi
 if test -n "$CMAKE_38"; then
     CMK="$CMAKE_38"
 fi
+
 
 TCR=${HOME}/tmp/arm-23
 
@@ -30,7 +34,7 @@ rm -rf android_build
 mkdir -p android_build
 
 (cd android_build && {
-    ${CMK} -DCMAKE_SYSROOT=${SYSROOT} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_ANDROID_ARM_MODE=ON -DCMAKE_SYSTEM_NAME=Android -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${TCR} ..
+    ${CMK} -DCMAKE_SYSROOT=${SYSROOT} -DCMAKE_BUILD_TYPE=Debug -DCMAKE_ANDROID_ARM_MODE=ON -DCMAKE_SYSTEM_NAME=Android -DCMAKE_ANDROID_STANDALONE_TOOLCHAIN=${TCR} -DPORT=android_port ..
     make
 }
 )
