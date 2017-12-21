@@ -59,6 +59,7 @@ typedef struct dbuf {
 typedef struct chunk {
     uint8_t * data;
     size_t len;
+    int stream_id;
     struct chunk * next;
     struct chunk * prev;
 } chunk_t;
