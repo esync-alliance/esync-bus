@@ -1295,7 +1295,6 @@ void gather_destinations(json_object * array, json_object ** x5t, UT_array * con
         return;
     }
 
-
     str_t * set = 0;
 
     for (int i=0; i<l; i++) {
@@ -1456,7 +1455,7 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
         x_msg.is_reply = is_reply;
         x_msg.is_final = is_final;
 
-        DBG("Outgoing on %p/%p fd %d : %s", ci, conn, conn->fd, json_object_get_string(json));
+        DBG("Outgoing on %p/%p %05x fd %d : %s", ci, conn, stream_id, conn->fd, json_object_get_string(json));
 
         msg_context_t * ctx = f_malloc(sizeof(msg_context_t));
         ctx->magic = MAGIC_SYS_MESSAGE;

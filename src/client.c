@@ -1541,7 +1541,7 @@ int send_json_message(xl4bus_client_t * clt, int is_reply, int is_final,
         x_msg->is_reply = is_reply;
         x_msg->is_final = is_final;
 
-        DBG("XCGH: sending json on stream %d : %s",
+        DBG("XCGH: sending json on stream %05x : %s",
                 x_msg->stream_id, json_object_get_string(json));
 
         BOLT_SUB(to_broker(clt, x_msg, 0, 0, thread_safe));

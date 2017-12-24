@@ -97,7 +97,12 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
                     BOLT_SYS(1, "failed to send data");
                 }
 
-                DBG("sent %d bytes for stream %05x", top->len, top->stream_id);
+                if (cfg.debug_f) {
+                    int count = 0;
+                    chunk_t * aux;
+                    DL_COUNT(top, aux, count);
+                    DBG("sent %d bytes for stream %05x %d items in outgoing queue", top->len, top->stream_id, count);
+                }
 
                 if (res == top->len) {
 
@@ -210,7 +215,12 @@ do {} while(0)
                         uint16_t stream_id = ntohs(*(uint16_t *) frm.data.data);
                         HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
 
-                        // DBG("LL: recv frame stream %d, opened stream=%s", stream_id, stream?"yes":"no");
+                        if (cfg.debug_f) {
+
+                            DBG("received frame stream %05x opened stream=%s socket has %d bytes ready",
+                                    stream_id, stream?"yes":"no", pf_fionread(fd));
+
+                        }
 
                         int is_not_first;
 
@@ -436,7 +446,7 @@ do {} while(0)
                 free_dbuf(&frm.data, 0);
                 memset(&frm, 0, sizeof(frm));
 
-            // ESYNC-1364 don't try reading too much data at a time
+                // ESYNC-1364 don't try reading too much data at a time
             } while (0);
 
 #undef frm

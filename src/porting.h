@@ -45,6 +45,7 @@
 #define pf_shutdown_rdwr XI(pf_shutdown_rdwr)
 #define pf_close XI(pf_close)
 #define pf_dgram_pair XI(pf_dgram_pair)
+#define pf_fionread XI(pf_fionread)
 
 /*
  * This file contains headers for
@@ -158,5 +159,11 @@ void pf_close(int);
 #if XL4_SUPPORT_UNIX_DGRAM_PAIR
 int pf_dgram_pair(int sv[2]);
 #endif
+
+// this is like ioctl(fd, FIONREAD, &bytes).
+// should return -1 on error. This is used only
+// in debugging, so if there is no implementation,
+// it's safe to return 0.
+ssize_t pf_fionread(int fd);
 
 #endif
