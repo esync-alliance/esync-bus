@@ -9,7 +9,7 @@
 #define XI(x) x
 #endif
 
-#include "build_config.h"
+#include <libxl4bus/build_config.h>
 #include "config.h"
 
 #if XL4_PROVIDE_THREADS && !XL4_SUPPORT_THREADS
@@ -39,6 +39,7 @@
 #define pf_init_lock XI(pf_init_lock)
 #define pf_lock XI(pf_lock)
 #define pf_unlock XI(pf_unlock)
+#define pf_release_lock XI(pf_release_lock)
 #define pf_connect_tcp XI(pf_connect_tcp)
 #define pf_get_socket_error XI(pf_get_socket_error)
 #define pf_poll XI(pf_poll)
@@ -116,6 +117,10 @@ int pf_start_thread(pf_runnable_t, void *);
 int pf_init_lock(void**);
 int pf_lock(void**);
 int pf_unlock(void**);
+
+// release all resources associated with the specified lock;
+// this lock is not be used again.
+void pf_release_lock(void *);
 #endif /* XL4_PROVIDE_THREADS */
 
 // connect to a TCP destination.

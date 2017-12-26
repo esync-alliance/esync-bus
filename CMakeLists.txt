@@ -160,10 +160,14 @@ set_empty(XL4_HAVE_STD_MALLOC 1)
 
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES build_config.h)
 
-set(BCH ${CMAKE_BINARY_DIR}/build_config.h)
+set(BUILD_INCLUDE ${CMAKE_BINARY_DIR}/include)
+set(BUILD_INCLUDE_BUS ${BUILD_INCLUDE}/libxl4bus)
+file(MAKE_DIRECTORY ${BUILD_INCLUDE_BUS})
+
+set(BCH ${BUILD_INCLUDE_BUS}/build_config.h)
 
 configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${BCH})
-configure_file(${PORT}/types_base.h ${CMAKE_BINARY_DIR}/types_base.h)
+configure_file(${PORT}/types_base.h ${BUILD_INCLUDE_BUS}/types_base.h)
 configure_file(${CMAKE_SOURCE_DIR}/json-c-rename.h ${CMAKE_BINARY_DIR} COPYONLY)
 
 set(JSON_C ${CMAKE_SOURCE_DIR}/json-c-build)
@@ -174,6 +178,7 @@ include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${JSON_C})
 include_directories(SYSTEM ${MBEDTLS}/include)
 include_directories(SYSTEM ${CJOSE}/include)
+include_directories(SYSTEM ${BUILD_INCLUDE})
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${PORT})
 include_directories(${CMAKE_BINARY_DIR})
@@ -270,6 +275,13 @@ if (BUILD_BINS)
             ${LIB_SRC}
         )
     add_executable(xl4bus-broker
+            src/broker/broker.h
+            src/broker/bus.c
+            src/broker/crypto.c
+            src/broker/e900.c
+            src/broker/gather.c
+            src/broker/hash_list.h
+            src/broker/hash_tree.c
             src/broker/main.c
             src/uthash.h
             src/utarray.h
@@ -302,9 +314,9 @@ if (BUILD_BINS)
     endif()
 endif()
 
-install(DIRECTORY src/include/libxl4bus DESTINATION include/libxl4bus)
+install(DIRECTORY src/include/libxl4bus DESTINATION include)
 install(FILES ${BCH} DESTINATION include/libxl4bus)
-install(FILES ${CMAKE_BINARY_DIR}/types_base.h DESTINATION include/libxl4bus)
+install(FILES ${BUILD_INCLUDE_BUS}/types_base.h ${BUILD_INCLUDE_BUS}/build_config.h DESTINATION include/libxl4bus)
 
 find_package(Doxygen)
 

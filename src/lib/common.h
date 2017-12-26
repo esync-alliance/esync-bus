@@ -2,8 +2,6 @@
 #ifndef _XL4BROKER_COMMON_H_
 #define _XL4BROKER_COMMON_H_
 
-#define _DEFAULT_SOURCE
-
 #include <time.h>
 #include <sys/time.h>
 #include <stdint.h>

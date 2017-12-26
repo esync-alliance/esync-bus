@@ -6,8 +6,8 @@
 #ifndef _XL4BUS_TYPES_H_
 #define _XL4BUS_TYPES_H_
 
-#include "types_base.h"
-#include "build_config.h"
+#include <libxl4bus/types_base.h>
+#include <libxl4bus/build_config.h>
 
 struct xl4bus_client;
 
@@ -185,6 +185,12 @@ typedef struct xl4bus_message {
      */
     int tracking_id;
 
+    /**
+     * Set by the library, when the message is returned through
+     * a call back.
+     */
+    int err;
+
 } xl4bus_message_t;
 
 typedef struct xl4bus_ll_message {
@@ -300,6 +306,17 @@ struct xl4bus_connection;
  * The library client reported an error.
  */
 #define E_XL4BUS_CLIENT     (-7)
+
+/**
+ * Some requested resource is fully used and can not
+ * be returned.
+ */
+#define E_XL4BUS_FULL     (-8)
+
+/**
+ * Message can not be delivered to any destinations
+ */
+#define E_XL4BUS_UNDELIVERABLE     (-9)
 
 typedef int (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_ll_message_t *);
 typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
@@ -464,6 +481,8 @@ typedef struct xl4bus_connection {
     // int mt_read_socket;
     xl4bus_mt_message_callback on_mt_message;
 #endif
+
+    int stream_count;
 
     void * custom;
     void * _private;

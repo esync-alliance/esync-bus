@@ -52,6 +52,8 @@ XL4_PUB
  */
 int xl4bus_set_remote_identity(xl4bus_connection_t * conn, xl4bus_identity_t * identity);
 
+XL4_PUB int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t * stream);
+
 XL4_PUB int xl4bus_process_connection(xl4bus_connection_t *, int fd, int flags);
 XL4_PUB void xl4bus_shutdown_connection(xl4bus_connection_t *);
 XL4_PUB int xl4bus_send_ll_message(xl4bus_connection_t *, xl4bus_ll_message_t *msg, void *ref

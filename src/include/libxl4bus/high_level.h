@@ -114,8 +114,21 @@ XL4_PUB
  * @param clt client structure
  * @param msg message to send
  * @param arg argument, will be reported into the ::xl4bus_client_t.on_delivered.
+ * @param app_thread, if !0, indicates that the call is made from any thread other
+ * than where the xl4bus callbacks are executed. To preserve multi-thread safety,
+ * and minimize porting requirements, it's expected that the application provides
+ * caller provides this information, rather than it being deduced.
  * @return ::E_XL4BUS_OK if message was sent successfully, or a corresponding
  * error code.
+ */
+int xl4bus_send_message2(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int app_thread);
+
+XL4_PUB
+/**
+ * Older version of ::xl4bus_send_message2, simply calls
+ * {@code xl4bus_send_message2(..., clt->use_internal_thread)}. Use the newer
+ * function to make sure you properly specify whether the you are currently calling
+ * from xl4bus callback, or from an application thread.
  */
 int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg);
 
