@@ -17,6 +17,8 @@
 #include <poll.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <termios.h> // FIONREAD
+#include <sys/ioctl.h>
 
 #if XL4_PROVIDE_THREADS
 #include <pthread.h>
@@ -341,3 +343,13 @@ int pf_dgram_pair(int sv[2]) {
 }
 #endif
 
+ssize_t pf_fionread(int fd) {
+
+    int bytes;
+    int rc = ioctl(fd, FIONREAD, &bytes);
+    if (rc) {
+        return -1;
+    }
+    return (ssize_t)bytes;
+
+}

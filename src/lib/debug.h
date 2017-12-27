@@ -18,13 +18,15 @@ extern int debug;
     __func__, chop_path(__FILE__), __LINE__, ## b
 
 #define LINE_OUT(how, str, args...) do { \
-    char __now[20]; \
+    char __now[24]; \
     struct tm __tmnow; \
     struct timeval __tv; \
-    memset(__now, 0, 20); \
+    memset(__now, 0, 24); \
     gettimeofday(&__tv, 0); \
     localtime_r(&__tv.tv_sec, &__tmnow); \
-    strftime(__now, 19, "%m-%d_%H:%M:%S", &__tmnow); \
+    usec_to_msec(&__tv); \
+    strftime(__now, 20, "%m-%d_%H:%M:%S.", &__tmnow); \
+    sprintf(__now+15, "%03d", __tv.tv_usec); \
     /* time func:file:line */ \
     if (how == HOW_FATAL || how == HOW_ERR) { \
         fprintf(stderr, LINE_ARGS(str, "ERR! ", ##args)); \
@@ -35,6 +37,24 @@ extern int debug;
         fprintf(stderr, LINE_ARGS(str, "", ##args)); \
     } \
 } while(0)
+
+static inline void usec_to_msec(struct timeval * tv) {
+
+    for (int i=0; i<3; i++) {
+        int r = (int)(tv->tv_usec % 10);
+        tv->tv_usec /= 10;
+        if (r >= 5) {
+            tv->tv_usec++;
+        }
+    }
+
+    if (tv->tv_usec >= 1000) {
+        tv->tv_usec -= 1000;
+        tv->tv_sec++;
+    }
+
+}
+
 
 #define LINE_OUT_SYS(how,a,b...) LINE_OUT(how, a " - %s (%d)", ##b, strerror(errno), errno)
 

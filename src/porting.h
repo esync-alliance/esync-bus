@@ -36,12 +36,16 @@
 #define pf_msvalue XI(pf_msvalue)
 #define pf_random XI(pf_random)
 #define pf_start_thread XI(pf_start_thread)
+#define pf_init_lock XI(pf_init_lock)
+#define pf_lock XI(pf_lock)
+#define pf_unlock XI(pf_unlock)
 #define pf_connect_tcp XI(pf_connect_tcp)
 #define pf_get_socket_error XI(pf_get_socket_error)
 #define pf_poll XI(pf_poll)
 #define pf_shutdown_rdwr XI(pf_shutdown_rdwr)
 #define pf_close XI(pf_close)
 #define pf_dgram_pair XI(pf_dgram_pair)
+#define pf_fionread XI(pf_fionread)
 
 /*
  * This file contains headers for
@@ -155,5 +159,11 @@ void pf_close(int);
 #if XL4_SUPPORT_UNIX_DGRAM_PAIR
 int pf_dgram_pair(int sv[2]);
 #endif
+
+// this is like ioctl(fd, FIONREAD, &bytes).
+// should return -1 on error. This is used only
+// in debugging, so if there is no implementation,
+// it's safe to return 0.
+ssize_t pf_fionread(int fd);
 
 #endif
