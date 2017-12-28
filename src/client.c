@@ -1159,6 +1159,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         mint->ll_msg.stream_id = msg->stream_id;
                         mint->ll_msg.is_reply = msg->is_reply;
                         mint->ll_msg.is_final = 0;
+                        mint->stream_id = msg->stream_id;
 
                         BOLT_MEM(root = json_object_new_object());
                         json_object * aux;
