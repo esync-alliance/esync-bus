@@ -186,7 +186,7 @@ include_directories(${CMAKE_BINARY_DIR})
 set(LIB_SOURCE ${LIB_SOURCE}
     PHONY
     ${BCH}
-    ${CMAKE_BINARY_DIR}/types_base.h
+    ${BUILD_INCLUDE_BUS}/types_base.h
     ${CMAKE_BINARY_DIR}/xl4bus_version.h
     src/identity.c
     src/misc.c
