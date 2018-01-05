@@ -71,7 +71,7 @@ int pf_get_errno(void) {
     return errno;
 }
 
-uint64_t pf_msvalue() {
+uint64_t pf_ms_value() {
 
     struct timespec tp;
 
@@ -367,5 +367,20 @@ ssize_t pf_fionread(int fd) {
         return -1;
     }
     return (ssize_t)bytes;
+
+}
+
+void pf_abort(const char * msg) {
+
+    fprintf(stderr, "Abort:%s", msg);
+    abort();
+
+}
+
+uint64_t pf_sec_time(void) {
+
+    struct timeval tv = {.tv_sec = 0 };
+    gettimeofday(&tv, 0);
+    return (uint64_t)tv.tv_sec;
 
 }

@@ -52,6 +52,14 @@ XL4_PUB
  */
 int xl4bus_set_remote_identity(xl4bus_connection_t * conn, xl4bus_identity_t * identity);
 
+XL4_PUB
+/**
+ * Set default keep-alive settings for the connection, as empty connection
+ * object will effectively have keep-alive turned off.
+ * @param conn connection to set default keep-alive parameters on.
+ */
+void xl4bus_set_default_keep_alive(xl4bus_connection_t * conn);
+
 XL4_PUB int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t * stream);
 
 XL4_PUB int xl4bus_process_connection(xl4bus_connection_t *, int fd, int flags);

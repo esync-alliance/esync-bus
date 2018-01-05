@@ -705,3 +705,9 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
     return err;
 
 }
+
+int on_stream_close(struct xl4bus_connection * conn, uint16_t stream, xl4bus_stream_close_reason_t scr) {
+
+    DBG("Stream %p-%04x closed, reason: %d", conn->_private, stream, (int)scr);
+
+}

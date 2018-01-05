@@ -164,21 +164,35 @@ int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t *
 
 }
 
-int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void *data, size_t data_len, char const * ct, char **jws_data, size_t *jws_len) {
+int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void *data,
+        size_t data_len, char const * ct, char **jws_data, size_t *jws_len) {
 
     cjose_err c_err;
     cjose_jws_t *jws = 0;
     cjose_header_t *j_hdr = 0;
     int err = E_XL4BUS_OK;
+    char * base64 = 0;
 
 #if XL4_DISABLE_JWS
     json_object * trust = 0;
-    char * base64 = 0;
 #endif
 
     do {
 
         connection_internal_t * i_conn = conn->_private;
+
+        // we need to add nonce and timestamp into the object, since that's common
+        // for all outgoing messages.
+
+        size_t base64_len;
+        unsigned char rand[64];
+        pf_random(rand, 64);
+        BOLT_CJOSE(cjose_base64_encode(rand, 64, &base64, &base64_len, &c_err));
+        json_object * val;
+        BOLT_MEM(val = json_object_new_string_len(base64, (int)base64_len));
+        json_object_object_add(bus_object, "nonce", val);
+        BOLT_MEM(val = json_object_new_int64((int64_t)pf_sec_time));
+        json_object_object_add(bus_object, "timestamp", val);
 
 #if XL4_DISABLE_JWS
 
@@ -192,7 +206,6 @@ int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void *d
         }
         json_object_object_add(trust, "x-xl4bus", json_object_get(bus_object));
 
-        size_t base64_len;
         BOLT_CJOSE(cjose_base64_encode(data, data_len, &base64, &base64_len, &c_err));
 
         json_object * j_aux;

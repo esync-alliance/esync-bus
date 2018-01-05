@@ -153,7 +153,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             if (!i_clt->down_target) {
                 left = 0;
             } else {
-                uint64_t now = pf_msvalue();
+                uint64_t now = pf_ms_value();
                 if (now >= i_clt->down_target) {
                     left = 0;
                 } else {
@@ -665,7 +665,7 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     client_internal_t * i_clt = clt->_private;
     // $TODO: 2sec here is an arbitrary constant, and probably should
     // be a configuration value.
-    i_clt->down_target = pf_msvalue() + 2000;
+    i_clt->down_target = pf_ms_value() + 2000;
     i_clt->state = CS_DOWN;
     i_clt->net_addr_current = 0;
 
@@ -1912,5 +1912,6 @@ static void release_remotes(message_internal_t * mint) {
     cfg.free(mint->remotes);
     mint->key_count = 0;
     mint->remotes = 0;
+    mint->key_idx = 0;
 
 }

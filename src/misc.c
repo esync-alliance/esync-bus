@@ -444,7 +444,7 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
     stream_t * aux;
 
     HASH_ITER(hh, i_conn->streams, stream, aux) {
-        release_stream(conn, stream);
+        release_stream(conn, stream, XL4SCR_CONN_SHUTDOWN);
     }
 
     conn->set_poll(conn, conn->fd, XL4BUS_POLL_REMOVE);

@@ -30,6 +30,7 @@ conn_info_hash_list_t * ci_by_group = 0;
 conn_info_t * connections;
 int poll_fd;
 xl4bus_identity_t broker_identity;
+static unsigned stream_timeout_ms = 10000;
 
 int be_quiet = 0;
 
@@ -63,6 +64,8 @@ void help() {
 "   use demo PKI directory layout, \n"
 "   reading credentials from specified directory in ../pki\n"
 "   The current directory id determined by the location of this binary\n"
+"-T <num>\n"
+"   Milliseconds for stream timeout, 0 to disable timeout. Default is 10000\n"
 "-q\n"
 "   Be quiet, don't produce any output that is not requested"
 "-d\n"
@@ -110,7 +113,7 @@ int main(int argc, char ** argv) {
     char * demo_pki = 0;
     char * key_password = 0;
 
-    while ((c = getopt(argc, argv, "hk:K:c:t:D:dpq")) != -1) {
+    while ((c = getopt(argc, argv, "hk:K:c:t:D:dpqT:")) != -1) {
 
         switch (c) {
 
@@ -148,6 +151,15 @@ int main(int argc, char ** argv) {
                 break;
             case 'q':
                 be_quiet = 1;
+                break;
+            case 'T':
+            {
+                int val = atoi(optarg);
+                if (val < 0) {
+                    FATAL("timeout can not be negative");
+                }
+                stream_timeout_ms = (unsigned)val;
+            }
                 break;
 
             default: help(); break;
@@ -325,6 +337,8 @@ int main(int argc, char ** argv) {
                     conn->on_sent_message = on_sent_message;
                     conn->fd = fd2;
                     conn->set_poll = set_poll;
+                    conn->stream_timeout_ms = stream_timeout_ms;
+                    conn->on_stream_closure = on_stream_close;
 
                     memcpy(&conn->identity, &broker_identity, sizeof(broker_identity));
 

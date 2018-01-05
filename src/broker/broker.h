@@ -154,6 +154,7 @@ int brk_on_message(xl4bus_connection_t *, xl4bus_ll_message_t *);
 void on_sent_message(xl4bus_connection_t *, xl4bus_ll_message_t *, void *, int);
 int set_poll(xl4bus_connection_t *, int, int);
 void on_connection_shutdown(xl4bus_connection_t * conn);
+int on_stream_close(struct xl4bus_connection *, uint16_t stream, xl4bus_stream_close_reason_t);
 
 // main
 
