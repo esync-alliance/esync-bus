@@ -7,5 +7,5 @@ set(XL4_DISABLE_JWS 1)
 # uncomment to link executables against ElectricFence
 # set(WITH_EFENCE 1)
 
-set(LIB_SOURCE ${LIB_SOURCE} linux_port/config.h linux_port/port.c)
+set(LIB_SOURCE ${LIB_SOURCE} android_port/config.h android_port/port.c)
 
