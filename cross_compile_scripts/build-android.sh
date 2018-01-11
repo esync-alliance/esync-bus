@@ -26,7 +26,7 @@ export SYSROOT="${TCR}/sysroot"
 export CROSS_COMPILE=${TCH}
 export PROJECT_ROOT=`pwd`
 export CFLAGS="-I$SYSROOT/usr/include -DANDROID_NDK=1 -I$PROJECT_ROOT/android/include"
-export LDFLAGS="-L$SYSROOT/usr/lib -lm -lz -L$PROJECT_ROOT/android/lib "
+export LDFLAGS="-L$SYSROOT/usr/lib -lm -lz -L$PROJECT_ROOT/android/lib -fPIE -pie "
 
 export PKG_CONFIG_PATH="${SYSROOT}/lib/pkgconfig:${SYSROOT}/usr/lib/pkgconfig"
 
