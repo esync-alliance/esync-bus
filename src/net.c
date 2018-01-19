@@ -445,6 +445,7 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 
         if (!stream) {
             DBG("Can not abort stream %04x, doesn't exist", stream_id);
+            break;
         }
 
         if (stream->is_final) {
