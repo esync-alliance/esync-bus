@@ -62,6 +62,8 @@ void release_timed_out_streams(xl4bus_connection_t * conn) {
         if (stream->times_out_at_ms <= now) {
             DBG("Stream %04x timed out, releasing", stream->stream_id);
             release_stream(conn, stream, XL4SCR_TIMED_OUT);
+        } else {
+            break;
         }
 
     }
