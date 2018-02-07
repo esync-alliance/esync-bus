@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <netinet/in.h>
 #include <errno.h>
-#include <pthread.h>
 #include <poll.h>
 #include <unistd.h>
 #include <stdlib.h>

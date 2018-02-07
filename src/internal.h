@@ -7,6 +7,8 @@
 #include <libxl4bus/low_level.h>
 #include <libxl4bus/high_level.h>
 
+#include "lib/rb_tree.h"
+
 #include "json-c-rename.h"
 #include <json.h>
 
@@ -66,6 +68,8 @@ typedef struct chunk {
 
 typedef struct stream {
 
+    int ref_count;
+
     UT_hash_handle hh;
     uint16_t stream_id;
 
@@ -78,6 +82,11 @@ typedef struct stream {
 
     int is_final;
     int is_reply;
+
+    uint64_t times_out_at_ms;
+    rb_node_t rb_timeout;
+
+    int released;
 
 } stream_t;
 
@@ -103,13 +112,17 @@ typedef struct connection_internal {
 
     } current_frame;
 
+    // this hash is protected by a read lock only.
+    // An alien thread may read from this hash. So the
+    // alien thread must take out a read lock. However,
+    // processing thread only needs to take locks when
+    // making changes. This will work as long as alien
+    // threads don't modify the hash.
     stream_t * streams;
 
     int pending_connection_test;
     uint8_t connection_test_request[32];
     uint64_t connectivity_test_ts;
-    // let the LL caller manage the outgoing stream IDs.
-    // uint16_t stream_seq_out;
 
     mbedtls_x509_crt trust;
     mbedtls_x509_crt chain;
@@ -121,8 +134,13 @@ typedef struct connection_internal {
 
     int ku_flags;
 
+    uint16_t next_stream_id;
+
+    rb_node_t * timeout_tree;
+
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;
+    void * hash_lock;
 #endif
 
 } connection_internal_t;
@@ -186,28 +204,20 @@ typedef struct message_internal {
 
     message_info_state_t mis;
     int in_restart;
+    int ref_count;
 
-    union {
-
-        // outgoing message
-        struct {
-            struct message_internal * next;
-            struct message_internal * prev;
-            xl4bus_message_t * msg;
-            uint16_t stream_id;
-            UT_hash_handle hh;
-            json_object * addr;
-            remote_info_t ** remotes;
-            size_t key_count;
-            size_t key_idx;
-        };
-
-        // incoming message
-        struct {
-            xl4bus_ll_message_t ll_msg;
-        };
-
-    };
+    xl4bus_ll_message_t ll_msg;
+    struct message_internal * next;
+    struct message_internal * prev;
+    xl4bus_message_t * msg;
+    uint16_t stream_id;
+    UT_hash_handle hh;
+    json_object * addr;
+    remote_info_t ** remotes;
+    size_t key_count;
+    size_t key_idx;
+    int in_hash;
+    int in_list;
 
     void * custom;
 
@@ -227,8 +237,6 @@ typedef struct client_internal {
     message_internal_t * message_list;
     message_internal_t * stream_hash;
 
-    uint16_t stream_id;
-
     int tcp_fd;
 
     char * host;
@@ -246,6 +254,7 @@ typedef struct client_internal {
 #if XL4_PROVIDE_THREADS
     void * xl4_thread_space;
     int stop;
+    void * hash_lock;
 #endif
 
 #if XL4_SUPPORT_IPV4 && XL4_SUPPORT_IPV6
@@ -283,7 +292,14 @@ extern void * cert_cache_lock;
 
 /* net.c */
 #define check_conn_io XI(check_conn_io)
+#define ref_stream XI(ref_stream)
+#define unref_stream XI(unref_stream)
+#define release_stream XI(release_stream)
+
 int check_conn_io(xl4bus_connection_t*);
+stream_t * ref_stream(stream_t *);
+void unref_stream(stream_t *);
+void release_stream(xl4bus_connection_t *, stream_t *, xl4bus_stream_close_reason_t);
 
 /* signed.c */
 // $TODO: validate incoming JWS message
@@ -309,7 +325,7 @@ int build_address_list(json_object *, xl4bus_address_t **);
 #define consume_dbuf XI(consume_dbuf)
 #define add_to_dbuf XI(add_to_dbuf)
 #define free_dbuf XI(free_dbuf)
-#define cleanup_stream XI(cleanup_stream)
+#define clear_dbuf XI(clear_dbuf)
 #define cjose_to_err XI(cjose_to_err)
 #define f_asprintf XI(f_asprintf)
 #define shutdown_connection_ts XI(shutdown_connection_ts)
@@ -326,8 +342,8 @@ int build_address_list(json_object *, xl4bus_address_t **);
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
-void free_dbuf(dbuf_t *, int);
-void cleanup_stream(connection_internal_t *, stream_t **);
+void free_dbuf(dbuf_t **);
+void clear_dbuf(dbuf_t *);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
 void shutdown_connection_ts(xl4bus_connection_t *);
@@ -349,11 +365,22 @@ void clean_validated_object(validated_object_t * );
 #define make_cert_hash XI(make_cert_hash)
 #define release_remote_info XI(release_remote_info)
 
-
 int make_cert_hash(void *, size_t, char **);
 // finds the cjose key object for the specified tag.
 remote_info_t * find_by_x5t(const char * x5t);
 void release_remote_info(remote_info_t *);
 int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t **);
+
+/* timeout.h */
+
+#define schedule_stream_timeout XI(schedule_stream_timeout)
+#define remove_stream_timeout XI(remove_stream_timeout)
+#define release_timed_out_streams XI(release_timed_out_streams)
+#define next_stream_timeout XI(next_stream_timeout)
+
+void schedule_stream_timeout(xl4bus_connection_t * conn, stream_t * stream, unsigned);
+void remove_stream_timeout(xl4bus_connection_t * conn, stream_t * stream);
+void release_timed_out_streams(xl4bus_connection_t * conn);
+int next_stream_timeout(xl4bus_connection_t * conn);
 
 #endif

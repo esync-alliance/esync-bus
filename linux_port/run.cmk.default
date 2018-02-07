@@ -10,3 +10,7 @@ influence_pkg("OPENSSL")
 
 # -lm needed for Ubuntu
 targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES -lm)
+
+# to include proper things, we need these kind of flags
+add_definitions(-D_DEFAUILT_SOURCE -D_GNU_SOURCE)
+

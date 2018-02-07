@@ -9,7 +9,7 @@
 #define XI(x) x
 #endif
 
-#include "build_config.h"
+#include <libxl4bus/build_config.h>
 #include "config.h"
 
 #if XL4_PROVIDE_THREADS && !XL4_SUPPORT_THREADS
@@ -33,12 +33,14 @@
 #define pf_set_nonblocking XI(pf_set_nonblocking)
 #define pf_set_errno XI(pf_set_errno)
 #define pf_get_errno XI(pf_get_errno)
-#define pf_msvalue XI(pf_msvalue)
+#define pf_ms_value XI(pf_ms_value)
+#define pf_sec_time XI(pf_sec_time)
 #define pf_random XI(pf_random)
 #define pf_start_thread XI(pf_start_thread)
 #define pf_init_lock XI(pf_init_lock)
 #define pf_lock XI(pf_lock)
 #define pf_unlock XI(pf_unlock)
+#define pf_release_lock XI(pf_release_lock)
 #define pf_connect_tcp XI(pf_connect_tcp)
 #define pf_get_socket_error XI(pf_get_socket_error)
 #define pf_poll XI(pf_poll)
@@ -46,6 +48,7 @@
 #define pf_close XI(pf_close)
 #define pf_dgram_pair XI(pf_dgram_pair)
 #define pf_fionread XI(pf_fionread)
+#define pf_abort XI(pf_abort)
 
 /*
  * This file contains headers for
@@ -93,7 +96,10 @@ int pf_get_errno(void);
 // milliseconds that passed since beginning of some local timer.
 // The value doesn't need to represent any actual time, just
 // consistently grow at an approximately millisecond rate.
-uint64_t pf_msvalue();
+uint64_t pf_ms_value();
+
+// needs to return current time, in seconds since Epoch.
+uint64_t pf_sec_time();
 
 // generate specified number of random bytes into
 // the specified address.
@@ -116,6 +122,10 @@ int pf_start_thread(pf_runnable_t, void *);
 int pf_init_lock(void**);
 int pf_lock(void**);
 int pf_unlock(void**);
+
+// release all resources associated with the specified lock;
+// this lock is not be used again.
+void pf_release_lock(void *);
 #endif /* XL4_PROVIDE_THREADS */
 
 // connect to a TCP destination.
@@ -165,5 +175,10 @@ int pf_dgram_pair(int sv[2]);
 // in debugging, so if there is no implementation,
 // it's safe to return 0.
 ssize_t pf_fionread(int fd);
+
+// this is invoked when the library ran into some fatal
+// corruption, and continuing operations is not terminally
+// not feasible
+void pf_abort(const char *);
 
 #endif

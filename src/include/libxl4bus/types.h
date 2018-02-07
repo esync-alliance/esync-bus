@@ -6,8 +6,8 @@
 #ifndef _XL4BUS_TYPES_H_
 #define _XL4BUS_TYPES_H_
 
-#include "types_base.h"
-#include "build_config.h"
+#include <libxl4bus/types_base.h>
+#include <libxl4bus/build_config.h>
 
 struct xl4bus_client;
 
@@ -185,6 +185,12 @@ typedef struct xl4bus_message {
      */
     int tracking_id;
 
+    /**
+     * Set by the library, when the message is returned through
+     * a call back.
+     */
+    int err;
+
 } xl4bus_message_t;
 
 typedef struct xl4bus_ll_message {
@@ -226,6 +232,14 @@ typedef struct xl4bus_ll_message {
      * successfully before being passed down.
      */
     int was_encrypted;
+
+    /**
+     * If !0, then contains the timeout value, next message should
+     * be sent or received for the same stream within that specified amount
+     * of milliseconds. If 0, then timeout is set as defined by the
+     * connection.
+     */
+    unsigned timeout_ms;
 
 } xl4bus_ll_message_t;
 
@@ -301,12 +315,33 @@ struct xl4bus_connection;
  */
 #define E_XL4BUS_CLIENT     (-7)
 
+/**
+ * Some requested resource is fully used and can not
+ * be returned.
+ */
+#define E_XL4BUS_FULL     (-8)
+
+/**
+ * Message can not be delivered to any destinations
+ */
+#define E_XL4BUS_UNDELIVERABLE     (-9)
+
+typedef enum xl4bus_stream_close_reason {
+
+    XL4SCR_LOCAL_CLOSED,
+    XL4SCR_REMOTE_CLOSED,
+    XL4SCR_CONN_SHUTDOWN,
+    XL4SCR_TIMED_OUT,
+    XL4SCR_REMOTE_ABORTED,
+
+} xl4bus_stream_close_reason_t;
+
 typedef int (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_ll_message_t *);
 typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
 typedef char *(*xl4bus_password_callback_t)(struct xl4bus_X509v3_Identity *);
 typedef int (*xl4bus_set_ll_poll)(struct xl4bus_connection *, int, int);
-typedef int (*xl4bus_stream_callback)(struct xl4bus_connection *, uint16_t stream);
+typedef int (*xl4bus_stream_callback)(struct xl4bus_connection *, uint16_t stream, xl4bus_stream_close_reason_t);
 typedef void (*xl4bus_shutdown_callback)(struct xl4bus_connection *);
 
 #if XL4_SUPPORT_THREADS
@@ -444,7 +479,7 @@ typedef struct xl4bus_connection {
     xl4bus_set_ll_poll set_poll;
     xl4bus_handle_ll_message on_message;
     xl4bus_ll_send_callback on_sent_message;
-    xl4bus_stream_callback on_stream_abort;
+    xl4bus_stream_callback on_stream_closure;
     xl4bus_shutdown_callback on_shutdown;
 
     xl4bus_address_t * remote_address_list;
@@ -464,6 +499,39 @@ typedef struct xl4bus_connection {
     // int mt_read_socket;
     xl4bus_mt_message_callback on_mt_message;
 #endif
+
+    int stream_count;
+
+    /**
+     * Indicates the amount of time that a stream will be kept open
+     * while there is no data sent through it. 0 disables timeout.
+     */
+    unsigned stream_timeout_ms;
+    /**
+     * Contains keep-alive configuration.
+     */
+    struct {
+
+        /**
+         * Amount of milliseconds to wait since last data or keep-alive
+         * before starting to send keep-alive packets. 0 indicates that
+         * keep-alive is disabled.
+         */
+        unsigned wait_until_ms;
+
+        /**
+         * Amount of keep-alive probes to send. At least that many probes
+         * will be waited without response before the stream is terminated.
+         */
+        unsigned probe_count;
+
+        /**
+         * Amount of time to wait before configuring the probe lost and
+         * either terminating the connection, or issuing the next probe.
+         */
+        unsigned wait_for_response_ms;
+
+    } keep_alive;
 
     void * custom;
     void * _private;

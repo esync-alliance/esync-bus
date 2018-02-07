@@ -187,6 +187,10 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
         mbedtls_x509_crt_init(&i_conn->chain);
         mbedtls_x509_crt_init(&i_conn->trust);
 
+#if XL4_SUPPORT_THREADS
+        BOLT_SYS(pf_init_lock(&i_conn->hash_lock), "initializing read lock");
+#endif
+
         BOLT_MEM(i_conn->x5c = json_object_new_array());
 
         if (conn->identity.type == XL4BIT_X509) {
@@ -364,12 +368,16 @@ int add_to_dbuf(dbuf_t * into, void * from, size_t from_len) {
 
 }
 
-void free_dbuf(dbuf_t * dbuf, int and_self) {
+void free_dbuf(dbuf_t ** dbuf) {
+    clear_dbuf(*dbuf);
+    free(*dbuf);
+    *dbuf = 0;
+}
 
-    cfg.free(dbuf->data);
-    if (and_self) {
-        cfg.free(dbuf);
-    } else {
+void clear_dbuf(dbuf_t * dbuf) {
+
+    if (dbuf) {
+        cfg.free(dbuf->data);
         memset(dbuf, 0, sizeof(dbuf_t));
     }
 
@@ -430,13 +438,13 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
         cfg.free(aux);
     }
 
-    free_dbuf(&i_conn->current_frame.data, 0);
+    clear_dbuf(&i_conn->current_frame.data);
 
     stream_t * stream;
     stream_t * aux;
 
     HASH_ITER(hh, i_conn->streams, stream, aux) {
-        cleanup_stream(i_conn, &stream);
+        release_stream(conn, stream, XL4SCR_CONN_SHUTDOWN);
     }
 
     conn->set_poll(conn, conn->fd, XL4BUS_POLL_REMOVE);
@@ -461,20 +469,15 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
     json_object_put(i_conn->x5c);
     xl4bus_free_address(conn->remote_address_list, 1);
 
+#if XL4_SUPPORT_THREADS
+    pf_release_lock(i_conn->hash_lock);
+#endif
+
     cfg.free(i_conn);
 
     if (conn->on_shutdown) {
         conn->on_shutdown(conn);
     }
-
-}
-
-void cleanup_stream(connection_internal_t * i_conn, stream_t ** stream) {
-
-    free_dbuf(&(*stream)->incoming_message_data, 0);
-    HASH_DEL(i_conn->streams, *stream);
-    free(*stream);
-    *stream = 0;
 
 }
 
@@ -507,6 +510,8 @@ char const * xl4bus_strerr(int e) {
         case E_XL4BUS_DATA: return "invalid data received";
         case E_XL4BUS_ARG: return "invalid argument";
         case E_XL4BUS_CLIENT: return "client error";
+        case E_XL4BUS_FULL: return "out of entries";
+        case E_XL4BUS_UNDELIVERABLE: return "underliverable";
         default:
             return "unknown error";
 
@@ -892,3 +897,54 @@ int xl4bus_copy_address(xl4bus_address_t * src, int chain, xl4bus_address_t ** r
 
 }
 
+int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t * stream) {
+
+    int err = E_XL4BUS_OK;
+
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+#if XL4_SUPPORT_THREADS
+    int locked = 0;
+#endif
+
+    do {
+
+#if XL4_SUPPORT_THREADS
+        BOLT_SYS(pf_lock(&i_conn->hash_lock), "");
+        locked = 1;
+#endif
+
+        uint16_t old;
+
+        old = i_conn->next_stream_id;
+        if (!old && !conn->is_client) {
+            i_conn->next_stream_id = old = 0xffff;
+        }
+        i_conn->next_stream_id += 2;
+
+        while (1) {
+            stream_t * x_stream = 0;
+            HASH_FIND(hh, i_conn->streams, &i_conn->next_stream_id, 2, x_stream);
+            if (!x_stream) {
+                *stream = i_conn->next_stream_id;
+                break;
+            }
+            // collision, advance.
+            if ((i_conn->next_stream_id += 2) == old) {
+                err = E_XL4BUS_FULL;
+                break;
+            }
+        }
+
+    } while (0);
+
+#if XL4_SUPPORT_THREADS
+    if (locked) {
+        pf_unlock(&i_conn->hash_lock);
+    }
+#endif
+
+    return err;
+
+
+}

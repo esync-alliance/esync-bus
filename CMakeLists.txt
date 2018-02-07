@@ -160,10 +160,14 @@ set_empty(XL4_HAVE_STD_MALLOC 1)
 
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES build_config.h)
 
-set(BCH ${CMAKE_BINARY_DIR}/build_config.h)
+set(BUILD_INCLUDE ${CMAKE_BINARY_DIR}/include)
+set(BUILD_INCLUDE_BUS ${BUILD_INCLUDE}/libxl4bus)
+file(MAKE_DIRECTORY ${BUILD_INCLUDE_BUS})
+
+set(BCH ${BUILD_INCLUDE_BUS}/build_config.h)
 
 configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${BCH})
-configure_file(${PORT}/types_base.h ${CMAKE_BINARY_DIR}/types_base.h)
+configure_file(${PORT}/types_base.h ${BUILD_INCLUDE_BUS}/types_base.h)
 configure_file(${CMAKE_SOURCE_DIR}/json-c-rename.h ${CMAKE_BINARY_DIR} COPYONLY)
 
 set(JSON_C ${CMAKE_SOURCE_DIR}/json-c-build)
@@ -174,6 +178,7 @@ include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${JSON_C})
 include_directories(SYSTEM ${MBEDTLS}/include)
 include_directories(SYSTEM ${CJOSE}/include)
+include_directories(SYSTEM ${BUILD_INCLUDE})
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${PORT})
 include_directories(${CMAKE_BINARY_DIR})
@@ -181,7 +186,7 @@ include_directories(${CMAKE_BINARY_DIR})
 set(LIB_SOURCE ${LIB_SOURCE}
     PHONY
     ${BCH}
-    ${CMAKE_BINARY_DIR}/types_base.h
+    ${BUILD_INCLUDE_BUS}/types_base.h
     ${CMAKE_BINARY_DIR}/xl4bus_version.h
     src/identity.c
     src/misc.c
@@ -198,10 +203,13 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/client.c
     src/x509.c
     src/addr.c
+    src/timeout.c
     src/itc.h
     src/include/libxl4bus/low_level.h
     src/include/libxl4bus/high_level.h
     src/include/libxl4bus/types.h
+    src/lib/rb_tree.h
+    src/lib/rb_tree.c
 )
 
 set(JSON_C_LIB ${JSON_C}/.libs/libjson-c.a)
@@ -232,6 +240,7 @@ if (BUILD_SHARED)
     endif()
     set(USE_LIB xl4bus-shared)
     target_link_libraries(xl4bus-shared ${JSON_C_LIB} ${MBEDTLS_LIB} ${CJOSE_LIB})
+    target_compile_definitions(xl4bus-shared PUBLIC XL4BUS_BUILD)
     install(TARGETS xl4bus-shared LIBRARY DESTINATION lib)
 endif()
 
@@ -245,7 +254,7 @@ if (BUILD_STATIC)
     if (NOT USE_LIB)
         set(USE_LIB xl4bus-static)
     endif()
-    target_compile_definitions(xl4bus-static PUBLIC HIDE_SYM)
+    target_compile_definitions(xl4bus-static PRIVATE HIDE_SYM XL4BUS_BUILD)
     install(TARGETS xl4bus-static ARCHIVE DESTINATION lib)
 endif()
 
@@ -255,26 +264,57 @@ if (BUILD_BINS)
         src/lib/common.h
         src/lib/common.c
         src/lib/debug.h
+        src/lib/rb_tree.h
+        src/lib/rb_tree.c
     )
 
-    add_executable(ll-server
-            src/test_clients/ll-server.c
-            ${LIB_SRC}
-        )
     add_executable(ll-client
             src/test_clients/ll-client.c
             ${LIB_SRC}
         )
-    add_executable(hl-client
-            src/test_clients/hl-client.c
-            ${LIB_SRC}
-        )
     add_executable(xl4bus-broker
+            src/broker/broker.h
+            src/broker/bus.c
+            src/broker/crypto.c
+            src/broker/e900.c
+            src/broker/gather.c
+            src/broker/hash_list.h
+            src/broker/hash_tree.c
             src/broker/main.c
             src/uthash.h
             src/utarray.h
             ${LIB_SRC}
         )
+
+    add_executable(tree-test 
+        src/tests/tree.c
+        ${LIB_SRC}
+        )
+
+    add_executable(timeout-test 
+        src/tests/timeout.c
+        ${LIB_SRC}
+        )
+
+    set(TEST_BINARIES "tree-test" "timeout-test")
+
+    set(BINARIES "ll-client" "xl4bus-broker" ${TEST_BINARIES})
+
+    if (XL4_PROVIDE_THREADS)
+
+        add_executable(ll-server
+                src/test_clients/ll-server.c
+                ${LIB_SRC}
+            )
+        add_executable(hl-client
+                src/test_clients/hl-client.c
+                ${LIB_SRC}
+            )
+        targets_link_libraries(ll-server hl-client LIBRARIES Threads::Threads)
+        set(BINARIES ${BINARIES} ll-server hl-client)
+    else()
+        message(WARNING "Some binaries require threading support, those binaries have not been built")
+    endif()
 
     install(TARGETS xl4bus-broker RUNTIME DESTINATION bin)
 
@@ -289,22 +329,17 @@ if (BUILD_BINS)
     target_link_libraries(xl4bus-broker ${JSON_C_LIB})
 
     if (WITH_EFENCE)
-        targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES -lefence)
+        targets_link_libraries(${BINARIES} LIBRARIES -lefence)
     endif()
 
-    targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES ${USE_LIB})
+    targets_link_libraries(${BINARIES} LIBRARIES ${USE_LIB})
     targets_link_libraries("xl4bus-broker" LIBRARIES ${CJOSE_LIB} ${MBEDTLS_LIB})
 
-    if (XL4_PROVIDE_THREADS)
-        targets_link_libraries(ll-server hl-server LIBRARIES Threads::Threads)
-    else()
-        message(FATAL_ERROR "Binaries require threading support that is not enabled. You probably want to disable binaries being built as well.")
-    endif()
 endif()
 
-install(DIRECTORY src/include/libxl4bus DESTINATION include/libxl4bus)
+install(DIRECTORY src/include/libxl4bus DESTINATION include)
 install(FILES ${BCH} DESTINATION include/libxl4bus)
-install(FILES ${CMAKE_BINARY_DIR}/types_base.h DESTINATION include/libxl4bus)
+install(FILES ${BUILD_INCLUDE_BUS}/types_base.h ${BUILD_INCLUDE_BUS}/build_config.h DESTINATION include/libxl4bus)
 
 find_package(Doxygen)
 
@@ -333,5 +368,28 @@ else ()
     install(DIRECTORY ${CMAKE_BINARY_DIR}/html DESTINATION share/doc/libxl4bus)
 
 endif ()
+
+if (CMAKE_CROSSCOMPILING)
+    message(WARNING "Please remember to run tests on the target platform!")
+else()
+
+    if (BUILD_BINS)
+        enable_testing()
+        add_test(NAME unit-tree COMMAND tree-test)
+        add_test(NAME unit-timeout COMMAND timeout-test)
+        add_custom_command(
+            TARGET xl4bus-broker
+            DEPENDS ${TEST_BINARIES}
+            COMMENT "Run tests"
+            POST_BUILD
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMAND ${CMAKE_CTEST_COMMAND} -C $<CONFIGURATION> -V -R "^unit-"
+        )
+
+        add_dependencies(xl4bus-broker ${TEST_BINARIES})
+
+    endif()
+
+endif()
 
 include(${LOAD_CFG})

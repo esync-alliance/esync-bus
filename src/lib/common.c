@@ -1,6 +1,4 @@
 
-#define _GNU_SOURCE
-
 #include "lib/common.h"
 #include "lib/debug.h"
 
@@ -20,7 +18,7 @@
 
 void print_out(const char * msg) {
 
-    printf("%s\n", msg);
+    fprintf(stderr, "%s\n", msg);
 
 }
 
@@ -138,6 +136,26 @@ int load_test_x509_creds(xl4bus_identity_t * identity, char * key, char * argv0)
     char * p_key = f_asprintf("%s/%s/private.pem", dir, key);
     char * cert = f_asprintf("%s/%s/cert.pem", dir, key);
     char * ca = f_asprintf("%s/ca/ca.pem", dir);
+
+    free(dir);
+
+    int ret = load_simple_x509_creds(identity, p_key, cert, ca, 0);
+
+    free(p_key);
+    free(cert);
+    free(ca);
+
+    return ret;
+
+}
+
+int load_test_data_x509_creds(xl4bus_identity_t * identity, char * key) {
+
+    char * dir = f_strdup("./../test_data/");
+
+    char * p_key = f_asprintf("%s/%s/private.pem", dir, key);
+    char * cert = f_asprintf("%s/%s/cert.pem", dir, key);
+    char * ca = f_asprintf("%s/ca.pem", dir);
 
     free(dir);
 

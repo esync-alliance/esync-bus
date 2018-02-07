@@ -7,6 +7,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <cjose/cjose.h>
+#include <unistd.h>
+#include <mbedtls/error.h>
 
 extern int debug;
 

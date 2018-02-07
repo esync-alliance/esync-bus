@@ -9,6 +9,58 @@ static void set_frame_size(void *, uint32_t);
 static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc);
 static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t len, int stream_id);
 static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg);
+static int process_normal_frame(xl4bus_connection_t * conn);
+static int process_ctest_frame(xl4bus_connection_t * conn);
+static int process_sabort_frame(xl4bus_connection_t * conn);
+
+stream_t * ref_stream(stream_t * stream) {
+    if (stream) {
+        pf_add_and_get(&stream->ref_count, 1);
+    }
+    return stream;
+}
+
+void unref_stream(stream_t * stream) {
+    if (stream) {
+        if (pf_add_and_get(&stream->ref_count, -1)) { return; }
+        clear_dbuf(&stream->incoming_message_data);
+        free(stream);
+    }
+}
+
+void release_stream(xl4bus_connection_t * conn, stream_t * stream, xl4bus_stream_close_reason_t scr) {
+
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    if (!stream || stream->released) { return; }
+
+    stream->released = true;
+
+    if (!stream->is_final) {
+        xl4bus_abort_stream(conn, stream->stream_id);
+    }
+
+    if (conn->on_stream_closure) {
+        conn->on_stream_closure(conn, stream->stream_id, scr);
+    }
+
+#if XL4_SUPPORT_THREADS
+    if (!pf_lock(&i_conn->hash_lock)) {
+#endif
+        HASH_DEL(i_conn->streams, stream);
+        conn->stream_count--;
+#if XL4_SUPPORT_THREADS
+        pf_unlock(&i_conn->hash_lock);
+    }
+#endif
+
+    remove_stream_timeout(conn, stream);
+
+    // printf("UUU Stream %p-%04x released\n", i_conn, stream->stream_id);
+
+    unref_stream(stream);
+
+}
 
 int check_conn_io(xl4bus_connection_t * conn) {
 
@@ -21,15 +73,14 @@ int check_conn_io(xl4bus_connection_t * conn) {
         flags |= XL4BUS_POLL_WRITE;
     }
 
-    return conn->set_poll(conn, conn->fd, flags);
+    return conn->set_poll(conn, conn->fd, flags) ||
+           conn->set_poll(conn, XL4BUS_POLL_TIMEOUT_MS, next_stream_timeout(conn));
 
 }
 
 int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
 
     int err;
-
-    int timeout = -1;
 
     int is_data_fd = fd == conn->fd;
 
@@ -205,233 +256,16 @@ do {} while(0)
 
                 switch (frm.byte0 & FRAME_TYPE_MASK) {
 
-                    case FRAME_TYPE_NORMAL: {
-
-                        // we must have at least 4 bytes.
-                        size_t offset = 4;
-                        BOLT_IF(frm.data.len < offset, E_XL4BUS_DATA, "Not enough data for header");
-
-                        stream_t *stream;
-                        uint16_t stream_id = ntohs(*(uint16_t *) frm.data.data);
-                        HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
-
-                        if (cfg.debug_f) {
-
-                            DBG("received frame stream %05x opened stream=%s socket has %d bytes ready",
-                                    stream_id, stream?"yes":"no", pf_fionread(fd));
-
-                        }
-
-                        int is_not_first;
-
-                        if (!stream) {
-
-                            // there is no stream. We can only create a stream for
-                            // first message, and if stream ID is not ours.
-
-                            if ((is_not_first = (frm.byte0 & FRAME_MSG_FIRST_MASK)) ||
-                                (stream_id & 0x1) != (conn->is_client ? 1 : 0)) {
-                                BOLT_SAY(E_XL4BUS_DATA,
-                                        "Stream ID %d has incorrect parity or not a stream starter (byte0 is %x, exp parity %d)",
-                                        stream_id, frm.byte0, (conn->is_client ? 1 : 0));
-                            }
-
-                            BOLT_MEM(stream = f_malloc(sizeof(stream_t)));
-
-                            stream->stream_id = stream_id;
-                            // $TODO: HASH mem check!
-                            HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
-
-                        } else {
-
-                            if (!(frm.byte0 & FRAME_MSG_FIRST_MASK)) {
-                                BOLT_SAY(E_XL4BUS_DATA, "Frame attempts to start existing stream %d", stream_id);
-                            }
-
-                            is_not_first = 1;
-
-                        }
-
-                        // Does this frame start a message?
-                        if (!stream->message_started) {
-
-                            // the message must contain CT code.
-                            offset++;
-
-                            BOLT_IF(frm.data.len < offset, E_XL4BUS_DATA, "Not enough bytes for message content type");
-
-                            stream->message_started = 1;
-                            stream->incoming_message_ct = *(frm.data.data + 4);
-
-                            stream->is_final = (frm.byte0 & FRAME_MSG_FINAL_MASK) > 0;
-                            stream->is_reply = is_not_first > 0;
-
-                        }
-
-                        // does frame sequence match our expectations?
-                        BOLT_IF(stream->frame_seq_in++ != ntohs(*(uint16_t *) (frm.data.data + 2)),
-                                E_XL4BUS_DATA, "Expected frame sequence %d, got %d", stream->frame_seq_in - 1,
-                                ntohs(*(uint16_t *) (frm.data.data + 2)));
-
-                        // OK, we are ready to consume the frame's contents.
-                        BOLT_IF(add_to_dbuf(&stream->incoming_message_data, frm.data.data + offset,
-                                frm.data.len - offset),
-                                E_XL4BUS_MEMORY, "Not enough memory to expand message buffer");
-
-                        // $TODO: must check if the message size is too big!!!
-
-                        // Is the message now complete?
-                        if (frm.byte0 & FRAME_LAST_MASK) {
-
-                            cjose_jws_t *jws = 0;
-
-                            char *decrypted_ct = 0;
-                            void *decrypted_data = 0;
-                            json_object *bus_object = 0;
-
-                            do {
-
-                                // the message is completed! Let's purge it.
-                                xl4bus_ll_message_t message;
-                                memset(&message, 0, sizeof(xl4bus_ll_message_t));
-
-                                // the message can be encrypted with our private key, or not.
-                                // let's try to treat it as encrypted message first.
-
-                                int decrypt_err = decrypt_jwe(stream->incoming_message_data.data,
-                                        stream->incoming_message_data.len, stream->incoming_message_ct,
-                                        conn->my_x5t, i_conn->private_key,
-                                        &decrypted_data, &message.data_len, &decrypted_ct);
-
-                                if (!decrypt_err) {
-
-                                    // decrypted OK
-
-                                    if (decrypted_ct) {
-                                        message.content_type = decrypted_ct;
-                                    } else {
-                                        message.content_type = decrypted_ct =
-                                                f_strdup("application/octet-stream");
-                                    }
-
-                                    message.data = decrypted_data;
-                                    message.was_encrypted = 1;
-
-                                    // we were able to decrypt our data, which means that the remote
-                                    // has learned our public key, so we can drop sending it in full.
-                                    json_object_put(i_conn->x5c);
-                                    i_conn->x5c = 0;
-
-                                } else {
-
-                                    message.data = stream->incoming_message_data.data;
-                                    message.data_len = stream->incoming_message_data.len;
-                                    message.was_encrypted = 0;
-                                    const char *ct = 0;
-                                    switch (stream->incoming_message_ct) {
-                                        case CT_JOSE_COMPACT:
-                                            ct = "application/jose";
-                                            break;
-                                        case CT_JOSE_JSON:
-                                            ct = "application/jose+json";
-                                            break;
-                                        case CT_APPLICATION_JSON:
-                                            ct = "application/json";
-                                            break;
-                                        case CT_TRUST_MESSAGE:
-                                            ct = "application/vnd.xl4.busmessage-trust+json";
-                                            break;
-                                        default:
-                                            ct = "application/octet-stream";
-                                            break;
-                                    }
-                                    message.content_type = decrypted_ct = f_strdup(ct);
-
-                                }
-
-                                message.stream_id = stream_id;
-                                message.is_reply = stream->is_reply;
-                                message.is_final = stream->is_final;
-
-                                BOLT_SUB(conn->on_message(conn, &message));
-
-                            } while (0);
-
-                            free_dbuf(&stream->incoming_message_data, 0);
-                            stream->message_started = 0;
-                            cjose_jws_release(jws);
-                            cfg.free(decrypted_data);
-                            cfg.free(decrypted_ct);
-
-                            json_object_put(bus_object);
-
-                            if (stream->is_final) {
-                                cleanup_stream(i_conn, &stream);
-                            }
-
-                        }
-
-                    }
+                    case FRAME_TYPE_NORMAL:
+                        BOLT_SUB(process_normal_frame(conn));
                         break;
 
-                    case FRAME_TYPE_CTEST: {
-
-                        BOLT_IF(frm.data.len != 32, E_XL4BUS_DATA, "conn test frame must be 32 bytes");
-
-                        if (frm.byte0 & FRAME_MSG_FIRST_MASK) {
-                            // it's a response
-                            if (i_conn->pending_connection_test &&
-                                !memcmp(frm.data.data, i_conn->connection_test_request, 32)) {
-                                i_conn->pending_connection_test = 0;
-                                i_conn->connectivity_test_ts = pf_msvalue();
-                            }
-                        } else {
-                            // we have been requested a connectivity test.
-                            i_conn->connectivity_test_ts = pf_msvalue();
-                            err = send_connectivity_test(conn, 1, frm.data.data);
-                        }
-                    }
+                    case FRAME_TYPE_CTEST:
+                        BOLT_SUB(process_ctest_frame(conn));
                         break;
 
-                    case FRAME_TYPE_SABORT: {
-
-                        // must at least be 1 byte that indicates the content type.
-                        BOLT_IF(!frm.data.len, E_XL4BUS_DATA, "Abort frame must not be empty");
-
-                        uint16_t stream_id;
-                        json_object *bus_object = 0;
-                        validated_object_t vo;
-                        if (validate_jws(frm.data.data + 1, frm.data.len - 1, (int) frm.data.data[0],
-                                conn, &vo, 0) == E_XL4BUS_OK) {
-
-                            json_object *j;
-                            if (bus_object && json_object_object_get_ex(bus_object, "stream-id", &j) &&
-                                json_object_is_type(j, json_type_int)) {
-
-                                int val = json_object_get_int(j);
-                                if (!(val & 0xffff)) {
-
-                                    stream_id = (uint16_t) val;
-
-                                    stream_t *stream;
-                                    HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
-                                    if (stream) {
-                                        cleanup_stream(i_conn, &stream);
-                                    }
-
-                                    if (conn->on_stream_abort) {
-                                        conn->on_stream_abort(conn, stream_id);
-                                    }
-                                }
-                            }
-
-                            json_object_put(bus_object);
-
-                            clean_validated_object(&vo);
-
-                        }
-
-                    }
+                    case FRAME_TYPE_SABORT:
+                        BOLT_SUB(process_sabort_frame(conn));
                         break;
 
                     default:
@@ -443,7 +277,7 @@ do {} while(0)
                 BOLT_NEST();
 
                 // we dealt with the frame
-                free_dbuf(&frm.data, 0);
+                clear_dbuf(&frm.data);
                 memset(&frm, 0, sizeof(frm));
 
                 // ESYNC-1364 don't try reading too much data at a time
@@ -453,12 +287,10 @@ do {} while(0)
 
         }
 
-        // $TODO: do all the timeouts here!!!
-
         BOLT_NEST();
 
+        release_timed_out_streams(conn);
         BOLT_SUB(check_conn_io(conn));
-        BOLT_SUB(conn->set_poll(conn, XL4BUS_POLL_TIMEOUT_MS, timeout));
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -565,6 +397,7 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
         }
 
         itc_message_t itc;
+        memset(&itc, 0, sizeof(itc));
         itc.msg = msg;
         itc.ref = ref;
         itc.magic = ITC_MESSAGE_MAGIC;
@@ -597,7 +430,68 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
         return;
     }
 
-    // $TODO: implement
+    stream_t *stream = 0;
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    int err = E_XL4BUS_OK;
+    void * signed_data = 0;
+    json_object * bus_object = 0;
+    uint8_t * frame = 0;
+
+    do {
+
+        HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+        ref_stream(stream);
+
+        if (!stream) {
+            DBG("Can not abort stream %04x, doesn't exist", stream_id);
+            break;
+        }
+
+        if (stream->is_final) {
+            DBG("Refusing to abort stream %04x, it's already in final state");
+            break;
+        }
+        stream->is_final = 1;
+
+        DBG("Aborting stream %04x...", stream_id);
+
+        BOLT_MEM(bus_object = json_object_new_object());
+        json_object * val;
+        BOLT_MEM(val = json_object_new_int(stream_id));
+        json_object_object_add(bus_object, "stream-id", val);
+
+        size_t signed_data_len;
+
+        BOLT_SUB(sign_jws(conn, bus_object, "", 1,
+                "text/plain", (char**)&signed_data, &signed_data_len));
+
+        BOLT_MALLOC(frame, 4 + signed_data_len + 5);
+        set_frame_size(frame, (uint32_t)(signed_data_len + 5)); // without the minimal header
+        *frame = FRAME_TYPE_SABORT | FRAME_LAST_MASK;
+
+#if XL4_DISABLE_JWS
+        frame[4] = CT_TRUST_MESSAGE;
+#else
+        frame[4] = CT_JOSE_COMPACT;
+#endif
+        memcpy(frame + 5, signed_data, signed_data_len);
+        calculate_frame_crc(frame, (uint32_t)(4 + signed_data_len + 5)); // size with crc
+
+        if ((err = post_frame(i_conn, frame, 4 + signed_data_len + 5, -1)) == E_XL4BUS_OK) {
+            frame = 0; // consumed
+        }
+
+    } while(0);
+
+    cfg.free(signed_data);
+    json_object_put(bus_object);
+    cfg.free(frame);
+    unref_stream(stream);
+
+    if (err != E_XL4BUS_OK) {
+        DBG("failed to abort stream : error %d", err);
+    }
 
 }
 
@@ -610,6 +504,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     uint8_t * signed_buf = 0;
     json_object * bus_object = 0;
     connection_internal_t * i_conn = conn->_private;
+    stream_t * stream = 0;
 
     do {
 
@@ -617,21 +512,29 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         size_t ser_len = 0;
 
-        stream_t * stream = 0;
-
         HASH_FIND(hh, i_conn->streams, &msg->stream_id, 2, stream);
+        ref_stream(stream);
 
         if (!msg->is_reply) {
 
             BOLT_IF(stream, E_XL4BUS_INTERNAL, "Stream %d already exists", msg->stream_id);
-            stream = f_malloc(sizeof(stream_t));
-            if (!stream) { err = E_XL4BUS_MEMORY; break; }
-            // stream->stream_id = msg->stream_id = i_conn->stream_seq_out;
-            // i_conn->stream_seq_out += 2;
+            BOLT_MALLOC(stream, sizeof(stream_t));
+            ref_stream(stream);
             stream->stream_id = msg->stream_id;
 
+#if XL4_SUPPORT_THREADS
+            BOLT_SYS(pf_lock(&i_conn->hash_lock), "");
+#endif
             // $TODO: HASH mem check!
             HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
+            ref_stream(stream);
+            conn->stream_count++;
+
+            // printf("UUU Stream %p-%04x created\n", conn->_private, stream->stream_id);
+
+#if XL4_SUPPORT_THREADS
+            pf_unlock(&i_conn->hash_lock);
+#endif
 
         } else {
 
@@ -683,7 +586,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 #endif
 
         // $TODO: support large messages!
-        if (ser_len > 65000) { break; }
+        BOLT_IF(ser_len > 65000, E_XL4BUS_ARG, "Frame size too large: %d", ser_len);
 
         set_frame_size(frame, (uint32_t)ser_len + 9);
 
@@ -704,6 +607,10 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
             frame = 0; // consumed.
         }
 
+        if (msg->is_final) {
+            release_stream(conn, stream, XL4SCR_LOCAL_CLOSED);
+        }
+
     } while(0);
 
     cfg.free(frame);
@@ -711,14 +618,23 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     json_object_put(x5c);
     cfg.free(signed_buf);
 
+    unref_stream(stream);
+
     json_object_put(bus_object);
+
+    if (err == E_XL4BUS_OK && !msg->is_final) {
+        schedule_stream_timeout(conn, stream, msg->timeout_ms);
+    }
 
     if (conn->on_sent_message) {
         conn->on_sent_message(conn, msg, arg, err);
     }
 
     if (err == E_XL4BUS_OK) {
+
+
         err = check_conn_io(conn);
+
         if (err != E_XL4BUS_OK) {
             // shutdown_connection_ts(conn);
             i_conn->err = err;
@@ -729,3 +645,282 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     return err;
 
 }
+
+int process_normal_frame(xl4bus_connection_t * conn) {
+
+#define frm (i_conn->current_frame)
+
+    int err = E_XL4BUS_OK;
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+    stream_t *stream = 0;
+
+    do {
+
+        // we must have at least 4 bytes.
+        size_t offset = 4;
+        BOLT_IF(frm.data.len < offset, E_XL4BUS_DATA, "Not enough data for header");
+
+        uint16_t stream_id = ntohs(*(uint16_t *) frm.data.data);
+        HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+        ref_stream(stream);
+
+        if (cfg.debug_f) {
+            DBG("received frame stream %05x opened stream=%s socket has %d bytes ready",
+                    stream_id, stream?"yes":"no", pf_fionread(conn->fd));
+        }
+
+        int is_not_first;
+
+        if (!stream) {
+
+            // there is no stream. We can only create a stream for
+            // first message, and if stream ID is not ours.
+
+            if ((is_not_first = (frm.byte0 & FRAME_MSG_FIRST_MASK)) ||
+                (stream_id & 0x1) != (conn->is_client ? 1 : 0)) {
+                DBG("Stream ID %d has incorrect parity or not a stream starter (byte0 is %x, exp parity %d)",
+                        stream_id, frm.byte0, (conn->is_client ? 1 : 0));
+                xl4bus_abort_stream(conn, stream_id);
+                break;
+            }
+
+            BOLT_MALLOC(stream, sizeof(stream_t));
+            ref_stream(stream);
+
+            stream->stream_id = stream_id;
+
+#if XL4_SUPPORT_THREADS
+            BOLT_SYS(pf_lock(&i_conn->hash_lock), "");
+#endif
+
+            // printf("UUU Stream %p-%04x created\n", conn->_private, stream->stream_id);
+
+            // $TODO: HASH mem check!
+            HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
+            ref_stream(stream);
+            conn->stream_count++;
+
+#if XL4_SUPPORT_THREADS
+            pf_unlock(&i_conn->hash_lock);
+#endif
+
+        } else {
+
+            if (!(frm.byte0 & FRAME_MSG_FIRST_MASK)) {
+                BOLT_SAY(E_XL4BUS_DATA, "Frame attempts to start existing stream %d", stream_id);
+            }
+
+            is_not_first = 1;
+
+        }
+
+        // Does this frame start a message?
+        if (!stream->message_started) {
+
+            // the message must contain CT code.
+            offset++;
+
+            BOLT_IF(frm.data.len < offset, E_XL4BUS_DATA, "Not enough bytes for message content type");
+
+            stream->message_started = 1;
+            stream->incoming_message_ct = *(frm.data.data + 4);
+
+            stream->is_final = (frm.byte0 & FRAME_MSG_FINAL_MASK) > 0;
+            stream->is_reply = is_not_first > 0;
+
+        }
+
+        // does frame sequence match our expectations?
+        BOLT_IF(stream->frame_seq_in++ != ntohs(*(uint16_t *) (frm.data.data + 2)),
+                E_XL4BUS_DATA, "Expected frame sequence %d, got %d", stream->frame_seq_in - 1,
+                ntohs(*(uint16_t *) (frm.data.data + 2)));
+
+        // OK, we are ready to consume the frame's contents.
+        BOLT_IF(add_to_dbuf(&stream->incoming_message_data, frm.data.data + offset,
+                frm.data.len - offset),
+                E_XL4BUS_MEMORY, "Not enough memory to expand message buffer");
+
+        // $TODO: must check if the message size is too big!!!
+
+        // Is the message now complete?
+        if (frm.byte0 & FRAME_LAST_MASK) {
+
+            cjose_jws_t *jws = 0;
+
+            char *decrypted_ct = 0;
+            void *decrypted_data = 0;
+            json_object *bus_object = 0;
+
+            do {
+
+                // the message is completed! Let's purge it.
+                xl4bus_ll_message_t message;
+                memset(&message, 0, sizeof(xl4bus_ll_message_t));
+
+                // the message can be encrypted with our private key, or not.
+                // let's try to treat it as encrypted message first.
+
+                int decrypt_err = decrypt_jwe(stream->incoming_message_data.data,
+                        stream->incoming_message_data.len, stream->incoming_message_ct,
+                        conn->my_x5t, i_conn->private_key,
+                        &decrypted_data, &message.data_len, &decrypted_ct);
+
+                if (!decrypt_err) {
+
+                    // decrypted OK
+
+                    if (decrypted_ct) {
+                        message.content_type = decrypted_ct;
+                    } else {
+                        message.content_type = decrypted_ct =
+                                f_strdup("application/octet-stream");
+                    }
+
+                    message.data = decrypted_data;
+                    message.was_encrypted = 1;
+
+                    // we were able to decrypt our data, which means that the remote
+                    // has learned our public key, so we can drop sending it in full.
+                    json_object_put(i_conn->x5c);
+                    i_conn->x5c = 0;
+
+                } else {
+
+                    message.data = stream->incoming_message_data.data;
+                    message.data_len = stream->incoming_message_data.len;
+                    message.was_encrypted = 0;
+                    const char *ct = 0;
+                    switch (stream->incoming_message_ct) {
+                        case CT_JOSE_COMPACT:
+                            ct = "application/jose";
+                            break;
+                        case CT_JOSE_JSON:
+                            ct = "application/jose+json";
+                            break;
+                        case CT_APPLICATION_JSON:
+                            ct = "application/json";
+                            break;
+                        case CT_TRUST_MESSAGE:
+                            ct = "application/vnd.xl4.busmessage-trust+json";
+                            break;
+                        default:
+                            ct = "application/octet-stream";
+                            break;
+                    }
+                    message.content_type = decrypted_ct = f_strdup(ct);
+
+                }
+
+                message.stream_id = stream_id;
+                message.is_reply = stream->is_reply;
+                message.is_final = stream->is_final;
+
+                BOLT_SUB(conn->on_message(conn, &message));
+
+                // It's possible that on_message call released our stream,
+                // by sending a final message, even if we are going to do it ourselves.
+
+                if (!stream->released && !stream->is_final) {
+                    schedule_stream_timeout(conn, stream, message.timeout_ms);
+                }
+
+            } while (0);
+
+            clear_dbuf(&stream->incoming_message_data);
+            stream->message_started = 0;
+            cjose_jws_release(jws);
+            cfg.free(decrypted_data);
+            cfg.free(decrypted_ct);
+
+            json_object_put(bus_object);
+
+            if (stream->is_final) {
+                release_stream(conn, stream, XL4SCR_REMOTE_CLOSED);
+            }
+
+        }
+
+    } while(0);
+
+    unref_stream(stream);
+
+    return err;
+
+
+}
+
+int process_ctest_frame(xl4bus_connection_t * conn) {
+
+    int err = E_XL4BUS_OK;
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    do {
+
+        BOLT_IF(frm.data.len != 32, E_XL4BUS_DATA, "conn test frame must be 32 bytes");
+
+        if (frm.byte0 & FRAME_MSG_FIRST_MASK) {
+            // it's a response
+            if (i_conn->pending_connection_test &&
+                !memcmp(frm.data.data, i_conn->connection_test_request, 32)) {
+                i_conn->pending_connection_test = 0;
+                i_conn->connectivity_test_ts = pf_ms_value();
+            }
+        } else {
+            // we have been requested a connectivity test.
+            i_conn->connectivity_test_ts = pf_ms_value();
+            err = send_connectivity_test(conn, 1, frm.data.data);
+        }
+
+    } while(0);
+
+    return err;
+}
+
+int process_sabort_frame(xl4bus_connection_t * conn) {
+
+    // $TODO: this doesn't work well yet. Because the encryption is turned off,
+    // the key discovery doesn't happen properly, we aren't always going to have
+    // the key of the remote, and be able to validate them. Once encryption used
+    // all the time, this will work as well.
+
+    int err = E_XL4BUS_OK;
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    do {
+        // must at least be 1 byte that indicates the content type.
+        BOLT_IF(!frm.data.len, E_XL4BUS_DATA, "Abort frame must not be empty");
+
+        uint16_t stream_id;
+        validated_object_t vo;
+        if (validate_jws(frm.data.data + 1, frm.data.len - 1, (int) frm.data.data[0],
+                conn, &vo, 0) == E_XL4BUS_OK) {
+
+            json_object * bus_object = vo.bus_object;
+            json_object *j;
+            if (bus_object && json_object_object_get_ex(bus_object, "stream-id", &j) &&
+                json_object_is_type(j, json_type_int)) {
+
+                int val = json_object_get_int(j);
+                if (!(val & 0xffff)) {
+
+                    stream_id = (uint16_t) val;
+
+                    stream_t *stream;
+                    HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+                    release_stream(conn, stream, XL4SCR_REMOTE_ABORTED);
+
+                }
+            }
+
+            clean_validated_object(&vo);
+
+        }
+
+
+    } while (0);
+
+    return err;
+
+}
+
+#undef frm

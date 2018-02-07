@@ -1,5 +1,5 @@
 
-#include "build_config.h"
+#include <libxl4bus/build_config.h>
 #include "config.h"
 #include "porting.h"
 #include "debug.h"
@@ -42,7 +42,7 @@ ssize_t pf_recv(int sockfd, void *buf, size_t len) {
 
 int pf_add_and_get(int * addr, int value) {
 
-    return __atomic_fetch_add(addr, value, __ATOMIC_RELAXED);
+    return __atomic_add_fetch(addr, value, __ATOMIC_RELAXED);
 
 }
 
@@ -71,7 +71,7 @@ int pf_get_errno(void) {
     return errno;
 }
 
-uint64_t pf_msvalue() {
+uint64_t pf_ms_value() {
 
     struct timespec tp;
 
@@ -148,8 +148,15 @@ int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
 
     }
 
-    int ec = poll(s_poll, (nfds_t) polls_len, timeout);
-    if (ec <= 0) { return ec; }
+    int ec;
+    while (1) {
+        ec = poll(s_poll, (nfds_t) polls_len, timeout);
+        if (ec <= 0) {
+            if (errno == EINTR) { continue; }
+            return ec;
+        }
+        break;
+    }
 
     // DBG("pf_poll: %d descriptors, %d timeout, returned %d", polls_len, timeout, ec);
 
@@ -313,6 +320,15 @@ int pf_unlock(void** lock) {
 
 }
 
+void pf_release_lock(void * lock) {
+
+    if (lock) {
+        pthread_mutex_destroy(lock);
+        cfg.free(lock);
+    }
+
+}
+
 #endif /* XL4_PROVIDE_THREADS */
 
 void pf_close(int fd) {
@@ -351,5 +367,20 @@ ssize_t pf_fionread(int fd) {
         return -1;
     }
     return (ssize_t)bytes;
+
+}
+
+void pf_abort(const char * msg) {
+
+    fprintf(stderr, "Abort:%s", msg);
+    abort();
+
+}
+
+uint64_t pf_sec_time(void) {
+
+    struct timeval tv = {.tv_sec = 0 };
+    gettimeofday(&tv, 0);
+    return (uint64_t)tv.tv_sec;
 
 }

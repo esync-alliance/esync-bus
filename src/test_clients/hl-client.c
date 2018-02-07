@@ -1,11 +1,9 @@
 
-
 #include "lib/common.h"
 
 #include <libxl4bus/low_level.h>
 #include <libxl4bus/high_level.h>
 
-#include <string.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -32,10 +30,11 @@ int main(int argc, char ** argv) {
     char * cert_dir = 0;
     int debug = 0;
     int flood = 0;
+    int msg_count = 1;
 
     signal(SIGINT, signal_f);
 
-    while ((c = getopt(argc, argv, "c:df")) != -1) {
+    while ((c = getopt(argc, argv, "c:dfm:")) != -1) {
 
         switch (c) {
 
@@ -48,6 +47,9 @@ int main(int argc, char ** argv) {
                 break;
             case 'f':
                 flood = 1;
+                break;
+            case 'm':
+                msg_count = atoi(optarg);
                 break;
 
             default: help(); break;
@@ -89,7 +91,7 @@ int main(int argc, char ** argv) {
     clt.on_release = reconnect;
     reconnect(&clt);
 
-    do {
+    while (flood || msg_count--) {
 
         xl4bus_message_t * msg = f_malloc(sizeof(xl4bus_message_t));
 
@@ -106,7 +108,7 @@ int main(int argc, char ** argv) {
 
         xl4bus_send_message(&clt, msg, 0);
 
-    } while (flood);
+    };
 
     while (1) {
         sleep(60);
@@ -128,6 +130,7 @@ void help() {
 #endif
             "-c <cert> : certificate directory to use for authentication\n"
             "-d        : turn on debug output\n"
+            "-m <cnt>  : send that many messages to start with, 1 by default\n"
             "-f        : flood\n"
     );
     _exit(1);
@@ -160,7 +163,7 @@ void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
     r_msg->data = "{\"say\":\"hello-back\"}";
     r_msg->data_len = strlen(r_msg->data) + 1;
 
-    if (xl4bus_send_message(clt, r_msg, 0)) {
+    if (xl4bus_send_message2(clt, r_msg, 0, 0)) {
         handle_delivered(clt, r_msg, 0, 0);
     }
 
