@@ -23,9 +23,6 @@ LINUX
   - Jansson
   - OpenSSL
 * Install autoconf package (autoreconf is needed)
-* If your CJose directory is not at a standard location,
-  copy linux_port/config.cmk.default to linux_port/config.cmk, and
-  uncomment and edit the CJose path setting
 * Initialize submodules:
   - git submodule init
   - git submodule update
