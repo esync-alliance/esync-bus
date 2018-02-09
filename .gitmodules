@@ -8,3 +8,6 @@
 	path = cjose
 	url = https://github.com/veselov/cjose
 	branch = json_ser
+[submodule "c-ares"]
+	path = c-ares
+	url = https://github.com/c-ares/c-ares.git

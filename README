@@ -5,8 +5,7 @@ Additional documentation is provided for porting.
 ALL
 ===
 
-* Make sure CMake 3.6 or newer is installed.
-  (For Ubuntu : https://askubuntu.com/questions/355565)
+* Make sure CMake 3.5 or newer is installed.
 * Create build directory (e.g. "build"). All artifacts
   will be contained into this build directory
 * Make relevant configuration changes (pick your O/S section below).
@@ -19,7 +18,6 @@ LINUX
 =====
 
 * Install development packages for:
-  - C Ares library (cares)
   - Jansson
   - OpenSSL
 * Install autoconf package (autoreconf is needed)
@@ -29,7 +27,7 @@ LINUX
 * Build json-c:
   - ( rm -rf json-c-build && cp -fr json-c json-c-build && \
          cd json-c-build && autoreconf -f -i && \
-         CFLAGS="-fPIC -fvisibility=hidden -Wno-error=implicit-fallthrough" \
+         CFLAGS="-fPIC -fvisibility=hidden -Wno-implicit-fallthrough" \
          CPPFLAGS="-include $(pwd)/../json-c-rename.h" \
          ./configure --enable-static --disable-shared && make -j )
 * Build mbedtls:
@@ -40,4 +38,7 @@ LINUX
   - ( rm -rf cjose-build && cp -fr cjose cjose-build && cd cjose-build && \
       CFLAGS="-fPIC -fvisibility=hidden" ./configure --with-openssl=/usr --with-jansson=/usr \
        --enable-static --disable-shared && make -j )
+* Build c-ares:
+  - ( rm -rf c-ares-build && cp -fr c-ares c-ares-build && cd c-ares-build && autoreconf -fi && \
+      CFLAGS="-fPIC -fvisibility=hidden" ./configure --enable-static --disable-shared && make -j )
 
