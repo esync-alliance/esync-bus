@@ -1,8 +1,1 @@
-
-#ifndef _XL4BUS_TYPES_BASE_H_
-#define _XL4BUS_TYPES_BASE_H_
-
-#include <stdint.h>
-#include <stddef.h>
-
-#endif
+../linux_port/types_base.h.default

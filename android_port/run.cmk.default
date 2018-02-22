@@ -1,12 +1,10 @@
 
 include(FindPkgConfig)
 
-# c-ares library is required, should be installed as a package
-pkg_check_modules(CARES REQUIRED libcares)
 # openssl library is required by cjose
 pkg_check_modules(OPENSSL REQUIRED openssl)
-influence_pkg("CARES")
 influence_pkg("OPENSSL")
 
-# -lm needed for Ubuntu
-targets_link_libraries("ll-server" "ll-client" "hl-client" "xl4bus-broker" LIBRARIES -lm -latomic)
+# to include proper things, we need these kind of flags
+add_definitions(-D_DEFAUILT_SOURCE -D_GNU_SOURCE)
+

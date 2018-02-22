@@ -10,6 +10,7 @@ build_config.h
 json-c-build
 cjose-build
 mbedtls-build
+c-ares-build
 android_src
 android_build
 arm_src

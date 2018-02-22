@@ -231,7 +231,7 @@ endif()
 set(CARES_LIB ${CARES}/.libs/libcares.a)
 exists_all(TEST ${CARES_LIB})
 if (NOT ${TEST})
-    message(FATAL_ERROR "You must build cjose sources first!")
+    message(FATAL_ERROR "You must build cares sources first!")
 endif()
 
 if (XL4_PROVIDE_THREADS)
