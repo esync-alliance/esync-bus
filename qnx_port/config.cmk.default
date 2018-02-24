@@ -1,0 +1,13 @@
+
+set(XL4_PROVIDE_DEBUG 1)
+set(XL4_PROVIDE_PERF 1)
+
+# uncomment to link executables against ElectricFence
+# set(WITH_EFENCE 1)
+
+# Ubuntu needs -lm, it doesn't (typically) hurt for others
+# set(EXTRA_LIBS -lm)
+
+
+set(LIB_SOURCE ${LIB_SOURCE} config.h port.c)
+

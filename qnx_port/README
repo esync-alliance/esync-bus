@@ -1,0 +1,26 @@
+
+Build for QNX
+=============
+* Make sure CMake 3.5 or newer is installed
+* Install QNX7.0 SDK
+* Initialize submodules:
+  - git submodule init
+  - git submodule update
+
+* For build libxl4bus and its submodules
+  # cd qnx_port
+  #./make.sh
+
+* For deploy on target we need these binaries
+
+    - xl4bus-broker     |
+    - libxl4bus.so      | => Generated when build libxl4bus
+    - libjansson.so.4   |
+
+	- libsocket.so.3    |
+	- libcares.so.1     |
+	- libm.so.3         |
+	- libcrypto.so.2    | => Included in QNX7 SDK
+	- libc.so.4         |
+	- libssl.so.2       |
+	- libz.so.2         |

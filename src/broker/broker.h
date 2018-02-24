@@ -21,6 +21,25 @@ typedef enum poll_info_type {
     PIT_XL4 // existing low-level connection sockets
 } poll_info_type_t;
 
+#ifdef __QNX__
+typedef struct poll_data {
+    int fd;
+    poll_info_type_t type;
+    struct conn_info * ci;
+} poll_data_t;
+
+typedef struct pf_poll {
+    int fd;
+    void* data_ptr;
+    short events;
+    short revents;
+} pf_poll_t;
+
+typedef struct poll_info {
+    pf_poll_t * polls;
+    int polls_len;
+} poll_info_t;
+#else
 typedef struct poll_info {
 
     poll_info_type_t type;
@@ -28,7 +47,7 @@ typedef struct poll_info {
     struct conn_info * ci;
 
 } poll_info_t;
-
+#endif
 typedef struct conn_info {
 
     // struct pollfd pfd;
@@ -46,9 +65,11 @@ typedef struct conn_info {
 
     struct conn_info * next;
     struct conn_info * prev;
-
+#ifdef __QNX__
+    poll_data_t pit;
+#else
     poll_info_t pit;
-
+#endif
     int ll_poll_timeout;
 
     json_object * remote_x5c;
