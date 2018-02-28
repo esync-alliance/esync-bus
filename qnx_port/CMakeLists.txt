@@ -182,7 +182,7 @@ include_directories(SYSTEM ${JSON_C})
 include_directories(SYSTEM ${MBEDTLS}/include)
 include_directories(SYSTEM ${CJOSE}/include)
 include_directories(SYSTEM ${BUILD_INCLUDE})
-include_directories(SYSTEM ${JANSSON}/qnx/build/include)
+include_directories(SYSTEM ${JANSSON}/build/include)
 include_directories(${PORT})
 include_directories(${CMAKE_BINARY_DIR})
 
@@ -192,7 +192,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     ${BUILD_INCLUDE_BUS}/types_base.h
     ${CMAKE_BINARY_DIR}/xl4bus_version.h
     ../src/identity.c
-    src/misc.c
+    ../src/misc.c
     ../src/net.c
     ../src/signed.c
     ../src/internal.h
@@ -203,7 +203,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     ../src/debug.h
     ../src/printf.h
     ../src/printf.c
-    src/client.c
+    ../src/client.c
     ../src/x509.c
     ../src/addr.c
     ../src/timeout.c
@@ -219,7 +219,7 @@ set(JSON_C_LIB ${JSON_C}/.libs/libjson-c.a)
 if (NOT EXISTS ${JSON_C_LIB})
     message(FATAL_ERROR "You must build json-c sources first!")
 endif()
-set(MBEDTLS_LIB ${MBEDTLS}/qnx/build/library/libmbedx509.a ${MBEDTLS}/qnx/build/library/libmbedcrypto.a)
+set(MBEDTLS_LIB ${MBEDTLS}/build/library/libmbedx509.a ${MBEDTLS}/build/library/libmbedcrypto.a)
 exists_all(TEST ${MBEDTLS_LIB})
 if (NOT ${TEST})
     message(FATAL_ERROR "You must build mbedtls sources first!")
@@ -229,7 +229,7 @@ exists_all(TEST ${CJOSE_LIB})
 if (NOT ${TEST})
     message(FATAL_ERROR "You must build cjose sources first!")
 endif()
-set(JANSSON_LIB ${JANSSON}/qnx/build/lib/libjansson.so)
+set(JANSSON_LIB ${JANSSON}/build/lib/libjansson.so)
 if (NOT EXISTS ${JANSSON_LIB})
     message(FATAL_ERROR "You must build jansson sources first!")
 endif()
@@ -259,7 +259,7 @@ if (BUILD_BINS)
 
     set(LIB_SRC
         ../src/lib/common.h
-        src/lib/common.c
+        ../src/lib/common.c
         ../src/lib/debug.h
         ../src/lib/rb_tree.h
         ../src/lib/rb_tree.c
@@ -271,13 +271,13 @@ if (BUILD_BINS)
         )
     add_executable(xl4bus-broker
             ../src/broker/broker.h
-            src/broker/bus.c
+            ../src/broker/bus.c
             ../src/broker/crypto.c
             ../src/broker/e900.c
             ../src/broker/gather.c
             ../src/broker/hash_list.h
             ../src/broker/hash_tree.c
-            src/broker/main.c
+            ../src/broker/main.c
             ../src/uthash.h
             ../src/utarray.h
             ${LIB_SRC}

@@ -90,7 +90,11 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 #if XL4_PROVIDE_THREADS
         if (clt->use_internal_thread) {
             clt->set_poll = internal_set_poll;
+#ifdef __QNX__
+            clt->mt_support = 0;
+#else 
             clt->mt_support = 1;
+#endif
             BOLT_SYS(pf_start_thread(client_thread, clt), "starting client thread");
         }
         BOLT_SYS(pf_init_lock(&i_clt->hash_lock), "");

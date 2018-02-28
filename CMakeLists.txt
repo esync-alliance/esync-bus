@@ -157,6 +157,7 @@ set_empty(XL4_PROVIDE_GETTIMEOFDAY 1)
 set_empty(XL4_SUPPORT_UNIX_DGRAM_PAIR 1)
 set_empty(XL4_HAVE_GETTIMEOFDAY 1)
 set_empty(XL4_HAVE_STD_MALLOC 1)
+set_empty(XL4_HAVE_EPOLL 1)
 
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES build_config.h)
 
