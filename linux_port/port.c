@@ -86,7 +86,7 @@ void pf_random(void * to, size_t where) {
 
     do {
 
-        int fd = open("/dev/random", O_RDONLY);
+        int fd = open("/dev/urandom", O_RDONLY);
         if (fd < 0) { break; }
         while (where) {
             ssize_t rc = read(fd, to, where);
