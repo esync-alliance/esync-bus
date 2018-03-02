@@ -32,12 +32,13 @@ if test ! -f cares.ok; then
     rm -rf c-ares
     git clone https://github.com/c-ares/c-ares.git
     cd c-ares
-    git checkout cares-1_12_0
+    git checkout cares-1_13_0
     autoreconf -f -i
-    ./configure --prefix=$USR --host=$TCH --enable-static=yes --enable-shared=no
-    make install
+    CFLAGS="-fPIC -fvisibility=hidden" ./configure --prefix=$USR --host=$TCH --enable-static --disable-shared
+    make
     cd ..
     touch cares.ok
+    cp -fr c-ares ../c-ares-build
 fi
 
 #** openssl
@@ -103,7 +104,7 @@ if test ! -f jsonc.ok; then
     rm -rf json-c
     git clone https://github.com/json-c/json-c.git
     cd json-c
-    git checkout json-c-0.12-20140410
+    git checkout json-c-0.12.1-20160607
     autoreconf -f -i
     CFLAGS="-fPIC -fvisibility=hidden -Wno-error" CPPFLAGS="-include $(pwd)/../../json-c-rename.h" ./configure --prefix=$USR --host=$TCH --enable-static --disable-shared
     # AC_FUNC_MALLOC fails
