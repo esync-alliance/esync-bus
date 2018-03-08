@@ -339,7 +339,10 @@ void pf_close(int fd) {
 ssize_t pf_recv_dgram(int sockfd, void ** addr, pf_malloc_fun _malloc) {
 
     unsigned char test;
-    ssize_t s = recv(sockfd, &test, 1, MSG_PEEK|MSG_TRUNC);
+    ssize_t s;
+    
+    ioctl(sockfd, FIONREAD, &s);
+
     if (s <= 0) {
         return s;
     }
