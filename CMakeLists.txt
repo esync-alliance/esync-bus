@@ -229,10 +229,12 @@ exists_all(TEST ${CJOSE_LIB})
 if (NOT ${TEST})
     message(FATAL_ERROR "You must build cjose sources first!")
 endif()
-set(CARES_LIB ${CARES}/.libs/libcares.a)
-exists_all(TEST ${CARES_LIB})
-if (NOT ${TEST})
-    message(FATAL_ERROR "You must build c-ares sources first!")
+if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "QNX")
+    set(CARES_LIB ${CARES}/.libs/libcares.a)
+    exists_all(TEST ${CARES_LIB})
+    if (NOT ${TEST})
+        message(FATAL_ERROR "You must build c-ares sources first!")
+    endif()
 endif()
 
 if (XL4_PROVIDE_THREADS)
@@ -253,7 +255,7 @@ if (BUILD_SHARED)
 endif()
 
 if (BUILD_STATIC)
-    file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o ${CARES}/libcares_la-*.o)
+    file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o)
     add_library(xl4bus-static STATIC ${LIB_SOURCE} ${EXT_OBJ})
     set_target_properties(xl4bus-static PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
     if (XL4_PROVIDE_THREADS)
@@ -294,12 +296,12 @@ if (BUILD_BINS)
             ${LIB_SRC}
         )
 
-    add_executable(tree-test 
+    add_executable(tree-test
         src/tests/tree.c
         ${LIB_SRC}
         )
 
-    add_executable(timeout-test 
+    add_executable(timeout-test
         src/tests/timeout.c
         ${LIB_SRC}
         )
@@ -326,19 +328,21 @@ if (BUILD_BINS)
 
     install(TARGETS xl4bus-broker RUNTIME DESTINATION bin)
 
-    include(FindPkgConfig)
+    if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "QNX")
+        include(FindPkgConfig)
 
-    pkg_check_modules(JANSSON REQUIRED jansson)
-    influence_pkg("JANSSON")
+        pkg_check_modules(JANSSON REQUIRED jansson)
+        influence_pkg("JANSSON")
 
-    # influence_pkg_spec(ll-server JANSSON)
-    # influence_pkg_spec(ll-client JANSSON)
-
-    target_link_libraries(xl4bus-broker ${JSON_C_LIB})
-
-    if (WITH_EFENCE)
-        targets_link_libraries(${BINARIES} LIBRARIES -lefence)
+        # influence_pkg_spec(ll-server JANSSON)
+        # influence_pkg_spec(ll-client JANSSON)
+        
+        if (WITH_EFENCE)
+            targets_link_libraries(${BINARIES} LIBRARIES -lefence)
+        endif()
     endif()
+    
+    target_link_libraries(xl4bus-broker ${JSON_C_LIB})
 
     targets_link_libraries(${BINARIES} LIBRARIES ${USE_LIB})
     targets_link_libraries("xl4bus-broker" LIBRARIES ${CJOSE_LIB} ${MBEDTLS_LIB} ${CARES_LIB} ${EXTRA_LIBS})

@@ -10,5 +10,5 @@ set(XL4_HAVE_EPOLL 0)
 # set(EXTRA_LIBS -lm)
 
 
-set(LIB_SOURCE ${LIB_SOURCE} config.h port.c)
+set(LIB_SOURCE ${LIB_SOURCE} qnx_port/config.h qnx_port/port.c)
 
