@@ -11,7 +11,7 @@ build_lib () {
 	if [ ! -d build ];then
 		mkdir build
 		cd build
-		cmake -DCMAKE_TOOLCHAIN_FILE=../qnx_port/qnx.cmake -DBUILD_SHARED=ON -DBUILD_STATIC=OFF -DXL4_SUPPORT_IPV6=0 .. || return 1
+		cmake -DCMAKE_TOOLCHAIN_FILE=../qnx_port/qnx.cmake -DBUILD_SHARED=OFF -DBUILD_STATIC=ON -DXL4_SUPPORT_IPV6=0 .. || return 1
 		make || return 1
 	fi
 

@@ -1,0 +1,42 @@
+include(FindPkgConfig)
+
+pkg_check_modules(JANSSON REQUIRED jansson)
+influence_pkg("JANSSON")
+
+# json-c
+set(JSON_C_LIB ${JSON_C}/.libs/libjson-c.a)
+if (NOT EXISTS ${JSON_C_LIB})
+    message(FATAL_ERROR "You must build json-c sources first!")
+endif()
+
+# mbedtls
+set(MBEDTLS_LIB ${MBEDTLS}/build/library/libmbedx509.a ${MBEDTLS}/build/library/libmbedcrypto.a)
+exists_all(TEST ${MBEDTLS_LIB})
+if (NOT ${TEST})
+    message(FATAL_ERROR "You must build mbedtls sources first!")
+endif()
+
+# cjose
+set(CJOSE_LIB ${CJOSE}/lib/libcjose.a)
+exists_all(TEST ${CJOSE_LIB})
+if (NOT ${TEST})
+    message(FATAL_ERROR "You must build cjose sources first!")
+endif()
+
+# c-ares
+set(CARES_LIB ${CARES}/.libs/libcares.a)
+exists_all(TEST ${CARES_LIB})
+if (NOT ${TEST})
+    message(FATAL_ERROR "You must build c-ares sources first!")
+endif()
+
+# shared build
+if (BUILD_SHARED)
+    set(SHARED_LIBS ${JSON_C_LIB} ${MBEDTLS_LIB} ${CJOSE_LIB} ${CARES_LIB})
+endif()
+
+# static build
+if (BUILD_STATIC)
+    file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o ${CARES}/libcares_la-*.o)
+    set(STATIC_LIBS ${CARES_LIB})
+endif()
