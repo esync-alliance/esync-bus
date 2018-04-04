@@ -5,6 +5,9 @@ include(FindPkgConfig)
 pkg_check_modules(OPENSSL REQUIRED openssl)
 influence_pkg("OPENSSL")
 
+pkg_check_modules(JANSSON REQUIRED jansson)
+influence_pkg("JANSSON")
+
 # to include proper things, we need these kind of flags
 add_definitions(-D_DEFAUILT_SOURCE -D_GNU_SOURCE)
 

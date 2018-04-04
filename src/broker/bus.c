@@ -1,12 +1,11 @@
 
 #include <sys/socket.h>
 #include <poll.h>
+#include <libxl4bus/low_level.h>
+#include <libxl4bus/high_level.h>
 #if XL4_HAVE_EPOLL
 #include <sys/epoll.h>
 #endif
-#include <libxl4bus/low_level.h>
-#include <libxl4bus/high_level.h>
-
 #include "utlist.h"
 
 #include "hash_list.h"

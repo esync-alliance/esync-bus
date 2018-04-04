@@ -33,13 +33,13 @@ endif()
 
 # shared build
 if (BUILD_SHARED)
-    set(SHARED_LIBS ${JSON_C_LIB} ${MBEDTLS_LIB} ${CJOSE_LIB} ${CARES_LIB} ${JANSSON_LIB} -lsocket -lcrypto -lm)
+    set(SHARED_LIBS ${JSON_C_LIB} ${MBEDTLS_LIB} ${CJOSE_LIB} ${CARES_LIB} ${JANSSON_LIB} ${EXTRA_LIBS})
 endif()
 
 # static build
 if (BUILD_STATIC)
     file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o )
-    set(STATIC_LIBS ${CARES_LIB} ${JANSSON_LIB} -lsocket -lcrypto -lm)
+    set(STATIC_LIBS ${CARES_LIB} ${JANSSON_LIB} ${EXTRA_LIBS})
 endif()
 
 

@@ -1,8 +1,3 @@
-include(FindPkgConfig)
-
-pkg_check_modules(JANSSON REQUIRED jansson)
-influence_pkg("JANSSON")
-
 # json-c
 set(JSON_C_LIB ${JSON_C}/.libs/libjson-c.a)
 if (NOT EXISTS ${JSON_C_LIB})
@@ -32,11 +27,11 @@ endif()
 
 # shared build
 if (BUILD_SHARED)
-    set(SHARED_LIBS ${JSON_C_LIB} ${MBEDTLS_LIB} ${CJOSE_LIB} ${CARES_LIB})
+    set(SHARED_LIBS ${JSON_C_LIB} ${MBEDTLS_LIB} ${CJOSE_LIB} ${CARES_LIB} ${EXTRA_LIBS})
 endif()
 
 # static build
 if (BUILD_STATIC)
     file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o ${CARES}/libcares_la-*.o)
-    set(STATIC_LIBS ${CARES_LIB})
+    set(STATIC_LIBS ${CARES_LIB} ${EXTRA_LIBS})
 endif()
