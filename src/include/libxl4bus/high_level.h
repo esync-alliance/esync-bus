@@ -58,7 +58,9 @@ XL4_PUB
  *
  * @param clt client structure, with handler information filled in.
  * @param url URL of the broker. The only supported connection URL
- * at this point is in form of `tcp://hostname:port`.
+ * at this point is in form of `tcp://hostname:port`. The library
+ * will make a copy of this data, and the memory can be released after
+ * the call returns.
  * @return ::E_XL4BUS_OK if the initialization is successful, or another
  * error code otherwise. If an error is returned, the client is unusable.
  */
