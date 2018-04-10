@@ -255,6 +255,11 @@ typedef struct client_internal {
     void * xl4_thread_space;
     int stop;
     void * hash_lock;
+    /* run_lock is used to control client start/stop when low-level connection
+     * does not exist, and we can't exchange control messages yet
+     */
+    void * run_lock;
+    int run_locked;
 #endif
 
 #if XL4_SUPPORT_IPV4 && XL4_SUPPORT_IPV6

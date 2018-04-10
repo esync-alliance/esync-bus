@@ -88,12 +88,15 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
         BOLT_ARES(ares_init(&i_clt->ares));
 
 #if XL4_PROVIDE_THREADS
+        BOLT_SYS(pf_init_lock(&i_clt->hash_lock), "");
         if (clt->use_internal_thread) {
+            BOLT_SYS(pf_init_lock(&i_clt->run_lock), "");
+            BOLT_SYS(pf_lock(&i_clt->run_lock), "");
+            i_clt->run_locked = 1;
             clt->set_poll = internal_set_poll;
             clt->mt_support = 1;
             BOLT_SYS(pf_start_thread(client_thread, clt), "starting client thread");
         }
-        BOLT_SYS(pf_init_lock(&i_clt->hash_lock), "");
 #endif
 
     } while (0);
@@ -101,6 +104,12 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
     // note, the caller must call process_client right away.
 
     if (err != E_XL4BUS_OK) {
+
+#if XL4_PROVIDE_THREADS
+        if (i_clt->run_locked) {
+            pf_unlock(&i_clt->run_lock);
+        }
+#endif
 
         if (i_clt) {
             ares_destroy(i_clt->ares);
@@ -434,10 +443,12 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
     // DBG("Run exited, state %s, err %d", state_str(i_clt->state), err);
 
     if (err != E_XL4BUS_OK) {
-        xl4bus_client_condition_t reason;
+        xl4bus_client_condition_t reason = XL4BCC_RUNNING;
+        int do_drop = 1;
         switch (i_clt->state) {
             case CS_DOWN:
-                return;
+                do_drop = 0;
+                break;
             case CS_RESOLVING:
                 reason = XL4BCC_RESOLUTION_FAILED;
                 break;
@@ -454,7 +465,9 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 break;
         }
 
-        drop_client(clt, reason);
+        if (do_drop) {
+            drop_client(clt, reason);
+        }
     }
 
 }
@@ -478,11 +491,22 @@ void client_thread(void * arg) {
                 poll_info.polls_len);
         */
 
+        pf_unlock(&i_clt->run_lock);
+        i_clt->run_locked = 0;
         int res = pf_poll(poll_info.polls, poll_info.polls_len, timeout);
         if (res < 0) {
-            stop_client_ts(clt);
-            return;
+            break;
         }
+        if (pf_lock(&i_clt->run_lock)) {
+            break;
+        }
+        i_clt->run_locked = 1;
+
+        // it's possible that while we were polling, we got an
+        // instruction to stop.
+        if (i_clt->stop) { break; }
+
+        int poll_flag_failure = 0;
 
         for (int i=0; res && i<poll_info.polls_len; i++) {
             pf_poll_t * pp = poll_info.polls + i;
@@ -490,22 +514,25 @@ void client_thread(void * arg) {
                 res--;
                 // DBG("Clt %p : flagging %x for fd %d", clt, pp->revents, pp->fd);
                 if (xl4bus_flag_poll(clt, pp->fd, pp->revents) != E_XL4BUS_OK) {
-                    stop_client_ts(clt);
-                    return;
+                    poll_flag_failure = 1;
+                    break;
                 }
             }
         }
+
+        if (poll_flag_failure) { break; }
 
         xl4bus_run_client(clt, &timeout);
 
         // xl4bus_run_client may have called handle_mt_message, that could have raised stop flag.
 
         if (i_clt->stop) {
-            stop_client_ts(clt);
-            return;
+            break;
         }
 
     }
+
+    stop_client_ts(clt);
 
 }
 
@@ -1391,23 +1418,37 @@ int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int 
 
 }
 
-int xl4bus_stop_client(xl4bus_client_t * clt) {
+int xl4bus_stop_client(xl4bus_client_t *clt) {
 
-    client_internal_t * i_clt = clt->_private;
+    client_internal_t *i_clt = clt->_private;
 
 #if XL4_PROVIDE_THREADS
     if (clt->use_internal_thread) {
 
         int err = E_XL4BUS_OK;
-
         do {
-            itc_message_t itc;
-            itc.magic = ITC_STOP_CLIENT_MAGIC;
-            itc.ref = clt;
-            BOLT_SYS(pf_send(i_clt->ll->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
+
+            BOLT_SYS(pf_lock(&i_clt->run_lock), "");
+
+            if (i_clt->state == CS_RUNNING) {
+                do {
+                    itc_message_t itc;
+                    itc.magic = ITC_STOP_CLIENT_MAGIC;
+                    itc.ref = clt;
+                    BOLT_SYS(pf_send(i_clt->ll->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
+                } while (0);
+            } else {
+                i_clt->stop = 1;
+            }
+
+            pf_unlock(&i_clt->run_lock);
+
+            BOLT_NEST();
+
         } while (0);
 
         return err;
+
 
     }
 #endif
@@ -1420,12 +1461,27 @@ int xl4bus_stop_client(xl4bus_client_t * clt) {
 void stop_client_ts(xl4bus_client_t * clt) {
 
     drop_client(clt, XL4BCC_CLIENT_STOPPED);
-    if (clt->on_release) {
-        clt->on_release(clt);
-    }
 
     // $TODO: we must clean up a ton of stuff
     // that's attached to this client, if it is stopped!!!
+
+#if XL4_PROVIDE_THREADS
+
+    client_internal_t * i_clt = clt->_private;
+    if (i_clt) { // that's probably always so
+        if (i_clt->run_locked) {
+            pf_unlock(&i_clt->run_lock);
+            i_clt->run_locked = 0; // useless
+        }
+    }
+
+#endif
+
+    // clt->on_release must be the last call, clt
+    // should be freed after that.
+    if (clt->on_release) {
+        clt->on_release(clt);
+    }
 
 }
 
