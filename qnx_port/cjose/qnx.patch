@@ -1,0 +1,15 @@
+diff --git src/include/util_int.h src/include/util_int.h
+index c8d059c..46d3ac1 100644
+--- src/include/util_int.h
++++ src/include/util_int.h
+@@ -13,6 +13,10 @@
+ #include <jansson.h>
+ #include <string.h>
+ 
++#ifdef __QNX__
++#include <sys/types.h>
++#endif
++
+ char *_cjose_strndup(const char *str, ssize_t len, cjose_err *err);
+ json_t *_cjose_json_stringn(const char *value, size_t len, cjose_err *err);
+ 

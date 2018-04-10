@@ -83,6 +83,11 @@
 #cmakedefine01 XL4_HAVE_STD_MALLOC
 
 /**
+ * Epoll function support
+ */
+#cmakedefine01 XL4_HAVE_EPOLL
+
+/**
  * If 1, the library will not encrypt traffic, nor require
  * encryption.
  */

@@ -16,6 +16,38 @@
 #include "libxl4bus/types.h"
 #include <termios.h>
 
+#ifdef __QNX__
+static int vasprintf(char **buf, const char *fmt, va_list ap)
+{
+    static char _T_emptybuffer = '\0';
+    int chars;
+    char *b;
+
+    if(!buf) { return -1; }
+
+#ifdef WIN32
+    chars = _vscprintf(fmt, ap)+1;
+#else /* !defined(WIN32) */
+    /* CAW: RAWR! We have to hope to god here that vsnprintf doesn't overwrite
+       our buffer like on some 64bit sun systems.... but hey, its time to move on */
+    chars = vsnprintf(&_T_emptybuffer, 0, fmt, ap)+1;
+    if(chars < 0) { chars *= -1; } /* CAW: old glibc versions have this problem */
+#endif /* defined(WIN32) */
+
+    b = (char*)malloc(sizeof(char)*chars);
+    if(!b) { return -1; }
+
+    if((chars = vsprintf(b, fmt, ap)) < 0)
+    {
+        free(b);
+    } else {
+        *buf = b;
+    }
+
+    return chars;
+}
+#endif
+
 void print_out(const char * msg) {
 
     fprintf(stderr, "%s\n", msg);
@@ -101,7 +133,11 @@ int set_nonblocking(int fd) {
 
 uint64_t msvalue() {
     struct timespec tp;
+#ifdef __QNX__
+    clock_gettime(CLOCK_MONOTONIC, &tp);
+#else
     clock_gettime(CLOCK_MONOTONIC_RAW, &tp);
+#endif
     return ((unsigned long long) tp.tv_sec) * 1000L +
             tp.tv_nsec / 1000000L;
 }

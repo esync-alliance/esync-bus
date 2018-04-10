@@ -157,6 +157,7 @@ set_empty(XL4_PROVIDE_GETTIMEOFDAY 1)
 set_empty(XL4_SUPPORT_UNIX_DGRAM_PAIR 1)
 set_empty(XL4_HAVE_GETTIMEOFDAY 1)
 set_empty(XL4_HAVE_STD_MALLOC 1)
+set_empty(XL4_HAVE_EPOLL 1)
 
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES build_config.h)
 
@@ -170,20 +171,23 @@ configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${BCH})
 configure_file(${PORT}/types_base.h ${BUILD_INCLUDE_BUS}/types_base.h)
 configure_file(${CMAKE_SOURCE_DIR}/json-c-rename.h ${CMAKE_BINARY_DIR} COPYONLY)
 
+include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
+include_directories(SYSTEM ${BUILD_INCLUDE})
+include_directories(${CMAKE_SOURCE_DIR}/src)
+include_directories(${PORT})
+include_directories(${CMAKE_BINARY_DIR})
+
 set(JSON_C ${CMAKE_SOURCE_DIR}/json-c-build)
 set(MBEDTLS ${CMAKE_SOURCE_DIR}/mbedtls-build)
 set(CJOSE ${CMAKE_SOURCE_DIR}/cjose-build)
 set(CARES ${CMAKE_SOURCE_DIR}/c-ares-build)
+set(JANSSON ${CMAKE_SOURCE_DIR}/jansson-build)
 
-include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${JSON_C})
 include_directories(SYSTEM ${MBEDTLS}/include)
 include_directories(SYSTEM ${CJOSE}/include)
-include_directories(SYSTEM ${BUILD_INCLUDE})
 include_directories(SYSTEM ${CARES})
-include_directories(${CMAKE_SOURCE_DIR}/src)
-include_directories(${PORT})
-include_directories(${CMAKE_BINARY_DIR})
+include_directories(SYSTEM ${JANSSON}/build/include)
 
 set(LIB_SOURCE ${LIB_SOURCE}
     PHONY
@@ -214,25 +218,15 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/lib/rb_tree.c
 )
 
-set(JSON_C_LIB ${JSON_C}/.libs/libjson-c.a)
-if (NOT EXISTS ${JSON_C_LIB})
-    message(FATAL_ERROR "You must build json-c sources first!")
+set(DEPS_CFG ${PORT}/deps.cmk)
+if((NOT EXISTS ${DEPS_CFG}) OR (IS_DIRECTORY ${DEPS_CFG}))
+    set(DEPS_CFG ${PORT}/deps.cmk.default)
+    if ((NOT EXISTS ${DEPS_CFG}) OR (IS_DIRECTORY ${DEPS_CFG}))
+        message(FATAL_ERROR "${PORT} must contain deps.cmk or deps.cmk.default file")
+    endif()
 endif()
-set(MBEDTLS_LIB ${MBEDTLS}/build/library/libmbedx509.a ${MBEDTLS}/build/library/libmbedcrypto.a)
-exists_all(TEST ${MBEDTLS_LIB})
-if (NOT ${TEST})
-    message(FATAL_ERROR "You must build mbedtls sources first!")
-endif()
-set(CJOSE_LIB ${CJOSE}/lib/libcjose.a)
-exists_all(TEST ${CJOSE_LIB})
-if (NOT ${TEST})
-    message(FATAL_ERROR "You must build cjose sources first!")
-endif()
-set(CARES_LIB ${CARES}/.libs/libcares.a)
-exists_all(TEST ${CARES_LIB})
-if (NOT ${TEST})
-    message(FATAL_ERROR "You must build c-ares sources first!")
-endif()
+
+include(${DEPS_CFG})
 
 if (XL4_PROVIDE_THREADS)
     set(THREADS_PREFER_PTHREAD_FLAG TRUE)
@@ -246,13 +240,12 @@ if (BUILD_SHARED)
         target_link_libraries(xl4bus-shared Threads::Threads)
     endif()
     set(USE_LIB xl4bus-shared)
-    target_link_libraries(xl4bus-shared ${JSON_C_LIB} ${MBEDTLS_LIB} ${CJOSE_LIB} ${CARES_LIB} ${EXTRA_LIBS})
+    target_link_libraries(xl4bus-shared ${SHARED_LIBS})
     target_compile_definitions(xl4bus-shared PUBLIC XL4BUS_BUILD)
     install(TARGETS xl4bus-shared LIBRARY DESTINATION lib)
 endif()
 
 if (BUILD_STATIC)
-    file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o ${CARES}/libcares_la-*.o)
     add_library(xl4bus-static STATIC ${LIB_SOURCE} ${EXT_OBJ})
     set_target_properties(xl4bus-static PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
     if (XL4_PROVIDE_THREADS)
@@ -261,6 +254,7 @@ if (BUILD_STATIC)
     if (NOT USE_LIB)
         set(USE_LIB xl4bus-static)
     endif()
+    target_link_libraries(xl4bus-static ${STATIC_LIBS})
     target_compile_definitions(xl4bus-static PRIVATE HIDE_SYM XL4BUS_BUILD)
     install(TARGETS xl4bus-static ARCHIVE DESTINATION lib)
 endif()
@@ -293,12 +287,12 @@ if (BUILD_BINS)
             ${LIB_SRC}
         )
 
-    add_executable(tree-test 
+    add_executable(tree-test
         src/tests/tree.c
         ${LIB_SRC}
         )
 
-    add_executable(timeout-test 
+    add_executable(timeout-test
         src/tests/timeout.c
         ${LIB_SRC}
         )
@@ -324,23 +318,14 @@ if (BUILD_BINS)
     endif()
 
     install(TARGETS xl4bus-broker RUNTIME DESTINATION bin)
-
-    include(FindPkgConfig)
-
-    pkg_check_modules(JANSSON REQUIRED jansson)
-    influence_pkg("JANSSON")
-
-    # influence_pkg_spec(ll-server JANSSON)
-    # influence_pkg_spec(ll-client JANSSON)
-
+    
     target_link_libraries(xl4bus-broker ${JSON_C_LIB})
-
+    
     if (WITH_EFENCE)
         targets_link_libraries(${BINARIES} LIBRARIES -lefence)
     endif()
 
     targets_link_libraries(${BINARIES} LIBRARIES ${USE_LIB})
-    targets_link_libraries("xl4bus-broker" LIBRARIES ${CJOSE_LIB} ${MBEDTLS_LIB} ${CARES_LIB} ${EXTRA_LIBS})
 
 endif()
 

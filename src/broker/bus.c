@@ -1,11 +1,11 @@
 
 #include <sys/socket.h>
 #include <poll.h>
-#include <sys/epoll.h>
-
 #include <libxl4bus/low_level.h>
 #include <libxl4bus/high_level.h>
-
+#if XL4_HAVE_EPOLL
+#include <sys/epoll.h>
+#endif
 #include "utlist.h"
 
 #include "hash_list.h"
@@ -554,6 +554,7 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
 
 }
 
+#if XL4_HAVE_EPOLL
 int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
     conn_info_t * ci = conn->custom;
@@ -608,6 +609,7 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
     return E_XL4BUS_OK;
 
 }
+#endif
 
 void on_sent_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void * arg, int err) {
 

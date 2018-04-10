@@ -11,3 +11,6 @@ json-c-build
 cjose-build
 mbedtls-build
 c-ares-build
+jansson-build
+
+

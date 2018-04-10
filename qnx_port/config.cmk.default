@@ -1,0 +1,9 @@
+
+set(XL4_PROVIDE_DEBUG 1)
+set(XL4_PROVIDE_PERF 1)
+set(XL4_HAVE_EPOLL 0)
+
+set(EXTRA_LIBS -lsocket -lcrypto -lm)
+
+set(LIB_SOURCE ${LIB_SOURCE} qnx_port/config.h qnx_port/port.c)
+
