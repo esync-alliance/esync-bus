@@ -22,6 +22,7 @@
 
 #if XL4_PROVIDE_THREADS
 #include <pthread.h>
+#include <semaphore.h>
 #endif
 
 #if XL4_PROVIDE_THREADS
@@ -299,31 +300,31 @@ void * thread_runner(void * arg) {
 
 int pf_init_lock(void ** lock) {
 
-    if (!(*lock = cfg.malloc(sizeof(pthread_mutex_t)))) {
+    if (!(*lock = cfg.malloc(sizeof(sem_t)))) {
         pf_set_errno(ENOMEM);
         return -1;
     }
 
-    return pthread_mutex_init(*lock, 0);
+    return sem_init(*lock, 0, 1);
 
 }
 
 int pf_lock(void** lock) {
 
-    return pthread_mutex_lock(*lock);
+    return sem_wait(*lock);
 
 }
 
 int pf_unlock(void** lock) {
 
-    return pthread_mutex_unlock(*lock);
+    return sem_post(*lock);
 
 }
 
 void pf_release_lock(void * lock) {
 
     if (lock) {
-        pthread_mutex_destroy(lock);
+        sem_destroy(lock);
         cfg.free(lock);
     }
 
