@@ -42,3 +42,12 @@ LINUX
   - ( rm -rf c-ares-build && cp -fr c-ares c-ares-build && cd c-ares-build && autoreconf -fi && \
       CFLAGS="-fPIC -fvisibility=hidden" ./configure --enable-static --disable-shared && make -j )
 
+QNX
+===
+* Initialize submodules:
+  - git submodule init
+  - git submodule update
+* Build dependencies
+  # cd qnx_port && ./build_deps clean && ./build_deps
+* Build library and application
+  # cd qnx_port && ./build_lib clean && ./build_lib
