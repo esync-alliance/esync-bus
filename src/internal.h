@@ -19,6 +19,12 @@
 #include <mbedtls/error.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/asn1write.h>
+#include <mbedtls/version.h>
+
+// Ensure correct version of mbedtls is used.
+#if MBEDTLS_VERSION_NUMBER != 0x02090000
+#error MbedTLS must be of version 2.9.0, I see MBEDTLS_VERSION_NUMBER
+#endif
 
 #define cfg XI(cfg)
 #define hash_sha256 XI(hash_sha256)
