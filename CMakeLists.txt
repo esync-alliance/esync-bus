@@ -248,6 +248,9 @@ endif()
 if (BUILD_STATIC)
     add_library(xl4bus-static STATIC ${LIB_SOURCE} ${EXT_OBJ})
     set_target_properties(xl4bus-static PROPERTIES OUTPUT_NAME xl4bus CLEAN_DIRECT_OUTPUT 1)
+    # Still make PIC code, for possible inclusion into shared libs, e.g. DMClient
+    # Specifically needed for MLX2018-64
+    set_target_properties(xl4bus-static PROPERTIES POSITION_INDEPENDENT_CODE True)
     if (XL4_PROVIDE_THREADS)
         target_link_libraries(xl4bus-static Threads::Threads)
     endif()
