@@ -20,7 +20,7 @@ LINUX
 * Install development packages for:
   - Jansson
   - OpenSSL
-* Install autoconf package (autoreconf is needed)
+* Install autoconf, automake and libtool packages
 * Initialize submodules:
   - git submodule init
   - git submodule update
@@ -35,11 +35,11 @@ LINUX
          ./scripts/config.pl set MBEDTLS_PLATFORM_MEMORY && mkdir -p build && cd build && \
          cmake -DCMAKE_C_FLAGS="-fPIC -fvisibility=hidden" .. && make -j )
 * Build cjose:
-  - ( rm -rf cjose-build && cp -fr cjose cjose-build && cd cjose-build && \
+  - ( rm -rf cjose-build && cp -fr cjose cjose-build && cd cjose-build && autoreconf -f -i && \
       CFLAGS="-fPIC -fvisibility=hidden" ./configure --with-openssl=/usr --with-jansson=/usr \
        --enable-static --disable-shared && make -j )
 * Build c-ares:
-  - ( rm -rf c-ares-build && cp -fr c-ares c-ares-build && cd c-ares-build && autoreconf -fi && \
+  - ( rm -rf c-ares-build && cp -fr c-ares c-ares-build && cd c-ares-build && ./buildconf && \
       CFLAGS="-fPIC -fvisibility=hidden" ./configure --enable-static --disable-shared && make -j )
 
 QNX
