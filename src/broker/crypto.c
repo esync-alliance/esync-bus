@@ -26,6 +26,8 @@ int validate_jws(int trusted, void const * data, size_t data_len, validated_obje
     remote_info_t *remote_info = 0;
     char *content_type = 0;
 
+    memset(vo, 0, sizeof(validated_object_t));
+
 #if XL4_DISABLE_JWS
     json_object *trust = 0;
 #endif
