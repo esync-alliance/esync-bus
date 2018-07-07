@@ -8,7 +8,7 @@ set(CMAKE_C_VISIBILITY_PRESET hidden)
 
 set(PORT $ENV{LIBXL4BUS_PORT})
 
-add_custom_command(OUTPUT PHONY ${CMAKE_BINARY_DIR}/xl4bus_version.h COMMAND ${CMAKE_SOURCE_DIR}/make_version.sh WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+add_custom_command(OUTPUT PHONY ${CMAKE_BINARY_DIR}/xl4bus_version.h COMMAND ${CMAKE_SOURCE_DIR}/make_version.sh ARGS ${CMAKE_SOURCE_DIR} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
 # thanks to http://stackoverflow.com/questions/7172670
 function(join OUTPUT GLUE)

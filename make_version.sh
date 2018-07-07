@@ -6,7 +6,7 @@ out="$(mktemp)"
 cat >"$out" << _EOF_
 
 #ifndef BUILD_VERSION
-#define BUILD_VERSION "$(git describe --dirty --exact-match --all --long)"
+#define BUILD_VERSION "$(cd "$1" && git describe --dirty --exact-match --all --long)" // $1
 #endif
 
 _EOF_
