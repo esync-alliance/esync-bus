@@ -34,7 +34,7 @@ int main(int argc, char ** argv) {
 
     signal(SIGINT, signal_f);
 
-    while ((c = getopt(argc, argv, "c:dfm:")) != -1) {
+    while ((c = getopt(argc, argv, "c:dfm:h")) != -1) {
 
         switch (c) {
 
