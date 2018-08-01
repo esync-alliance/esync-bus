@@ -21,7 +21,7 @@
     usec_to_msec(&tv); \
     localtime_r(&tv.tv_sec, &tmnow); \
     strftime(now, 20, "%m-%d:%H:%M:%S.", &tmnow); \
-    sprintf(now+15, "%03d", tv.tv_usec)
+    sprintf(now+15, "%03d", (int)(tv.tv_usec))
 #endif
 
 #define DBG(a,b...) do { if (cfg.debug_f) { \
