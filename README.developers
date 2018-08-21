@@ -18,7 +18,7 @@ hl-client takes in credential material as a "standard" PKI directory label,
   ca/ca.pem and <label>/private.pem and <label>/cert.pem files,
   and the private key must not be encrypted.
 
-Becaue of how hl-client is implemented, a simple ping test can be
+Because of how hl-client is implemented, a simple ping test can be
 performed:
 
 - start broker with -p option
@@ -38,3 +38,43 @@ throughput. With one pair of hl-clients, throughput should be around
 The system can be stressed by increasing amount of messages generated
 initially, or adding more hl-client into the conversation.
 
+
+To run hl-client test, setup as follows:
+
+./buildall.sh
+
+cd pki
+
+# Create CA
+./make_ca.sh
+Enter CA private key password: pass
+Re-enter CA private key password: pass
+
+# Create broker certificate
+./make_client.sh
+Enter certificate label: broker
+Include DMClient privileges [y/N]? <enter>
+Include Broker privileges [y/N]? y
+Add update agent address [empty to end]: <enter>
+Add group name [empty to end]: <enter>
+Enter the CA private key password: pass
+Sign the certificate? [y/n]:y
+1 out of 1 certificate requests certified, commit? [y/n]y
+
+# Create agent certificate
+./make_client.sh
+Enter certificate label: test1
+Include DMClient privileges [y/N]? <enter>
+Include Broker privileges [y/N]? <enter>
+Add update agent address [empty to end]: test1
+Add update agent address [empty to end]: <enter>
+Add group name [empty to end]: <enter>
+Enter the CA private key password: pass
+Sign the certificate? [y/n]:y
+1 out of 1 certificate requests certified, commit? [y/n]y
+
+cd ../build
+In 3 shells run the following:
+./xl4bus-broker -D broker -p
+./hl-client -c test1 -d
+./hl-client -c test1 -d
