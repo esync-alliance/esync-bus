@@ -9,6 +9,7 @@
 #include <cjose/cjose.h>
 #include <unistd.h>
 #include <mbedtls/error.h>
+#include <libxl4bus/types.h>
 
 extern int debug;
 
@@ -28,7 +29,7 @@ extern int debug;
     localtime_r(&__tv.tv_sec, &__tmnow); \
     usec_to_msec(&__tv); \
     strftime(__now, 20, "%m-%d_%H:%M:%S.", &__tmnow); \
-    sprintf(__now+15, "%03d", __tv.tv_usec); \
+    sprintf(__now+15, "%03d", (int)__tv.tv_usec); \
     /* time func:file:line */ \
     if (how == HOW_FATAL || how == HOW_ERR) { \
         fprintf(stderr, LINE_ARGS(str, "ERR! ", ##args)); \

@@ -89,7 +89,7 @@ void help() {
 "-T <num>\n"
 "   Milliseconds for stream timeout, 0 to disable timeout. Default is 10000\n"
 "-q\n"
-"   Be quiet, don't produce any output that is not requested"
+"   Be quiet, don't produce any output that is not explicitly requested\n"
 "-d\n"
 "   turn on debugging output\n"
 "-p\n"

@@ -94,6 +94,13 @@
 #cmakedefine01 XL4_DISABLE_ENCRYPTION
 
 /**
+ * If 1, the library will encrypt traffic, but the encryption
+ * will be done using a hard-coded key; only AES encryption
+ * is used in that case.
+ */
+#cmakedefine01 XL4_FAKE_ENCRYPTION
+
+/**
  * If 1, the library will disable signing, and not require
  * JWS verification on the payload.
  */

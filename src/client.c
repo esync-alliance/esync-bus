@@ -57,6 +57,13 @@ static int handle_mt_message(struct xl4bus_connection *, void *, size_t);
 
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
+#if XL4_FAKE_ENCRYPTION
+
+static const char * FAKE_KEY = "{\"kty\":\"oct\", "
+                                "\"k\":\"Jc2RE4DiwDGZsDTVt0Am3ZI_6IhSuoeQdRaHs_XKl_WnmFkHuvGr8px7h_2rme4rpYGHx93I7jl4p9swfJwlzQ\"}";
+
+#endif
+
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
     int err = E_XL4BUS_OK;
@@ -862,8 +869,9 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     cjose_err c_err;
     cjose_jwe_t * encrypted = 0;
     cjose_header_t * hdr = 0;
-    cjose_header_t * unprotected_headers [mint->key_idx];
+    cjose_jwe_recipient_t recipients[mint->key_idx];
     xl4bus_ll_message_t * x_msg = 0;
+    cjose_jwk_t * key = 0;
 
     do {
 
@@ -872,16 +880,51 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
         x_msg->stream_id = mint->stream_id;
         x_msg->is_reply = 1;
 
-#if !XL4_DISABLE_ENCRYPTION
+#if XL4_DISABLE_ENCRYPTION
+
+        // we don't need to copy the data, but this code path should not be normally used,
+        // and if we don't copy, then we need to implement logic for freeing the data with discrimination
+        // on whether it's allocated or not.
+
+        memset(recipients, 0, sizeof(cjose_jwe_recipient_t) * mint->key_idx);
+        BOLT_MALLOC(x_msg->data, x_msg->data_len = mint->msg->data_len);
+        memcpy((void*)x_msg->data, mint->msg->data, x_msg->data_len);
+        BOLT_MEM(x_msg->content_type = f_strdup(mint->msg->content_type));
+
+#elif XL4_FAKE_ENCRYPTION
+
+        DBG("Will encrypt with hard-coded key");
+
+        memset(recipients, 0, sizeof(cjose_jwe_recipient_t) * mint->key_idx);
+
+        // I need to create a special JWK with the hardcoded key.
+
+        BOLT_CJOSE(key = cjose_jwk_import(FAKE_KEY, strlen(FAKE_KEY), &c_err));
+
+        BOLT_CJOSE(hdr = cjose_header_new(&c_err));
+
+        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_DIR, &c_err));
+        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A256CBC_HS512, &c_err));
+        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_CTY, pack_content_type(mint->msg->content_type), &c_err));
+
+        BOLT_CJOSE(encrypted =
+                cjose_jwe_encrypt(key, hdr, mint->msg->data, mint->msg->data_len, &c_err));
+
+        BOLT_CJOSE(x_msg->data = cjose_jwe_export_json(encrypted, &c_err));
+        x_msg->data_len = strlen(x_msg->data) + 1;
+        BOLT_MEM(x_msg->content_type = f_strdup("application/jose+json"));
+
+#else
 
         DBG("Will encrypt with %d keys", mint->key_idx);
 
         // encrypt the original message to all destinations
 
-        // memset(unprotected_headers, 0, mint->key_idx * sizeof(void*));
+        // memset(recipients, 0, mint->key_idx * sizeof(cjose_jwe_recipient));
         for (int i=0; i<mint->key_idx; i++) {
-            BOLT_CJOSE(unprotected_headers[i] = cjose_header_new(&c_err));
-            BOLT_CJOSE(cjose_header_set(unprotected_headers[i], "x5t#S256", mint->remotes[i]->x5t, &c_err));
+            BOLT_CJOSE(recipients[i].unprotected_header = cjose_header_new(&c_err));
+            BOLT_CJOSE(cjose_header_set(recipients[i].unprotected_header, "x5t#S256", mint->remotes[i]->x5t, &c_err));
+            recipients[i].jwk = mint->remotes[i]->key;
         }
 
         BOLT_NEST();
@@ -894,29 +937,12 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
 
         BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_CTY, pack_content_type(mint->msg->content_type), &c_err));
 
-        cjose_jwk_t const * keys[mint->key_idx];
-        for (int i=0; i<mint->key_idx; i++) {
-            keys[i] = mint->remotes[i]->key;
-        }
-
         BOLT_CJOSE(encrypted =
-                cjose_jwe_encrypt_full(keys, unprotected_headers,
-                        mint->key_idx, hdr, 0, mint->msg->data, mint->msg->data_len, &c_err));
+                cjose_jwe_encrypt_multi(recipients, mint->key_idx, hdr, 0, mint->msg->data, mint->msg->data_len, &c_err));
 
         BOLT_CJOSE(x_msg->data = cjose_jwe_export_json(encrypted, &c_err));
         x_msg->data_len = strlen(x_msg->data) + 1;
         BOLT_MEM(x_msg->content_type = f_strdup("application/jose+json"));
-
-#else
-
-        // we don't need to copy the data, but this code path should not be normally used,
-        // and if we don't copy, then we need to implement logic for freeing the data with discrimination
-        // on whether it's allocated or not.
-
-        memset(unprotected_headers, 0, sizeof(void*) * mint->key_idx);
-        BOLT_MALLOC(x_msg->data, x_msg->data_len = mint->msg->data_len);
-        memcpy((void*)x_msg->data, mint->msg->data, x_msg->data_len);
-        BOLT_MEM(x_msg->content_type = f_strdup(mint->msg->content_type));
 
 #endif
 
@@ -931,8 +957,9 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     cjose_jwe_release(encrypted);
     cjose_header_release(hdr);
     for (int i=0; i<mint->key_idx; i++) {
-        cjose_header_release(unprotected_headers[i]);
+        cjose_header_release(recipients[i].unprotected_header);
     }
+    cjose_jwk_release(key);
 
     free_outgoing_message(x_msg);
 
@@ -1017,7 +1044,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         if (i_clt->state == CS_RUNNING) {
 
-            DBG("XCHG: Incoming stream %d", msg->stream_id);
+            DBG("XCHG: %05x Incoming stream", msg->stream_id);
 
 #if XL4_SUPPORT_THREADS
             BOLT_SYS(pf_lock(&i_clt->hash_lock), "");
@@ -1058,13 +1085,13 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     if (msg->is_final) {
 
                         // the broker saying it's not deliverable.
-                        DBG("XCHG: no destinations");
+                        DBG("XCHG: %05x no destinations", mint->stream_id);
                         release_message(clt, mint, E_XL4BUS_UNDELIVERABLE);
                         break;
 
                     }
 
-                    DBG("XCHG: got destination info");
+                    DBG("XCHG: %05x got destination info", mint->stream_id);
 
                     json_object *body;
                     json_object *tags;
@@ -1076,7 +1103,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         !json_object_is_type(tags, json_type_array) ||
                         (l = (size_t) json_object_array_length(tags)) <= 0) {
 
-                        DBG("XCHG: can't find any destinations in %s", json_object_get_string(root));
+                        DBG("XCHG: %05x can't find any destinations in %s", mint->stream_id,
+                                json_object_get_string(root));
                         xl4bus_abort_stream(conn, msg->stream_id);
                         release_message(clt, mint, E_XL4BUS_UNDELIVERABLE);
                         break;
@@ -1132,13 +1160,13 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 } else if (mint->mis == MIS_WAIT_DETAILS && !strcmp("xl4bus.cert-details", type)) {
 
-                    DBG("XCHG: got certificate details");
+                    DBG("XCHG: %05x got certificate details", mint->stream_id);
 
                     BOLT_SUB(receive_cert_details(clt, mint, msg, root));
 
                 } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", type)) {
 
-                    DBG("XCHG: got confirmation");
+                    DBG("XCHG: %05x got confirmation", mint->stream_id);
 
                     if (!msg->is_final) {
                         DBG("Message confirmation was not a final stream message!");
@@ -1218,6 +1246,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     message.address = to_addr;
 
                     cjose_jwe_t * jwe = 0;
+                    cjose_jwk_t * jwk = 0;
 
                     do {
 
@@ -1225,13 +1254,13 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             DBG("Payload is not jose message");
 
-#if !XL4_DISABLE_ENCRYPTION
-                            BOLT_SAY(E_XL4BUS_DATA, "Encryption is required");
-#else
+#if XL4_DISABLE_ENCRYPTION
                             BOLT_MEM(message.content_type = f_strdup(vot.content_type));
                             BOLT_MALLOC(message.data, vot.data_len);
                             memcpy((void*)message.data, vot.data, vot.data_len);
                             message.data_len = vot.data_len;
+#else
+                            BOLT_SAY(E_XL4BUS_DATA, "Encryption is required");
 #endif
 
                         } else {
@@ -1241,8 +1270,13 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             BOLT_CJOSE(jwe = cjose_jwe_import_json((char *) vot.data, vot.data_len - 1, &c_err));
 
-                            BOLT_CJOSE(message.data = cjose_jwe_decrypt_full(jwe, key_locator, clt,
+#if XL4_FAKE_ENCRYPTION
+                            BOLT_CJOSE(jwk = cjose_jwk_import(FAKE_KEY, strlen(FAKE_KEY), &c_err));
+                            BOLT_CJOSE(message.data = cjose_jwe_decrypt(jwe, jwk, &message.data_len, &c_err));
+#else
+                            BOLT_CJOSE(message.data = cjose_jwe_decrypt_multi(jwe, key_locator, clt,
                                     &message.data_len, &c_err));
+#endif
 
                             cjose_header_t *hdr = cjose_jwe_get_protected(jwe);
 
@@ -1264,6 +1298,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     cfg.free((void*)message.content_type);
                     cfg.free((void*)message.data);
                     cjose_jwe_release(jwe);
+                    cjose_jwk_release(jwk);
 
                     if (err != E_XL4BUS_OK) {
 
@@ -1720,7 +1755,7 @@ int send_json_message(xl4bus_client_t * clt, int is_reply, int is_final,
         x_msg->is_reply = is_reply;
         x_msg->is_final = is_final;
 
-        DBG("XCGH: sending json on stream %05x : %s",
+        DBG("XCHG: %05x sending json on stream : %s",
                 x_msg->stream_id, json_object_get_string(json));
 
         BOLT_SUB(to_broker(clt, x_msg, 0, 0, thread_safe));
@@ -1855,7 +1890,7 @@ int receive_cert_details(xl4bus_client_t * clt, message_internal_t * mint, xl4bu
             !json_object_is_type(tags, json_type_array) ||
             (l = json_object_array_length(tags)) <= 0) {
 
-            DBG("XCHG: can't find any certificates in %s", json_object_get_string(root));
+            DBG("XCHG: %05x can't find any certificates in %s", mint->stream_id, json_object_get_string(root));
             if (outgoing) {
                 xl4bus_abort_stream(conn, msg->stream_id);
                 release_message(clt, mint, E_XL4BUS_UNDELIVERABLE);
@@ -1870,7 +1905,7 @@ int receive_cert_details(xl4bus_client_t * clt, message_internal_t * mint, xl4bu
 
             if (outgoing) {
                 if (mint->key_idx == mint->key_count) {
-                    DBG("XCHG: requested certificate response overflows key count?");
+                    DBG("XCHG: %05x requested certificate response overflows key count?", mint->stream_id);
                     break;
                 }
 

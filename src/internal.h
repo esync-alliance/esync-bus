@@ -22,7 +22,7 @@
 #include <mbedtls/version.h>
 
 // Ensure correct version of mbedtls is used.
-#if MBEDTLS_VERSION_NUMBER != 0x02090000
+#if MBEDTLS_VERSION_NUMBER != 0x020c0000
 #error MbedTLS must be of version 2.9.0, I see MBEDTLS_VERSION_NUMBER
 #endif
 

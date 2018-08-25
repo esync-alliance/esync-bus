@@ -1,16 +1,20 @@
 [submodule "json-c"]
 	path = json-c
-	url = https://github.com/json-c/json-c.git
+    url = https://github.com/json-c/json-c.git
+    branch = json-c-0.13.1-20180305
 [submodule "mbedtls"]
 	path = mbedtls
-	url = https://github.com/ARMmbed/mbedtls.git
+    url = https://github.com/ARMmbed/mbedtls.git
+    branch = mbedtls-2.12.0
 [submodule "cjose"]
 	path = cjose
-	url = https://github.com/veselov/cjose
-	branch = json_ser
+	url = https://github.com/cisco/cjose.git
+	branch = 0.6.1
 [submodule "c-ares"]
 	path = c-ares
-	url = https://github.com/c-ares/c-ares.git
+    url = https://github.com/c-ares/c-ares.git
+    branch = cares-1_14_0
 [submodule "jansson"]
 	path = jansson
-	url = https://github.com/akheron/jansson.git
+    url = https://github.com/akheron/jansson.git
+    branch = v2.11

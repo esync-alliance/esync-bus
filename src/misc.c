@@ -571,6 +571,8 @@ const char * xl4bus_version() {
 
 #if XL4_DISABLE_ENCRYPTION
 #define __ENC "<NO_ENC>"
+#elif XL4_FAKE_ENCRYPTION
+#define __ENC "<FAKE_ENC>"
 #endif
 #if XL4_DISABLE_JWS
 #define __JWS "<NO_JWS>"

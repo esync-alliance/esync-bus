@@ -5,6 +5,14 @@
 #include "misc.h"
 #include "debug.h"
 
+#if XL4_FAKE_ENCRYPTION
+
+static const char * FAKE_KEY = "{\"kty\":\"oct\", "
+                                "\"k\":\"Jc2RE4DiwDGZsDTVt0Am3ZI_6IhSuoeQdRaHs_XKl_WnmFkHuvGr8px7h_2rme4rpYGHx93I7jl4p9swfJwlzQ\"}";
+
+#endif
+
+
 int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t * conn,
         validated_object_t * vo, char ** missing_remote) {
 
@@ -275,14 +283,22 @@ int encrypt_jwe(cjose_jwk_t * key, const char * x5t, const void * data, size_t d
     cjose_header_t *j_hdr = 0;
     int err = E_XL4BUS_OK;
     char * jwe_export = 0;
+    cjose_jwk_t * used_key = 0;
 
     do {
 
         BOLT_CJOSE(j_hdr = cjose_header_new(&c_err));
 
+#if XL4_FAKE_ENCRYPTION
+        BOLT_CJOSE(used_key = cjose_jwk_import(FAKE_KEY, strlen(FAKE_KEY), 0));
+        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_DIR, &c_err));
+#else
+        BOLT_CJOSE(used_key = cjose_jwk_retain(key, &c_err));
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_RSA_OAEP, &c_err));
-        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A256CBC_HS512, &c_err));
         BOLT_CJOSE(cjose_header_set(j_hdr, "x5t#S256", x5t, &c_err));
+#endif
+
+        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A256CBC_HS512, &c_err));
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, pack_content_type(ct), &c_err));
 
         // $TODO: we are sticking an empty JSON object into the header, why?
@@ -290,9 +306,7 @@ int encrypt_jwe(cjose_jwk_t * key, const char * x5t, const void * data, size_t d
         BOLT_CJOSE(cjose_header_set(j_hdr, "x-xl4bus", json_object_get_string(obj), &c_err));
         json_object_put(obj);
 
-        // $TODO: use proper key
-
-        BOLT_CJOSE(jwe = cjose_jwe_encrypt(key, j_hdr, data, data_len, &c_err));
+        BOLT_CJOSE(jwe = cjose_jwe_encrypt(used_key, j_hdr, data, data_len, &c_err));
 
         BOLT_CJOSE(jwe_export = cjose_jwe_export(jwe, &c_err));
 
@@ -310,6 +324,7 @@ int encrypt_jwe(cjose_jwk_t * key, const char * x5t, const void * data, size_t d
 
     cjose_jwe_release(jwe);
     cjose_header_release(j_hdr);
+    cjose_jwk_release(used_key);
     free(jwe_export);
 
     return err;
@@ -330,6 +345,7 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * ke
     cjose_jwe_t *jwe = 0;
     int err = E_XL4BUS_OK;
     *decrypted = 0;
+    cjose_jwk_t * used_key = 0;
 
     do {
 
@@ -339,14 +355,18 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * ke
 
         cjose_header_t *p_headers = cjose_jwe_get_protected(jwe);
 
-        char const * x5t_in;
 
+#if XL4_FAKE_ENCRYPTION
+        BOLT_CJOSE(used_key = cjose_jwk_import(FAKE_KEY, strlen(FAKE_KEY), &c_err));
+#else
+        char const * x5t_in;
         // is there an x5c entry?
         BOLT_CJOSE(x5t_in = cjose_header_get(p_headers, "x5t#S256", &c_err));
-
         BOLT_IF(strcmp(x5t_in, x5t) != 0, E_XL4BUS_DATA, "Incoming tag %s, my tag %s", x5t_in, x5t);
+        BOLT_CJOSE(used_key = cjose_jwk_retain(key, &c_err));
+#endif
 
-        BOLT_CJOSE(*decrypted = cjose_jwe_decrypt(jwe, key, decrypted_len, &c_err));
+        BOLT_CJOSE(*decrypted = cjose_jwe_decrypt(jwe, used_key, decrypted_len, &c_err));
 
         if (decrypted_ct) {
 
