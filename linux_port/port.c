@@ -19,6 +19,7 @@
 #include <sys/resource.h>
 #include <termios.h> // FIONREAD
 #include <sys/ioctl.h>
+#include <netinet/tcp.h>
 
 #if XL4_PROVIDE_THREADS
 #include <pthread.h>
@@ -37,6 +38,13 @@ ssize_t pf_send(int sockfd, const void *buf, size_t len) {
 }
 
 ssize_t pf_recv(int sockfd, void *buf, size_t len) {
+  #if 0
+      /* quickack disables the delayed ACK timer but has to be reset after every recv and is said to be non-portable */
+      /* This gives similar speed up to TCP_NODELAY but does increase the number of individual ACK packets           */
+      /* so set TCP_NODELAY only for now.                                                                            */
+      int opt=1;
+      setsockopt(sockfd, IPPROTO_TCP, TCP_QUICKACK, (void*)&opt, sizeof(int));
+  #endif
     return recv(sockfd, buf, len, 0);
 }
 
@@ -216,6 +224,12 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
 
     int fd = socket(family, SOCK_STREAM, 0);
     if (fd < 0) { return -1; }
+
+#if 1
+    /* set tcp_nodelay improves xl4bus performance from 40mS delivery to ~ 500uS */
+    int opt = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,  (void*)&opt, sizeof(int));
+#endif
 
     int rc;
 

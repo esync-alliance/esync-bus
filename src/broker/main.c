@@ -7,10 +7,11 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #if XL4_HAVE_EPOLL
 #include <sys/epoll.h>
-#else 
+#else
 #include <sys/resource.h>
 #endif
 #include <errno.h>
@@ -215,6 +216,11 @@ int main(int argc, char ** argv) {
         perror("socket");
         return 1;
     }
+#if 1
+    /* set tcp_nodelay improves xl4bus performance from 40mS delivery to ~ 500uS */
+    int opt=1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,  (void*)&opt, sizeof(int));
+#endif
 
     struct sockaddr_in b_addr;
     memset(&b_addr, 0, sizeof(b_addr));
@@ -777,8 +783,8 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
             }
         }
 
-        if (rc) { 
-            return E_XL4BUS_SYS; 
+        if (rc) {
+            return E_XL4BUS_SYS;
         }
 
         if(ci) {
@@ -801,12 +807,12 @@ int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
     }
 
     struct pollfd s_poll[polls_len];
-    
+
     for (int i=0; i<polls_len; i++) {
-        
+
         s_poll[i].events = 0;
         polls[i].revents = 0;
-        
+
         if ((s_poll[i].fd = polls[i].fd) < 0) {
             // DBG("pf_poll: skipping negative fd");
             continue;

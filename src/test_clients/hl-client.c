@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <time.h>
 
 int debug = 1;
 
@@ -144,6 +145,19 @@ static void msg_info(struct xl4bus_client * clt, xl4bus_message_t * msg, void * 
 
 }
 
+struct timespec ts_diff(struct timespec end, struct timespec start)
+{
+	struct timespec d;
+	if (end.tv_nsec < start.tv_nsec) {
+		d.tv_sec = end.tv_sec - start.tv_sec-1;
+		d.tv_nsec= 1000000000 + end.tv_nsec - start.tv_nsec;
+	} else {
+		d.tv_sec = end.tv_sec - start.tv_sec;
+		d.tv_nsec= end.tv_nsec - start.tv_nsec;
+	}
+	return d;
+}
+
 void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
 
     char * src = addr_to_str(msg->address);
@@ -152,7 +166,14 @@ void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
         src = f_strdup("no source!");
     }
 
-    char * fmt = f_asprintf("From %s came message of %s : %%%ds\n", src, msg->content_type, msg->data_len);
+    static struct timespec lasttime;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    struct timespec diff = ts_diff(now,lasttime);
+    double ms=(diff.tv_sec*1e6+diff.tv_nsec/1000)/1000;
+    lasttime=now;
+
+    char * fmt = f_asprintf("%.03fmS:  From %s came message of %s : %%%ds\n", ms, src, msg->content_type, msg->data_len);
     printf(fmt, msg->data);
     free(fmt);
     free(src);
