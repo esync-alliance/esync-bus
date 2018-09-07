@@ -524,7 +524,7 @@ int mpi2jwk(mbedtls_mpi * mpi, uint8_t ** dst , size_t * dst_len) {
         *dst = aux;
 
         if (mbedtls_mpi_write_binary(mpi, *dst, *dst_len) == MBEDTLS_ERR_MPI_BUFFER_TOO_SMALL) {
-            DBG("MPI %p, size %d failed to fit into %d raw", mpi, mpi->n, *dst_len);
+            DBG("MPI %p, size %lu failed to fit into %lu raw", mpi, mpi->n, *dst_len);
             *dst_len += 20;
             continue;
         }

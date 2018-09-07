@@ -308,7 +308,7 @@ xl4bus_asn1_t * load_pem(char *path) {
                 break;
             }
             if (!rd) {
-                DBG("Premature EOF reading %d, file declared %d bytes, read %d bytes, remaining %d bytes",
+                DBG("Premature EOF reading %s, file declared %ld bytes, read %ld bytes, remaining %ld bytes",
                         path, buf->buf.len-1, ptr-(void*)buf->buf.data, size);
                 break;
             }
