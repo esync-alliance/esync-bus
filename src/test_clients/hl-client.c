@@ -145,17 +145,16 @@ static void msg_info(struct xl4bus_client * clt, xl4bus_message_t * msg, void * 
 
 }
 
-struct timespec ts_diff(struct timespec end, struct timespec start)
-{
-	struct timespec d;
-	if (end.tv_nsec < start.tv_nsec) {
-		d.tv_sec = end.tv_sec - start.tv_sec-1;
-		d.tv_nsec= 1000000000 + end.tv_nsec - start.tv_nsec;
-	} else {
-		d.tv_sec = end.tv_sec - start.tv_sec;
-		d.tv_nsec= end.tv_nsec - start.tv_nsec;
-	}
-	return d;
+struct timespec ts_diff(struct timespec end, struct timespec start) {
+    struct timespec d;
+    if (end.tv_nsec < start.tv_nsec) {
+        d.tv_sec = end.tv_sec - start.tv_sec - 1;
+        d.tv_nsec = 1000000000 + end.tv_nsec - start.tv_nsec;
+    } else {
+        d.tv_sec = end.tv_sec - start.tv_sec;
+        d.tv_nsec = end.tv_nsec - start.tv_nsec;
+    }
+    return d;
 }
 
 void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
