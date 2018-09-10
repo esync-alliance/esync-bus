@@ -46,8 +46,8 @@ CFLAGS="$DBG -fPIC -fvisibility=hidden" \
 make -j
 popd
 
-rm -rf build
-mkdir build
-cd build
-cmake ..
+rm -rf Release
+mkdir Release
+cd Release
+cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j

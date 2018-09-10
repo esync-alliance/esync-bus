@@ -73,8 +73,16 @@ Enter the CA private key password: pass
 Sign the certificate? [y/n]:y
 1 out of 1 certificate requests certified, commit? [y/n]y
 
-cd ../build
+cd ../Release
 In 3 shells run the following:
 ./xl4bus-broker -D broker -p
 ./hl-client -c test1 -d
 ./hl-client -c test1 -d
+
+
+To build for debug with symbols and no optimization:
+cd ..
+mkdir Debug
+cd Debug
+cmake -DCMAKE_BUILD_TYPE=Debug ..
+make -j

@@ -950,7 +950,7 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
 
         mint->mis = MIS_WAIT_CONFIRM;
 
-        x_msg = 0; /* to_broker() would have released data and message itself. */
+        x_msg = 0; /* to_broker() would have released data and message itself as long as it doesn't error out. */
 
     } while (0);
 
@@ -1641,7 +1641,9 @@ void release_message(xl4bus_client_t * clt, message_internal_t * mint, int err) 
 }
 
 void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
-    free_outgoing_message(msg);
+    if (err == E_XL4BUS_OK) {
+        free_outgoing_message(msg);
+    }
     json_object_put(ref);
 }
 

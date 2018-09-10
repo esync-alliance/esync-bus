@@ -10,7 +10,9 @@
 #include <signal.h>
 #include <time.h>
 
-int debug = 1;
+int debug = 0;
+int g_respond = 1;
+int g_msg_size = 0;
 
 static void conn_info(struct xl4bus_client *, xl4bus_client_condition_t);
 static void msg_info(struct xl4bus_client *, xl4bus_message_t *, void *, int);
@@ -25,17 +27,31 @@ static void reconnect(xl4bus_client_t * clt) {
 
 static void help(void);
 
+void *make_jmsg(const char *say, size_t size) {
+    const char *fmt = "{\"say\":\"%s\",\"pad\":\".\"}";
+    size_t minlen = strlen(say) + strlen(fmt) - 2 + 1;
+    if (size < minlen) {
+        size = minlen;
+    }
+    char *msg = malloc(size);
+    int n = snprintf(msg, size, fmt, say) + 1;
+    if (size > n) {
+        memset(msg + (n - 4), 'x', size - (n - 4) - 1);   // 4 chars are  .\"}\0
+        memcpy(msg + size - 3, "\"}", 3);           // 3 chars are \"}\0
+    }
+    return msg;
+}
+
 int main(int argc, char ** argv) {
 
     int c;
     char * cert_dir = 0;
-    int debug = 0;
     int flood = 0;
     int msg_count = 1;
 
     signal(SIGINT, signal_f);
 
-    while ((c = getopt(argc, argv, "c:dfm:h")) != -1) {
+    while ((c = getopt(argc, argv, "c:dfm:s:xh")) != -1) {
 
         switch (c) {
 
@@ -52,7 +68,12 @@ int main(int argc, char ** argv) {
             case 'm':
                 msg_count = atoi(optarg);
                 break;
-
+            case 's':
+                g_msg_size = atoi(optarg);
+                break;
+            case 'x':
+                g_respond = 0;
+                break;
             default: help(); break;
 
         }
@@ -87,8 +108,6 @@ int main(int argc, char ** argv) {
 
     load_test_x509_creds(&clt.identity, cert_dir, argv[0]);
 
-    free(cert_dir);
-
     clt.on_release = reconnect;
     reconnect(&clt);
 
@@ -98,23 +117,32 @@ int main(int argc, char ** argv) {
 
         xl4bus_address_t addr = {
                 .type = XL4BAT_UPDATE_AGENT,
-                .update_agent = "test1",
+                .update_agent = cert_dir,
                 .next = 0
         };
 
         xl4bus_copy_address(&addr, 1, &msg->address);
         msg->content_type = "application/json";
-        msg->data = "{\"say\":\"hello\"}";
+
+        void *msgdat = NULL;
+        if (g_msg_size) {
+            msgdat = make_jmsg("hello", (size_t)g_msg_size);
+            msg->data = msgdat;
+        } else {
+            msg->data = "{\"say\":\"hello\"}";
+        }
+
         msg->data_len = strlen(msg->data) + 1;
 
-        xl4bus_send_message(&clt, msg, 0);
-
+        if (xl4bus_send_message(&clt, msg, msgdat)) {
+            handle_delivered(&clt, msg, msgdat, 0);     // if send message failed cleanup here
+        }
     };
 
     while (1) {
         sleep(60);
     }
-
+    free(cert_dir);
 }
 
 void conn_info(struct xl4bus_client * clt, xl4bus_client_condition_t cond) {
@@ -132,6 +160,7 @@ void help() {
             "-c <cert> : certificate directory to use for authentication\n"
             "-d        : turn on debug output\n"
             "-m <cnt>  : send that many messages to start with, 1 by default\n"
+            "-x        : don't reflect incoming messages\n"
             "-f        : flood\n"
     );
     _exit(1);
@@ -172,21 +201,39 @@ void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
     double ms=(diff.tv_sec*1e6+diff.tv_nsec/1000)/1000;
     lasttime=now;
 
-    char * fmt = f_asprintf("%.03fmS:  From %s came message of %s : %%%ds\n", ms, src, msg->content_type, msg->data_len);
-    printf(fmt, msg->data);
-    free(fmt);
+    char rmsgdat[40];
+    size_t len = msg->data_len;
+    if (len > sizeof(rmsgdat) - 5) {
+        len = sizeof(rmsgdat) - 5;
+        memcpy(rmsgdat, msg->data, len);
+        strcpy(rmsgdat + len, "...\n");
+    } else {
+        snprintf(rmsgdat, sizeof(rmsgdat), "%s\n", (const char *) msg->data);
+    }
+    printf("%.03fmS:  From %s %s(%ld) %s", ms, src, msg->content_type, msg->data_len, rmsgdat);
+
     free(src);
+
+    if (g_respond == 0) {
+        return;
+    }
 
     xl4bus_message_t * r_msg = f_malloc(sizeof(xl4bus_message_t));
     xl4bus_copy_address(msg->source_address, 1, &r_msg->address);
     r_msg->content_type = "application/json";
-    r_msg->data = "{\"say\":\"hello-back\"}";
-    r_msg->data_len = strlen(r_msg->data) + 1;
-
-    if (xl4bus_send_message2(clt, r_msg, 0, 0)) {
-        handle_delivered(clt, r_msg, 0, 0);
+    void *msgdat = NULL;
+    if (g_msg_size) {
+      msgdat = make_jmsg("hello-back", (size_t)g_msg_size);
+      r_msg->data = msgdat;
+    } else {
+      r_msg->data = "{\"say\":\"hello-back\"}";
     }
 
+    r_msg->data_len = strlen(r_msg->data) + 1;
+
+    if (xl4bus_send_message2(clt, r_msg, msgdat, 0)) {
+        handle_delivered(clt, r_msg, msgdat, 0);     // if send message failed cleanup here
+    }
 }
 
 void handle_presence(struct xl4bus_client * clt, xl4bus_address_t * connected, xl4bus_address_t * disconnected) {
@@ -204,8 +251,9 @@ void handle_presence(struct xl4bus_client * clt, xl4bus_address_t * connected, x
 void handle_delivered(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok) {
 
     xl4bus_free_address(msg->address, 1);
+    if (arg == msg->data)
+      free(arg);
     free(msg);
-
 }
 
 void signal_f(int s) {
