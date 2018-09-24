@@ -32,6 +32,7 @@ static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
 static int ll_poll_cb(struct xl4bus_connection*, int, int);
 static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
+static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 static int create_ll_connection(xl4bus_client_t *);
 static void process_message_out(xl4bus_client_t *, message_internal_t *, int);
 static int get_xl4bus_message(validated_object_t const *, json_object **, char const **);
@@ -55,14 +56,17 @@ static void unref_mint(message_internal_t *);
 static int handle_mt_message(struct xl4bus_connection *, void *, size_t);
 #endif
 
-static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
-
 #if XL4_FAKE_ENCRYPTION
 
 static const char * FAKE_KEY = "{\"kty\":\"oct\", "
                                 "\"k\":\"Jc2RE4DiwDGZsDTVt0Am3ZI_6IhSuoeQdRaHs_XKl_WnmFkHuvGr8px7h_2rme4rpYGHx93I7jl4p9swfJwlzQ\"}";
 
 #endif
+
+#define CHANGE_MIS(mint,__mis, how, c...) do { \
+    DBG("mint %p state %d->%d : " how, mint, mint->mis, __mis, ## c); \
+    mint->mis = __mis; \
+} while(0)
 
 int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
@@ -736,7 +740,7 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
 
         message_internal_t * mint;
         DL_FOREACH(i_clt->message_list, mint) {
-            mint->mis = MIS_VIRGIN;
+            CHANGE_MIS(mint, MIS_VIRGIN, "connection drop");
             if (mint->in_hash) {
                 HASH_DEL(i_clt->stream_hash, mint);
                 mint->in_hash = 0;
@@ -946,9 +950,8 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
 
 #endif
 
+        CHANGE_MIS(mint, MIS_WAIT_CONFIRM, "sending main message");
         BOLT_SUB(to_broker(clt, x_msg, mint->msg->address, 1, 1));
-
-        mint->mis = MIS_WAIT_CONFIRM;
 
         x_msg = 0; /* to_broker() would have released data and message itself. */
 
@@ -1064,7 +1067,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 BOLT_SUB(get_xl4bus_message(&vot, &root, &type));
 
-                DBG("mint state %d, received %s", mint->mis, json_object_get_string(root));
+                DBG("mint %p state %d, received %s", mint, mint->mis, json_object_get_string(root));
 
                 if (mint->mis == MIS_NEED_REMOTE && !strcmp("xl4bus.cert-details", type)) {
 
@@ -1142,10 +1145,10 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                             BOLT_MEM(body = json_object_new_object());
                             json_object_object_add(body, "x5t#S256", json_object_get(req_destinations));
 
+                            CHANGE_MIS(mint, MIS_WAIT_DETAILS, "requested certificates");
+
                             BOLT_SUB(send_json_message(clt, 1, 0, mint->stream_id,
                                     "xl4bus.request-cert", body, 1));
-
-                            mint->mis = MIS_WAIT_DETAILS;
 
                         } while (0);
 
@@ -1434,7 +1437,7 @@ int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int 
         BOLT_SUB(make_json_address(msg->address, &mint->addr));
 
         mint->msg = msg;
-        mint->mis = MIS_VIRGIN;
+        CHANGE_MIS(mint, MIS_VIRGIN, "new message");
         mint->custom = arg;
 
         record_mint(clt, mint, 1, 1, 0);
@@ -1554,8 +1557,9 @@ static void process_message_out(xl4bus_client_t * clt, message_internal_t * mint
 
         BOLT_MEM(json = json_object_new_object());
         json_object_object_add(json, "destinations", json_object_get(mint->addr));
+
+        CHANGE_MIS(mint, MIS_WAIT_DESTINATIONS, "virgin message out on stream %05x", mint->stream_id);
         send_json_message(clt, 0, 0, mint->stream_id, "xl4bus.request-destinations", json, thread_safe);
-        mint->mis = MIS_WAIT_DESTINATIONS;
         break;
 
     }
@@ -1642,7 +1646,6 @@ void release_message(xl4bus_client_t * clt, message_internal_t * mint, int err) 
 
 void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
     free_outgoing_message(msg);
-    json_object_put(ref);
 }
 
 int xl4bus_address_to_json(xl4bus_address_t *addr, char **json) {
@@ -1760,11 +1763,6 @@ int send_json_message(xl4bus_client_t * clt, int is_reply, int is_final,
 
         BOLT_SUB(to_broker(clt, x_msg, 0, 0, thread_safe));
 
-        /*
-        BOLT_SUB(SEND_LL(i_clt->ll, x_msg, json));
-        json = json_object_get(json);
-         */
-
     } while(0);
 
     json_object_put(json);
@@ -1806,6 +1804,10 @@ int to_broker(xl4bus_client_t * clt, xl4bus_ll_message_t * msg, xl4bus_address_t
 
     do {
 
+        // $TODO: for messages bound to the broker, the address is always 0,
+        // so there is no need to attach the "destinations" object with an empty array
+        // make sure the remote doesn't have any expectations for the presence of this array
+        // and make this block conditional on address being set at all.
         BOLT_MEM(bus_object = json_object_new_object());
         json_object *array;
         BOLT_SUB(make_json_address(addr, &array));
@@ -1882,7 +1884,7 @@ int receive_cert_details(xl4bus_client_t * clt, message_internal_t * mint, xl4bu
 
         json_object *body;
         json_object *tags;
-        int l;
+        size_t l;
 
         if (!json_object_object_get_ex(root, "body", &body) ||
             !json_object_is_type(body, json_type_object) ||
