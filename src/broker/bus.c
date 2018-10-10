@@ -99,6 +99,16 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             BOLT_SUB(xl4bus_set_remote_identity(conn, &id));
 
+            if (debug) {
+                char * json_addr;
+                int addr_err;
+                if ((addr_err = xl4bus_address_to_json(conn->remote_address_list, &json_addr)) != E_XL4BUS_OK) {
+                    json_addr = f_asprintf("Failed to stringify address: %d", addr_err);
+                }
+                DBG("Connection %p - identity set to %s", conn->_private, json_addr);
+                free(json_addr);
+            }
+
         }
 
         if (!ci->remote_x5c && conn->remote_x5c) {
