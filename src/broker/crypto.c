@@ -175,7 +175,7 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
     do {
 
         cjose_err c_err;
-        int l;
+        size_t l;
 
         int is_array = json_object_is_type(x5c, json_type_array);
         if (!is_array && !json_object_is_type(x5c, json_type_string)) {
@@ -192,7 +192,7 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
 
         mbedtls_x509_crt_init(&crt);
 
-        for (int i=0; i<l; i++) {
+        for (size_t i=0; i<l; i++) {
             const char * str;
 
             if (is_array) {

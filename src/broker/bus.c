@@ -83,11 +83,11 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             id.type = XL4BIT_X509;
 
-            int certs = json_object_array_length(vot.x5c);
+            size_t certs = json_object_array_length(vot.x5c);
 
             id.x509.chain = f_malloc(sizeof(void*) * (certs+1));
 
-            for (int i=0; i<certs; i++) {
+            for (size_t i=0; i<certs; i++) {
                 id.x509.chain[i] = f_malloc(sizeof(xl4bus_asn1_t));
                 id.x509.chain[i]->enc = XL4BUS_ASN1ENC_DER;
                 const char * in = json_object_get_string(json_object_array_get_idx(vot.x5c, i));
@@ -304,25 +304,25 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     if (json_object_object_get_ex(aux, "x5t#S256", &array) &&
                         json_object_is_type(array, json_type_array)) {
 
-                        int l = json_object_array_length(array);
-                        for (int i=0; i<l; i++) {
+                        size_t l = json_object_array_length(array);
+                        for (size_t i=0; i<l; i++) {
 
                             json_object * x5t_json = json_object_array_get_idx(array, i);
                             if (!json_object_is_type(x5t_json, json_type_string)) { continue; }
 
                             const char * x5t = json_object_get_string(x5t_json);
 
-                            UT_array * send_list = 0;
+                            UT_array * items = 0;
 
                             conn_info_hash_list_t * val;
                             HASH_FIND(hh, ci_by_x5t, x5t, strlen(x5t)+1, val);
                             if (val) {
-                                send_list = &val->items;
+                                items = &val->items;
                             }
 
-                            if (!send_list) { continue; }
+                            if (!items) { continue; }
 
-                            int l2 = utarray_len(send_list);
+                            int l2 = utarray_len(items);
 
                             // because these must be the same x5t, we only need
                             // to send out one x5c, because they all must be the same
@@ -331,7 +331,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             for (int j=0; j<l2; j++) {
 
-                                conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(send_list, j);
+                                conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(items, j);
                                 if (ci2->remote_x5c) {
                                     json_object_array_add(x5c, json_object_get(ci2->remote_x5c));
                                 }

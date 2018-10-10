@@ -218,15 +218,15 @@ void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
         return;
     }
 
-    xl4bus_message_t * r_msg = f_malloc(sizeof(xl4bus_message_t));
+    xl4bus_message_t *r_msg = f_malloc(sizeof(xl4bus_message_t));
     xl4bus_copy_address(msg->source_address, 1, &r_msg->address);
     r_msg->content_type = "application/json";
     void *msgdat = NULL;
     if (g_msg_size) {
-      msgdat = make_jmsg("hello-back", (size_t)g_msg_size);
-      r_msg->data = msgdat;
+        msgdat = make_jmsg("hello-back", (size_t) g_msg_size);
+        r_msg->data = msgdat;
     } else {
-      r_msg->data = "{\"say\":\"hello-back\"}";
+        r_msg->data = "{\"say\":\"hello-back\"}";
     }
 
     r_msg->data_len = strlen(r_msg->data) + 1;
