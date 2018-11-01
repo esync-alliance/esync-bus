@@ -678,7 +678,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
             if ((is_not_first = (frm.byte0 & FRAME_MSG_FIRST_MASK)) ||
                 (stream_id & 0x1) != (conn->is_client ? 1 : 0)) {
-                DBG("Stream ID %d has incorrect parity or not a stream starter (byte0 is %x, exp parity %d)",
+                DBG("Stream ID %05x has incorrect parity or not a stream starter (byte0 is %x, exp parity %d)",
                         stream_id, frm.byte0, (conn->is_client ? 1 : 0));
                 xl4bus_abort_stream(conn, stream_id);
                 break;
