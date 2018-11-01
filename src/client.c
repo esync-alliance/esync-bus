@@ -1177,6 +1177,15 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     }
                     release_message(clt, mint, E_XL4BUS_OK);
 
+                } else {
+
+                    DBG("XCHG: %05x state not applicable to incoming message", mint->stream_id);
+                    if (!msg->is_final) {
+                        xl4bus_abort_stream(conn, mint->stream_id);
+                    }
+                    release_message(clt, mint, E_XL4BUS_INTERNAL);
+                    break;
+
                 }
 
             } else {
