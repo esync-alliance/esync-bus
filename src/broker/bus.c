@@ -77,7 +77,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         BOLT_IF(ci->remote_x5t && z_strcmp(ci->remote_x5t, vot.remote_info->x5t),
                 E_XL4BUS_DATA, "Switching remote identities is not supported");
 
-        DBG("Incoming BUS object: %p-%04x %s", conn->_private, msg->stream_id, json_object_get_string(vot.bus_object));
+        DBG("Incoming BUS object: %p-%04x %s", conn, msg->stream_id, json_object_get_string(vot.bus_object));
 
         if (vot.x5c) {
 
@@ -105,9 +105,11 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 if ((addr_err = xl4bus_address_to_json(conn->remote_address_list, &json_addr)) != E_XL4BUS_OK) {
                     json_addr = f_asprintf("Failed to stringify address: %d", addr_err);
                 }
-                DBG("Connection %p - identity set to %s", conn->_private, json_addr);
+                DBG("Connection %p - identity set to %s", conn, json_addr);
                 free(json_addr);
             }
+
+            E900(f_asprintf("Connection %p identified", conn), conn->remote_address_list, 0);
 
         }
 
@@ -699,7 +701,7 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
         x_msg.is_reply = is_reply;
         x_msg.is_final = is_final;
 
-        DBG("Outgoing on %p-%04x : %s", conn->_private, stream_id, json_object_get_string(json));
+        DBG("Outgoing on %p-%04x : %s", conn, stream_id, json_object_get_string(json));
 
         msg_context_t * ctx = f_malloc(sizeof(msg_context_t));
         ctx->magic = MAGIC_SYS_MESSAGE;
@@ -720,6 +722,6 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
 
 int on_stream_close(struct xl4bus_connection * conn, uint16_t stream, xl4bus_stream_close_reason_t scr) {
 
-    DBG("Stream %p-%04x closed, reason: %d", conn->_private, stream, (int)scr);
+    DBG("Stream %p-%04x closed, reason: %d", conn, stream, (int)scr);
 
 }

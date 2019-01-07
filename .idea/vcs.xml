@@ -2,5 +2,14 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/c-ares" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/c-ares-build" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cjose" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/cjose-build" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/jansson" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/json-c" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/json-c-build" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/mbedtls" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/mbedtls-build" vcs="Git" />
   </component>
 </project>

@@ -56,7 +56,7 @@ void release_stream(xl4bus_connection_t * conn, stream_t * stream, xl4bus_stream
 
     remove_stream_timeout(conn, stream);
 
-    // printf("UUU Stream %p-%04x released\n", i_conn, stream->stream_id);
+    // printf("UUU Stream %p-%04x released\n", conn, stream->stream_id);
 
     unref_stream(stream);
 

@@ -20,10 +20,19 @@ void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
         from_str = "(FAIL)";
         alloc_src = 0;
     }
-    char * to_str = addr_to_str(to);
-    if (!from_str) {
-        to_str = "(FAIL)";
+
+    // no (to) address from certain output, used for connection labelling
+
+    char * to_str;
+    if (!to) {
+        to_str = "";
         alloc_dst = 0;
+    } else {
+        to_str = addr_to_str(to);
+        if (!to_str) {
+            to_str = "(FAIL)";
+            alloc_dst = 0;
+        }
     }
 
     if (!msg) {
