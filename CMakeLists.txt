@@ -271,6 +271,7 @@ if (BUILD_BINS)
         src/lib/debug.h
         src/lib/rb_tree.h
         src/lib/rb_tree.c
+        src/lib/poll_help.h
     )
 
     add_executable(ll-client

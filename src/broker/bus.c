@@ -1,11 +1,7 @@
 
 #include <sys/socket.h>
-#include <poll.h>
 #include <libxl4bus/low_level.h>
 #include <libxl4bus/high_level.h>
-#if XL4_HAVE_EPOLL
-#include <sys/epoll.h>
-#endif
 #include "utlist.h"
 
 #include "hash_list.h"
@@ -13,6 +9,7 @@
 #include "broker.h"
 #include "lib/common.h"
 #include "lib/debug.h"
+#include "lib/poll_help.h"
 
 #define MAGIC_CLIENT_MESSAGE 0xed989b71
 #define MAGIC_SYS_MESSAGE 0xd6588fb0

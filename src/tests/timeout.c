@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <signal.h>
 #include "uthash.h"
+#include "lib/poll_help.h" // for epoll_create
 
 int debug = 1;
 

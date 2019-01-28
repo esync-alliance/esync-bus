@@ -2,18 +2,13 @@
 #include "broker.h"
 #include "lib/common.h"
 #include "lib/debug.h"
+#include "lib/poll_help.h"
 
 #include <libxl4bus/low_level.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <poll.h>
-#if XL4_HAVE_EPOLL
-#include <sys/epoll.h>
-#else
-#include <sys/resource.h>
-#endif
 #include <errno.h>
 #include <signal.h>
 

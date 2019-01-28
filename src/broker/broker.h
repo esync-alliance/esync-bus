@@ -31,7 +31,6 @@ typedef struct poll_info {
 
 typedef struct conn_info {
 
-    // struct pollfd pfd;
     int reg_req;
 
     int is_dm_client;
