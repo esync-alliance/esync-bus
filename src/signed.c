@@ -201,7 +201,7 @@ int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void *d
         json_object * val;
         BOLT_MEM(val = json_object_new_string_len(base64, (int)base64_len));
         json_object_object_add(bus_object, "nonce", val);
-        BOLT_MEM(val = json_object_new_int64((int64_t)pf_sec_time));
+        BOLT_MEM(val = json_object_new_int64((int64_t)pf_sec_time()));
         json_object_object_add(bus_object, "timestamp", val);
 
         cfg.free(base64);
