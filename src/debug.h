@@ -13,20 +13,24 @@
     now[0] = 0
 #else
 #define _ltime_ \
-    char now[24]; \
-    struct tm tmnow; \
-    struct timeval tv; \
-    memset(now, 0, 24); \
-    gettimeofday(&tv, 0); \
-    usec_to_msec(&tv); \
-    localtime_r(&tv.tv_sec, &tmnow); \
-    strftime(now, 20, "%m-%d:%H:%M:%S.", &tmnow); \
-    sprintf(now+15, "%03d", (int)(tv.tv_usec))
+    char now[27]; \
+    if (!cfg.debug_no_time) { \
+        struct tm tmnow; \
+        struct timeval tv; \
+        memset(now, 0, 27); \
+        gettimeofday(&tv, 0); \
+        usec_to_msec(&tv); \
+        localtime_r(&tv.tv_sec, &tmnow); \
+        strftime(now, 20, "[%m-%d:%H:%M:%S.", &tmnow); \
+        sprintf(now+15, "%03d] ", (int)(tv.tv_usec)); \
+    } else { \
+        now[0] = 0; \
+    }
 #endif
 
 #define DBG(a,b...) do { if (cfg.debug_f) { \
     _ltime_; \
-    char * _str = f_asprintf("[%s] xl4bus:%s:%d " a, now, chop_path(__FILE__), __LINE__, ## b); \
+    char * _str = f_asprintf("%sxl4bus:%s:%d " a, now, chop_path(__FILE__), __LINE__, ## b); \
     if (_str) { \
         cfg.debug_f(_str); \
         cfg.free(_str); \
@@ -36,7 +40,7 @@
 #define DBG_SYS(a,b...) do { if (cfg.debug_f) { \
     int _errno = pf_get_errno(); \
     _ltime_; \
-    char * _str = f_asprintf("[%s] xl4bus:%s:%d error %s(%d): " a, now, chop_path(__FILE__), __LINE__, strerror(_errno), _errno, ## b); \
+    char * _str = f_asprintf("%sxl4bus:%s:%d error %s(%d): " a, now, chop_path(__FILE__), __LINE__, strerror(_errno), _errno, ## b); \
     if (_str) { \
         cfg.debug_f(_str); \
         cfg.free(_str); \

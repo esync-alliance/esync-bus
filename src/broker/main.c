@@ -195,6 +195,9 @@ int main(int argc, char ** argv) {
     memset(&ll_cfg, 0, sizeof(xl4bus_ll_cfg_t));
     if (debug) {
         ll_cfg.debug_f = print_out;
+#if XL4BUS_ANDROID
+        ll_cfg.debug_no_time = 1;
+#endif
     }
 #endif
 
@@ -685,7 +688,7 @@ void count(int in, int out) {
                     stream_count += ci->conn->stream_count;
                 }
             }
-            printf("E872 %d IN %d OUT %d streams\n", perf.in, perf.out, stream_count);
+            MSG_OUT("E872 %d IN %d OUT %d streams\n", perf.in, perf.out, stream_count);
         }
         perf.in = 0;
         perf.out = 0;

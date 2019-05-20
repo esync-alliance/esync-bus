@@ -39,18 +39,27 @@ typedef struct xl4bus_asn1 {
 
 /**
  * Function type for allocation memory.
+ * @param sz number of bytes to be allocated
+ * @return address of the allocated memory block, or `0` if no memory can be allocated.
  */
-typedef void * (*xl4bus_malloc)(size_t);
+typedef void * (*xl4bus_malloc)(size_t sz);
 
 /**
- * Function type for reallocating memory
+ * Function type for reallocating memory.
+ * @param ptr pointer to previously allocated memory block. Can be `0`, for a new block to be
+ * of the specified size to be allocated instead.
+ * @param sz number of bytes that the reallocated block should occupy, at least.
+ * @return `0` if reallocation is not possible. Previous block should not be modified. Otherwise,
+ * returns the address of the block that contained all the data that `ptr` was pointing to, up to new size. The
+ * old memory block (unless the same block is returned) should be freed.
  */
 typedef void * (*xl4bus_realloc)(void *, size_t);
 
 /**
- * Function type for releasing allocated memory
+ * Function type for releasing allocated memory.
+ * @param ptr memory block to release.
  */
-typedef void (*xl4bus_free)(void*);
+typedef void (*xl4bus_free)(void* ptr);
 
 #if XL4_PROVIDE_DEBUG
 typedef void (*xl4bus_debug)(const char *);
@@ -58,11 +67,28 @@ typedef void (*xl4bus_debug)(const char *);
 
 typedef struct xl4bus_ll_cfg {
 
+    /**
+     * Function to use to allocation memory.
+     */
     xl4bus_malloc malloc;
+    /**
+     * Function to use to change size of allocated block.
+     */
     xl4bus_realloc realloc;
+    /**
+     * Function to free the memory.
+     */
     xl4bus_free free;
 #if XL4_PROVIDE_DEBUG
+    /**
+     * Function to be called for printing debugging output of the library
+     */
     xl4bus_debug debug_f;
+    /**
+     * If `!0`, then debugging output will not contain a time stamp. Intended for logging systems that
+     * use their own timestamp.
+     */
+    int debug_no_time;
 #endif
 
 } xl4bus_ll_cfg_t;
@@ -641,9 +667,9 @@ typedef struct xl4bus_client {
     /**
      * If set to 1, requests that the library runs an internal
      * thread to service the client. All I/O multiplexing is
-     * then handled by the client. The library will override any
+     * then handled by the library. The library will override any
      * provided polling callbacks. Neither ::xl4bus_run_client nor ::xl4bus_flag_poll
-     * functions may be called for such client structure.
+     * functions are allowed be called for such configuration.
      *
      * This option is only available if the client is compiled with
      */

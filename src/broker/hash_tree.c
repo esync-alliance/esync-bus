@@ -73,7 +73,7 @@ void hash_tree_do_rec(conn_info_hash_tree_t * current, conn_info_t * ci, const c
     HASH_FIND(hh, current->nodes, ua_name, key_len, child);
     if (!child) {
         if (is_delete) {
-            printf("While looking for sub-tree %s, for UA %s, next sub-node could not be found", ua_name, full_name);
+            MSG_OUT("While looking for sub-tree %s, for UA %s, next sub-node could not be found", ua_name, full_name);
         } else {
             child = f_malloc(sizeof(conn_info_hash_tree_t));
             child->key = f_strndup(ua_name, key_len);

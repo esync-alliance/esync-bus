@@ -10,7 +10,22 @@
 
 #include <include/libxl4bus/types.h>
 
+#if defined(__ANDROID__) && __ANDROID__
+#include <android/log.h>
+#define XL4BUS_ANDROID (1)
+#define XL4BUS_ANDROID_TAG "xl4bus-broker"
+#define MSG_OUT(fmt, c...) do { \
+    __android_log_print(ANDROID_LOG_INFO, XL4BUS_ANDROID_TAG, fmt, ## c); \
+} while (0)
+#else
+#define XL4BUS_ANDROID (0)
+#define MSG_OUT(fmt, c...) do { \
+    printf(fmt, ## c); \
+} while (0)
+#endif
+
 #define NULL_STR(a) ((a)?(a):"(NULL)")
+
 
 void print_out(const char *);
 char * f_asprintf(char * fmt, ...);

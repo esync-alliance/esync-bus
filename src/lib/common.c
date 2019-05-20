@@ -50,7 +50,11 @@ static int vasprintf(char **buf, const char *fmt, va_list ap)
 
 void print_out(const char * msg) {
 
+#if XL4BUS_ANDROID
+    __android_log_write(ANDROID_LOG_DEBUG, XL4BUS_ANDROID_TAG, msg);
+#else
     fprintf(stderr, "%s\n", msg);
+#endif
 
 }
 

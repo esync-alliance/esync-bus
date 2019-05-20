@@ -269,6 +269,7 @@ if (BUILD_BINS)
         src/lib/common.h
         src/lib/common.c
         src/lib/debug.h
+        src/lib/debug.c
         src/lib/rb_tree.h
         src/lib/rb_tree.c
         src/lib/poll_help.h

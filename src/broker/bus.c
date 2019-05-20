@@ -433,7 +433,6 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     int sub_err = xl4bus_send_ll_message(ci2->conn, msg, ctx, 0);
 
                     if (sub_err) {
-                        // printf("failed to send a message : %s\n", xl4bus_strerr(err));
                         E900(f_asprintf("Failed to send message %s as %p-%04x: %s", in_msg_id, ci2->conn,
                                 (unsigned int)msg->stream_id, xl4bus_strerr(sub_err)),
                                 conn->remote_address_list, forward_to);
@@ -638,8 +637,8 @@ void on_sent_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void
         free((void*)msg->data);
 
     } else {
-        printf("Unknown magic %x in call back, something is really wrong", ctx->magic);
-        abort();
+        FATAL("Unknown magic %x in call back, something is really wrong", ctx->magic);
+        _exit(1);
     }
 
     free_message_context(ctx);
@@ -704,7 +703,7 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
         ctx->magic = MAGIC_SYS_MESSAGE;
 
         if ((err = xl4bus_send_ll_message(conn, &x_msg, ctx, 0)) != E_XL4BUS_OK) {
-            printf("failed to send a message : %s\n", xl4bus_strerr(err));
+            MSG_OUT("failed to send a message : %s\n", xl4bus_strerr(err));
             xl4bus_shutdown_connection(conn);
         }
 

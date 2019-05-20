@@ -17,28 +17,9 @@ extern int debug;
 #define HOW_FATAL 2
 #define HOW_MSG 3
 
-#define LINE_ARGS(str, how, b...) "%s %s:%s:%d " how str "\n" , __now, \
-    __func__, chop_path(__FILE__), __LINE__, ## b
+void debug_out(char const * func, char const * file, int line, int how, char const * str, ...);
 
-#define LINE_OUT(how, str, args...) do { \
-    char __now[24]; \
-    struct tm __tmnow; \
-    struct timeval __tv; \
-    memset(__now, 0, 24); \
-    gettimeofday(&__tv, 0); \
-    localtime_r(&__tv.tv_sec, &__tmnow); \
-    strftime(__now, 20, "%m-%d_%H:%M:%S.", &__tmnow); \
-    sprintf(__now+15, "%03d", (int)(__tv.tv_usec/1000)); \
-    /* time func:file:line */ \
-    if (how == HOW_FATAL || how == HOW_ERR) { \
-        fprintf(stderr, LINE_ARGS(str, "ERR! ", ##args)); \
-        if (how == HOW_FATAL) { \
-            _exit(1); \
-        } \
-    } else { \
-        fprintf(stderr, LINE_ARGS(str, "", ##args)); \
-    } \
-} while(0)
+#define LINE_OUT(how, str, args...) debug_out(__func__, chop_path(__FILE__), __LINE__, how, str, ## args);
 
 #define LINE_OUT_SYS(how,a,b...) LINE_OUT(how, a " - %s (%d)", ##b, strerror(errno), errno)
 

@@ -40,7 +40,7 @@ void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
         msg = "(NULL MSG!)";
     }
 
-    printf("E900 %s (%s)->(%s) : %s\n", my_time, from_str, to_str, msg);
+    MSG_OUT("E900 %s (%s)->(%s) : %s\n", my_time, from_str, to_str, msg);
     fflush(stdout);
 
     if (alloc_msg) {
