@@ -72,4 +72,6 @@ static void v_debug_out(char const * func, char const * file, int line, int how,
     }
 #endif
 
+    free(final_fmt);
+
 }
