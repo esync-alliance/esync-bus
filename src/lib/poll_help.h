@@ -5,8 +5,6 @@
 #include <sys/resource.h>
 #endif
 
-#include "porting.h" // for pf_set_errno
-
 #include <poll.h>
 
 #if XL4_HAVE_EPOLL
@@ -17,7 +15,7 @@ static inline int epoll_create1(int flags) {
         // we currently never use non-zero flag
         // values, and if we did, they are not
         // implemented through here.
-        pf_set_errno(EINVAL);
+        errno = EINVAL;
         return -1;
     }
     return epoll_create(1);
