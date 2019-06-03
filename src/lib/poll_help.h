@@ -17,7 +17,7 @@ static inline int epoll_create1(int flags) {
         // we currently never use non-zero flag
         // values, and if we did, they are not
         // implemented through here.
-        pf_set_errno(EINVAL);
+        //pf_set_errno(EINVAL);  // yzm
         return -1;
     }
     return epoll_create(1);
