@@ -224,6 +224,7 @@ typedef struct message_internal {
     size_t key_idx;
     int in_hash;
     int in_list;
+    int expired_count;
 
     void * custom;
 

@@ -47,10 +47,12 @@ static void free_outgoing_message(xl4bus_ll_message_t *);
 static int receive_cert_details(xl4bus_client_t *, message_internal_t *, xl4bus_ll_message_t *, json_object *);
 static int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int app_thread, int sure);
 static int record_mint(xl4bus_client_t * clt, message_internal_t * mint, int is_add, int with_list, int with_hash);
+static void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add, int with_list, int with_hash);
 static void dispose_message(xl4bus_client_t *clt, message_internal_t *mint);
 static void release_remotes(message_internal_t * mint);
 static message_internal_t * ref_mint(message_internal_t *);
 static void unref_mint(message_internal_t *);
+static int is_expired(message_internal_t *);
 
 #if XL4_SUPPORT_THREADS
 static int handle_mt_message(struct xl4bus_connection *, void *, size_t);
@@ -731,21 +733,30 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     cjose_jwk_release(i_clt->private_key);
     i_clt->private_key = 0;
 
-    int missing_remote_count = 0;
-    message_internal_t ** missing_remote = 0;
+    int dismiss_count = 0;
+    message_internal_t ** to_dismiss = 0;
 
 #if XL4_SUPPORT_THREADS
     if (!pf_lock(&i_clt->hash_lock)) {
 #endif
 
+#define FOR_DISPOSAL(a, how) do { \
+    int err = E_XL4BUS_OK; \
+    BOLT_REALLOC(to_dismiss, message_internal_t*, dismiss_count + 1, dismiss_count); \
+    if (err == E_XL4BUS_OK) { \
+        DBG("mint %p marked for disposal: %s", mint, how); \
+        to_dismiss[dismiss_count-1] = ref_mint(a); \
+    } \
+} while(0)
+
         message_internal_t * mint;
         DL_FOREACH(i_clt->message_list, mint) {
             CHANGE_MIS(mint, MIS_VIRGIN, "connection drop");
-            if (mint->in_hash) {
-                HASH_DEL(i_clt->stream_hash, mint);
-                mint->in_hash = 0;
-                unref_mint(mint);
+            record_mint_nl(clt, mint, 0, 0, 1);
+            if (is_expired(mint)) {
+                FOR_DISPOSAL(mint, "expired");
             }
+            mint->expired_count++;
         }
 
         // we also need to dismiss any pending MIS_NEED_REMOTE
@@ -753,19 +764,7 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
         message_internal_t * aux;
         HASH_ITER(hh, i_clt->stream_hash, mint, aux) {
             if (mint->mis == MIS_NEED_REMOTE) {
-                missing_remote_count++;
-            }
-        }
-
-        if (missing_remote_count) {
-            missing_remote = cfg.malloc(sizeof(void*)*missing_remote_count);
-            if (missing_remote) {
-                int i = 0;
-                HASH_ITER(hh, i_clt->stream_hash, mint, aux) {
-                    if (mint->mis == MIS_NEED_REMOTE) {
-                        missing_remote[i++] = ref_mint(mint);
-                    }
-                }
+                FOR_DISPOSAL(mint, "opened remotely");
             }
         }
 
@@ -774,15 +773,19 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     pf_unlock(&i_clt->hash_lock);
 #endif
 
-    if (missing_remote) {
+    if (to_dismiss) {
 
-        for (int i=0; i < missing_remote_count; i++) {
-            message_internal_t * mint = missing_remote[i];
-            dispose_message(clt, mint);
+        for (int i=0; i < dismiss_count; i++) {
+            message_internal_t * mint = to_dismiss[i];
+            if (mint->mis == MIS_NEED_REMOTE) {
+                dispose_message(clt, mint);
+            } else {
+                release_message(clt, mint, E_XL4BUS_UNDELIVERABLE);
+            }
             unref_mint(mint);
         }
 
-        cfg.free(missing_remote);
+        cfg.free(to_dismiss);
 
     }
 
@@ -1623,6 +1626,16 @@ message_internal_t * ref_mint(message_internal_t * mint) {
 
 }
 
+int is_expired(message_internal_t * mint) {
+
+    // $TODO: the count here is rather arbitrary, and should
+    // be made as part of configuration or something like that.
+
+    return mint && mint->expired_count > 3;
+
+}
+
+
 void unref_mint(message_internal_t * mint) {
 
     if (!mint) { return; }
@@ -1949,6 +1962,42 @@ int receive_cert_details(xl4bus_client_t * clt, message_internal_t * mint, xl4bu
 
 }
 
+static void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add, int with_list, int with_hash) {
+
+    client_internal_t * i_clt = clt->_private;
+
+    if (is_add) {
+
+        if (with_hash && !mint->in_hash) {
+            HASH_ADD(hh, i_clt->stream_hash, stream_id, 2, mint);
+            mint->in_hash = 1;
+            ref_mint(mint);
+        }
+
+        if (with_list && !mint->in_list) {
+            DL_APPEND(i_clt->message_list, mint);
+            mint->in_list = 1;
+            ref_mint(mint);
+        }
+
+    } else {
+
+        if (with_hash && mint->in_hash) {
+            HASH_DEL(i_clt->stream_hash, mint);
+            mint->in_hash = 0;
+            unref_mint(mint);
+        }
+
+        if (with_list && mint->in_list) {
+            DL_DELETE(i_clt->message_list, mint);
+            mint->in_list = 0;
+            unref_mint(mint);
+        }
+
+    }
+
+}
+
 static int record_mint(xl4bus_client_t * clt, message_internal_t * mint, int is_add, int with_list, int with_hash) {
 
     client_internal_t * i_clt = clt->_private;
@@ -1966,35 +2015,7 @@ static int record_mint(xl4bus_client_t * clt, message_internal_t * mint, int is_
         locked = 1;
 #endif
 
-        if (is_add) {
-
-            if (with_hash && !mint->in_hash) {
-                HASH_ADD(hh, i_clt->stream_hash, stream_id, 2, mint);
-                mint->in_hash = 1;
-                ref_mint(mint);
-            }
-
-            if (with_list && !mint->in_list) {
-                DL_APPEND(i_clt->message_list, mint);
-                mint->in_list = 1;
-                ref_mint(mint);
-            }
-
-        } else {
-
-            if (with_hash && mint->in_hash) {
-                HASH_DEL(i_clt->stream_hash, mint);
-                mint->in_hash = 0;
-                unref_mint(mint);
-            }
-
-            if (with_list && mint->in_list) {
-                DL_DELETE(i_clt->message_list, mint);
-                mint->in_list = 0;
-                unref_mint(mint);
-            }
-
-        }
+        record_mint_nl(clt, mint, is_add, with_list, with_hash);
 
     } while (0);
 

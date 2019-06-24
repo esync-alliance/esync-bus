@@ -2,6 +2,7 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/android_src/c-ares" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/c-ares" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/c-ares-build" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cjose" vcs="Git" />
