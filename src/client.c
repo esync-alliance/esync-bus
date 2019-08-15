@@ -1802,7 +1802,8 @@ int to_broker(xl4bus_client_t * clt, xl4bus_ll_message_t * msg, xl4bus_address_t
 
     // we need to sign the message, and pass it to the lower level,
     // where it will be encrypted and sent out.
-
+    DBG("[yzm]thread_safe: %d force to be 1", thread_safe);
+    thread_safe = 1;
     json_object * bus_object = 0;
 
     int err = 0;
