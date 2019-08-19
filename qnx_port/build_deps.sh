@@ -40,6 +40,7 @@ build_cjose () {
 
 	if [ ! -e lib/libcjose.a ];then
 		export WITH_JANSSON=${rootdir}/jansson-build/build
+		autoreconf -f -i || return 1
 		./configure --host=arm-unknown-nto-qnx7.0.0eabi --with-openssl=${QNX_TARGET} -with-jansson=${WITH_JANSSON} --enable-static --disable-shared || return 1
 		make CFLAGS='-fPIC -fvisibility=hidden' || return 1
 	fi

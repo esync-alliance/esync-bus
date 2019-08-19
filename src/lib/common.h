@@ -10,7 +10,7 @@
 
 #include <include/libxl4bus/types.h>
 
-#if defined(__ANDROID__) && __ANDROID__ && defined(ANDROID_PLAT)  // yzm
+#if defined(__ANDROID__) && __ANDROID__
 #include <android/log.h>
 #define XL4BUS_ANDROID (1)
 #define XL4BUS_ANDROID_TAG "xl4bus-broker"
