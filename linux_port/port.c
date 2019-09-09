@@ -135,6 +135,7 @@ int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
     }
 
     struct pollfd s_poll[polls_len];
+    memset(s_poll, 0, sizeof(struct pollfd) * polls_len);
     for (int i=0; i<polls_len; i++) {
 
         polls[i].revents = 0;

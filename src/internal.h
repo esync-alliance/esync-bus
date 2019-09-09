@@ -21,6 +21,45 @@
 #include <mbedtls/asn1write.h>
 #include <mbedtls/version.h>
 
+#define STRINGIFY(s) #s
+#define TO_STRING(s) STRINGIFY(s)
+
+#if XL4_DEBUG_REFS
+#define MAKE_REF_FUNCTION(name) \
+    name ## _t * real_ref_ ## name(char const * file, int line, name ## _t * obj)
+#define MAKE_UNREF_FUNCTION(name) \
+    void real_unref_ ## name(char const * file, int line, name ## _t * obj)
+#define STD_REF_FUNCTION(name) \
+    if (!obj) { DBG("ref:" STRINGIFY(name) "[0]=0 %s:%d", chop_path(file), line); return 0; } \
+    int new = pf_add_and_get(&obj->ref_count, 1); \
+    DBG("ref:" STRINGIFY(name) "[%p]=%d %s:%d", obj, new, chop_path(file), line); \
+    return obj
+#define STD_UNREF_FUNCTION(name) \
+    if (!obj) { DBG("unref:" STRINGIFY(name) "[0]=0 %s:%d", chop_path(file), line); return; } \
+    int new_ref = pf_add_and_get(&obj->ref_count, -1); \
+    DBG("unref:" STRINGIFY(name) "[%p]=%d %s:%d", obj, new_ref, chop_path(file), line); \
+    if (new_ref) { return; } \
+    do{}while(0)
+
+#else
+#define MAKE_REF_FUNCTION(name) \
+    name ## _t * XI(ref_ ## name)(name ## _t * obj)
+#define MAKE_UNREF_FUNCTION(name) \
+    void XI(unref_ ## name)(name ## _t * obj)
+#define STD_REF_FUNCTION(nothing) \
+    if (!obj) { return 0; } \
+    pf_add_and_get(&obj->ref_count, 1); \
+    return obj
+#define STD_UNREF_FUNCTION(nothing) \
+    if (!obj) { return; } \
+    if (pf_add_and_get(&obj->ref_count, -1)) { return; } \
+    do{}while(0)
+#endif
+
+#define MAKE_REF_UNREF(name) \
+    MAKE_REF_FUNCTION(name); \
+    MAKE_UNREF_FUNCTION(name);
+
 // Ensure correct version of mbedtls is used.
 #if MBEDTLS_VERSION_NUMBER != 0x020c0000
 #error MbedTLS must be of version 2.9.0, I see MBEDTLS_VERSION_NUMBER
@@ -35,8 +74,9 @@
 #include "printf.h"
 #endif
 
+#define HASH_NONFATAL_OOM 1
 #define uthash_malloc(c) cfg.malloc(c)
-#define uthash_free(c,d) cfg.free(c)
+#define uthash_free(c,d) do { memset(c, 0, d); cfg.free(c); } while(0)
 #include "uthash.h"
 #include "utlist.h"
 
@@ -48,21 +88,15 @@
 #define FRAME_MSG_FIRST_MASK (1<<3)
 #define FRAME_MSG_FINAL_MASK (1<<4)
 
-#define CT_JOSE_COMPACT 0
-#define CT_JOSE_JSON    1
-#define CT_APPLICATION_JSON 2
-#define CT_TRUST_MESSAGE 3
 
 #define KU_FLAG_ENCRYPT (1<<0)
 #define KU_FLAG_SIGN (1<<1)
 
 #define MAGIC_INIT 0xb357b0cd
 
-typedef struct dbuf {
-    uint8_t * data;
-    size_t len;
-    size_t cap;
-} dbuf_t;
+// forward definitions
+
+struct remote_info;
 
 typedef struct chunk {
     uint8_t * data;
@@ -136,6 +170,11 @@ typedef struct connection_internal {
 
     cjose_jwk_t * private_key;
     cjose_jwk_t * remote_key;
+    cjose_jwk_t * session_key;
+    int session_key_use_ok;
+    uint64_t session_key_expiration;
+    cjose_jwk_t * old_session_key;
+    uint64_t old_session_key_expiration;
     json_object * x5c;
 
     int ku_flags;
@@ -189,19 +228,54 @@ typedef enum message_info_state {
     MIS_WAIT_DETAILS,
     MIS_WAIT_CONFIRM,
     /* for incoming messages */
-    MIS_NEED_REMOTE
+    MIS_NEED_REMOTE,
+    MIS_WAITING_KEY,
 } message_info_state_t;
+
+typedef struct remote_key {
+
+    UT_hash_handle hh;
+
+    struct remote_info * remote_info;
+
+    char const * from_kid;
+    cjose_jwk_t * from_key;
+    uint64_t from_key_expiration;
+
+    int ref_count;
+
+    rb_node_t rb_expiration;
+
+} remote_key_t;
 
 typedef struct remote_info {
 
     UT_hash_handle hh;
+
     // $TODO: we don't use crt after we processed incoming x5c, may
     // be we should dump it?
     mbedtls_x509_crt crt;
+
     char * x5t;
-    cjose_jwk_t * key;
-    // parsed xl4 bus addresses declared in the cert.
+
+    // public key of the remote
+    cjose_jwk_t * remote_public_key;
+
+    // parsed xl4 bus addresses declared in the cert from the remote
     xl4bus_address_t * addresses;
+
+    cjose_jwk_t * to_key;
+    char const * to_kid;
+    // if that time is reached, make a new key
+    uint64_t to_key_expiration;
+    // key can be returned unless time reaches this value
+    uint64_t to_key_use_expiration;
+
+    cjose_jwk_t * old_to_key;
+    char const * old_to_kid;
+    // key can be returned unless time reaches this value
+    uint64_t old_to_key_use_expiration;
+
     int ref_count;
 
 } remote_info_t;
@@ -224,7 +298,9 @@ typedef struct message_internal {
     size_t key_idx;
     int in_hash;
     int in_list;
+    int in_kid_list;
     int expired_count;
+    char * needs_kid;
 
     void * custom;
 
@@ -275,54 +351,104 @@ typedef struct client_internal {
 
 } client_internal_t;
 
-typedef struct validated_object {
+typedef struct decrypt_and_verify_data {
 
-    // these need to be cleaned up
-    cjose_jws_t * exp_jws;
+    void const * in_data;
+    size_t in_data_len;
+    uint8_t in_ct;
+
+    void const * out_data;
+    size_t out_data_len;
+    char const * out_ct;
+
+    cjose_jwk_t * asymmetric_key;
+    cjose_jwk_t * old_symmetric_key;
+    cjose_jwk_t * new_symmetric_key;
+
+    cjose_key_locator asymmetric_key_locator;
+    cjose_key_locator symmetric_key_locator;
+
+    void * symmetric_locator_data;
+    void * asymmetric_locator_data;
+
+    // if set, then the remote, when verifying, must present this tag,
+    // otherwise verification will fail.
+    char const * remote_x5t;
+
+    char const * my_x5t;
+    mbedtls_x509_crt * trust;
+    mbedtls_x509_crl * crl;
+    int ku_flags;
+
+    int was_encrypted;
+    int was_symmetric;
+    int was_new_symmetric;
+    int was_verified;
+
     json_object * bus_object;
-    json_object * x5c;
-    remote_info_t * remote_info;
-    char * content_type;
 
-    int data_copy;
+    remote_info_t * remote;
 
-    // these are internal, and are maintained by the ones above
-    uint8_t * data;
-    size_t data_len;
+    char * missing_x5t;
 
-} validated_object_t;
+    // items below need to be freed after result is processed, freeing this data
+    // will invalidate the result, but the result may not depend on this data either
+    void * x_data;
+    void * x_content_type;
+    cjose_jws_t * x_jws;
 
+    xl4bus_identity_t * full_id;
+
+} decrypt_and_verify_data_t;
 
 typedef int (*x509_lookup_t)(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
 
+#define cfg XI(cfg)
+#define hash_sha256 XI(hash_sha256)
+#define remote_key_expiration XI(remote_key_expiration)
+
 extern xl4bus_ll_cfg_t cfg;
 extern const mbedtls_md_info_t * hash_sha256;
+extern rb_node_t * remote_key_expiration;
 
 #if XL4_SUPPORT_THREADS
+#define cert_cache_lock XI(cert_cache_lock)
 extern void * cert_cache_lock;
 #endif
 
 /* net.c */
 #define check_conn_io XI(check_conn_io)
+#if XL4_DEBUG_REFS
+#define ref_stream(a) real_ref_stream(__FILE__, __LINE__, a)
+#define unref_stream(a) real_unref_stream(__FILE__, __LINE__, a)
+#else
 #define ref_stream XI(ref_stream)
 #define unref_stream XI(unref_stream)
+#endif
 #define release_stream XI(release_stream)
 
 int check_conn_io(xl4bus_connection_t*);
-stream_t * ref_stream(stream_t *);
-void unref_stream(stream_t *);
+
+MAKE_REF_UNREF(stream);
+
 void release_stream(xl4bus_connection_t *, stream_t *, xl4bus_stream_close_reason_t);
 
-/* signed.c */
-// $TODO: validate incoming JWS message
-#define validate_jws XI(validate_jws)
+/* jwx.c */
 #define sign_jws XI(sign_jws)
 #define encrypt_jwe XI(encrypt_jwe)
 #define decrypt_jwe XI(decrypt_jwe)
-int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t * conn, validated_object_t * vo, char ** missing_remote);
-int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void * data, size_t data_len, char const * ct, char ** jws_data, size_t * jws_len);
-int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
-int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * key, void ** decrypted, size_t * decrypted_len, char ** cty);
+#define decrypt_and_verify XI(decrypt_and_verify)
+#define clean_decrypt_and_verify XI(clean_decrypt_and_verify)
+#define pick_session_key XI(pick_session_key)
+
+int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object * bus_object, const void * data,
+        size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
+int encrypt_jwe(cjose_jwk_t *, const char * x5t, json_object * bus_object, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
+int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * a_key, cjose_jwk_t * s_key,
+        int * is_verified, void ** decrypted, size_t * decrypted_len, char ** cty);
+int decrypt_and_verify(decrypt_and_verify_data_t * dav);
+void clean_decrypt_and_verify(decrypt_and_verify_data_t * dav);
+cjose_jwk_t * pick_session_key(xl4bus_connection_t * conn);
 
 /* addr.c */
 
@@ -347,10 +473,13 @@ int build_address_list(json_object *, xl4bus_address_t **);
 #define make_chr_oid XI(make_chr_oid)
 #define z_strcmp XI(z_strcmp)
 #define make_private_key XI(make_private_key)
-#define pack_content_type XI(pack_content_type)
+#define deflate_content_type XI(deflate_content_type)
 #define inflate_content_type XI(inflate_content_type)
+#define get_numeric_content_type XI(get_numeric_content_type)
 #define asn1_to_json XI(asn1_to_json)
-#define clean_validated_object XI(clean_validated_object)
+#define str_content_type XI(str_content_type)
+#define free_s XI(free_s)
+#define zero_s XI(zero_s)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -358,30 +487,131 @@ void free_dbuf(dbuf_t **);
 void clear_dbuf(dbuf_t *);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
-void shutdown_connection_ts(xl4bus_connection_t *);
+void shutdown_connection_ts(xl4bus_connection_t *, char const * reason);
 int mpi2jwk(mbedtls_mpi *, uint8_t **, size_t *);
 void clean_keyspec(cjose_jwk_rsa_keyspec *);
 int get_oid(unsigned char ** p, unsigned char *, mbedtls_asn1_buf * oid);
 char * make_chr_oid(mbedtls_asn1_buf *);
 int z_strcmp(const char *, const char *);
 int make_private_key(xl4bus_identity_t *, mbedtls_pk_context *, cjose_jwk_t **);
-const char * pack_content_type(const char *);
-int asn1_to_json(xl4bus_asn1_t *, json_object **);
+const char * deflate_content_type(const char *);
 char * inflate_content_type(char const *);
-void clean_validated_object(validated_object_t * );
+int get_numeric_content_type(char const *, uint8_t *);
+int asn1_to_json(xl4bus_asn1_t *, json_object **);
+char const * str_content_type(int ct);
+void free_s(void*, size_t);
+void zero_s(void*, size_t);
+
+/**
+ * Helper method to create json object from a set of properties.
+ * The variable parameters that follow the first argument are treated as
+ * property type, including instruction on how to add the property, followed by property name,
+ * and optionally followed by property value. The very last, single,
+ * parameter value must be `(void*)0`. Property names are literals. Property types are literals
+ * carrying special meaning described below:
+ *
+ * ['@'] <type char>
+ *
+ * The following property types are recognized:
+ *
+ * J - json_object *, the parameter must be a pointer to a json object. The
+ *     reference count for the JSON object is not modified, however the object
+ *     is attached to the structure of the returned object, which effectively
+ *     moves one reference count from the invoking code to the returned object.
+ *     if you need to keep the reference to the json object, call `json_object_get`
+ *     on the argument.
+ * M - json_object *, works almost the same way as with 'J', but, if the actual object
+ *     pointer encountered in the corresponding position is 0, treats this as a memory
+ *     allocation failure, causing the function to return 0. This is useful to have
+ *     chained make_json_obj() calls, without explicitly doing memory checks. Can't be used with '@' prefix.
+ * N - null, no value
+ * B - boolean, argument is type int
+ * D - number, argument is type double
+ * I - number, argument is int
+ * 6 - number, argument is int64_t
+ * S - string, argument is char*
+ * X - string, argument is char*, but the string is freed after use
+ *
+ * Lowercase letters can be used as well.
+ *
+ * A special prefix '@' can be used, in which case if the value
+ * could not be created (null), then no property is added.
+ *
+ * Examples:
+ * `make_json_obj(0, "B", "clean", 1, "S", "code", "x12", 0)` -> creates
+ * new object `{"clean":true, "code":"x12"}`
+ *
+ * @param obj If `0`, then a new JSON object will be created, otherwise properties
+ * will be added to the specified JSON object. If memory problems are detected, and the
+ * existing object is provided, `0` will be returned from this function, and reference
+ * count on the existing object will be dropped to avoid memory leaks in cases like:
+ * `obj = make_json_obj(obj, ...)`. If you don't want the object to be released, call
+ * `json_object_get()` on the first parameter, but then call `json_object_put` on the returned
+ * object. This generally will work:
+ * `json_object_put(obj = make_json_obj(obj, ...)`. If `0` were returned then `json_object_put` is a no-op, but
+ * you will need to keep the reference to that object elsewhere, otherwise the memory will leak.
+ * @param ... sequence of parameters identifying JSON object properties to add,
+ * terminated with `0`.
+ * @return populated object or `0` if there were memory issues creating any of the objects.
+ */
+json_object * xl4json_make_obj(json_object * obj, ...);
+
+/**
+ * This is analogous to ::make_json_obj, but uses `va_list` arguments instead
+ * of variadic arguments.
+ * @param obj json object to pass to ::make_json_obj
+ * @param ap2 represents variadic arguments
+ * @return populated object or `0` if there were problems creating any of the objects.
+ */
+json_object * xl4json_make_obj_v(json_object *obj, va_list ap2);
 
 /* x509.c */
 
 #define find_by_x5t XI(find_by_x5t)
+#define find_by_kid XI(find_by_kid)
 #define accept_x5c XI(accept_x5c)
-#define make_cert_hash XI(make_cert_hash)
-#define release_remote_info XI(release_remote_info)
+#define accept_remote_x5c XI(accept_remote_x5c)
 
-int make_cert_hash(void *, size_t, char **);
+#if !XL4_DEBUG_REFS
+#define unref_remote_info XI(unref_remote_info)
+#define unref_remote_key XI(unref_remote_key)
+#define ref_remote_info XI(ref_remote_info)
+#define ref_remote_key XI(ref_remote_key)
+#else
+#define unref_remote_info(a) real_unref_remote_info(__FILE__, __LINE__, a)
+#define unref_remote_key(a) real_unref_remote_key(__FILE__, __LINE__, a)
+#define ref_remote_info(a) real_ref_remote_info(__FILE__, __LINE__, a)
+#define ref_remote_key(a) real_ref_remote_key(__FILE__, __LINE__, a)
+#endif
+
+#define release_remote_key_nl XI(release_remote_key)
+#define process_remote_key XI(process_remote_key)
+#define base64url_hash XI(base64url_hash)
+#define update_remote_symmetric_key XI(update_remote_symmetric_key)
+
 // finds the cjose key object for the specified tag.
 remote_info_t * find_by_x5t(const char * x5t);
-void release_remote_info(remote_info_t *);
-int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t **);
+remote_key_t * find_by_kid(const char * kid);
+void release_remote_key_nl(remote_key_t *);
+
+MAKE_REF_UNREF(remote_key)
+MAKE_REF_UNREF(remote_info)
+
+int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, int * ku_flags, remote_info_t **);
+int accept_remote_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t **);
+int process_remote_key(json_object*, char const * local_x5t, remote_info_t * source, char const ** kid);
+int update_remote_symmetric_key(char const * local_x5t, remote_info_t * remote);
+
+/**
+ * Hash the specified data (SHA-256), and convert the result into base64url value.
+ * Convenience method.
+ * @param data data to hash
+ * @param data_len length of data to hash
+ * @param hash if `!0`, then the raw hash is stored in the specified buffer.
+ * @param to where the result is stored
+ * @return E_XL4BUS_ error code.
+ */
+int base64url_hash(void * data, size_t data_len, char ** to, dbuf_t * hash);
 
 /* timeout.h */
 

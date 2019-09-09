@@ -2,7 +2,7 @@
 #include "broker.h"
 #include "lib/debug.h"
 #include "lib/common.h"
-#include "hash_list.h"
+#include "lib/hash_list.h"
 
 void gather_destinations(json_object * array, json_object ** x5t, UT_array * conns) {
 
@@ -68,8 +68,14 @@ void gather_destination(xl4bus_address_t * addr, str_t ** x5t, UT_array * conns)
         hash_tree_do_rec(ci_ua_tree, 0, 0, addr->update_agent, XL4_MAX_UA_PATHS, 0, send_list);
         clear_send_list = 1;
     } else if (addr->type == XL4BAT_GROUP) {
-        conn_info_hash_list_t * val;
+        hash_list_t * val;
         HASH_FIND(hh, ci_by_group, addr->group, strlen(addr->group)+1, val);
+        if (val) {
+            send_list = &val->items;
+        }
+    } else if (addr->type == XL4BAT_X5T_S256) {
+        hash_list_t * val;
+        HASH_FIND(hh, ci_by_x5t, addr->x5ts256, strlen(addr->x5ts256)+1, val);
         if (val) {
             send_list = &val->items;
         }

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include <include/libxl4bus/types.h>
 
@@ -75,7 +76,7 @@ static inline char * inflate_content_type(char const * ct) {
 
 }
 
-static const char * pack_content_type(const char * ct) {
+static const char * deflate_content_type(const char * ct) {
 
     // this is for https://tools.ietf.org/html/rfc7515#section-4.1.10,
     // application/ can be omitted if there are no other slashes.
@@ -131,6 +132,19 @@ static inline void my_str_time(char * ptr) {
     ptr[16] = (char) (((millis / 10) % 10) + '0');
     ptr[17] = (char) (millis % 10 + '0');
     ptr[18] = 0;
+
+}
+
+static inline void free_s(void * ptr, size_t s) {
+
+    // $TODO: I don't understand why memset_s is not available,
+    // <string.h> is included, and language is set to c11...
+    // memset_s(ptr, s, 0, s);
+
+    volatile unsigned char *p = ptr;
+    while (s--) { *p++ = 0; }
+
+    free(ptr);
 
 }
 

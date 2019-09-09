@@ -25,7 +25,8 @@ static void signal_f(int);
 
 int debug = 0;
 UT_array dm_clients;
-conn_info_hash_list_t * ci_by_group = 0;
+hash_list_t * ci_by_group = 0;
+hash_list_t * ci_by_x5t = 0;
 conn_info_t * connections;
 int poll_fd;
 xl4bus_identity_t broker_identity;
@@ -407,6 +408,7 @@ int main(int argc, char ** argv) {
                         json_object_array_add(aux, json_object_new_string("RSA-OAEP"));
                         json_object_object_add(body, "encryption-alg", aux = json_object_new_array());
                         json_object_array_add(aux, json_object_new_string("A128CBC-HS256"));
+                        json_object_object_add(body, "protocol-version", json_object_new_int(2));
 
                         uint16_t stream_id;
                         err = xl4bus_get_next_outgoing_stream(ci->conn, &stream_id) ||

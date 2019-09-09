@@ -3,6 +3,7 @@
 #include "porting.h"
 #include "misc.h"
 #include "debug.h"
+#include "basics.h"
 
 static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes);
 static void set_frame_size(void *, uint32_t);
@@ -10,22 +11,18 @@ static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc);
 static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t len, int stream_id);
 static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg);
 static int process_normal_frame(xl4bus_connection_t * conn);
-static int process_ctest_frame(xl4bus_connection_t * conn);
-static int process_sabort_frame(xl4bus_connection_t * conn);
+static int process_test_frame(xl4bus_connection_t * conn);
+static int process_abort_frame(xl4bus_connection_t * conn);
+static void init_dav(xl4bus_connection_t * conn, decrypt_and_verify_data_t * dav);
 
-stream_t * ref_stream(stream_t * stream) {
-    if (stream) {
-        pf_add_and_get(&stream->ref_count, 1);
-    }
-    return stream;
+MAKE_REF_FUNCTION(stream) {
+    STD_REF_FUNCTION(stream);
 }
 
-void unref_stream(stream_t * stream) {
-    if (stream) {
-        if (pf_add_and_get(&stream->ref_count, -1)) { return; }
-        clear_dbuf(&stream->incoming_message_data);
-        free(stream);
-    }
+MAKE_UNREF_FUNCTION(stream) {
+    STD_UNREF_FUNCTION(stream);
+    clear_dbuf(&obj->incoming_message_data);
+    free(obj);
 }
 
 void release_stream(xl4bus_connection_t * conn, stream_t * stream, xl4bus_stream_close_reason_t scr) {
@@ -44,15 +41,11 @@ void release_stream(xl4bus_connection_t * conn, stream_t * stream, xl4bus_stream
         conn->on_stream_closure(conn, stream->stream_id, scr);
     }
 
-#if XL4_SUPPORT_THREADS
-    if (!pf_lock(&i_conn->hash_lock)) {
-#endif
+    if (!LOCK(i_conn->hash_lock)) {
         HASH_DEL(i_conn->streams, stream);
         conn->stream_count--;
-#if XL4_SUPPORT_THREADS
-        pf_unlock(&i_conn->hash_lock);
+        UNLOCK(i_conn->hash_lock);
     }
-#endif
 
     remove_stream_timeout(conn, stream);
 
@@ -150,7 +143,7 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
 
                 if (cfg.debug_f) {
                     int count = 0;
-                    chunk_t * aux;
+                    chunk_t * aux = 0;
                     DL_COUNT(top, aux, count);
                     DBG("sent %d bytes for stream %05x %d items in outgoing queue", top->len, top->stream_id, count);
                 }
@@ -261,11 +254,11 @@ do {} while(0)
                         break;
 
                     case FRAME_TYPE_CTEST:
-                        BOLT_SUB(process_ctest_frame(conn));
+                        BOLT_SUB(process_test_frame(conn));
                         break;
 
                     case FRAME_TYPE_SABORT:
-                        BOLT_SUB(process_sabort_frame(conn));
+                        BOLT_SUB(process_abort_frame(conn));
                         break;
 
                     default:
@@ -298,7 +291,7 @@ do {} while(0)
 #pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
-        shutdown_connection_ts(conn);
+        shutdown_connection_ts(conn, "failed to process incoming data");
     }
 
 #if XL4_SUPPORT_THREADS
@@ -404,7 +397,10 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         BOLT_SYS(pf_send(conn->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     if (is_mt && (err != E_XL4BUS_OK)) {
         if (conn->on_sent_message) {
@@ -463,26 +459,34 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 
         size_t signed_data_len;
 
-        BOLT_SUB(sign_jws(conn, bus_object, "", 1,
-                "text/plain", (char**)&signed_data, &signed_data_len));
+        cjose_jwk_t * key = pick_session_key(conn);
+        if (!key) {
+            key = i_conn->private_key;
+        }
+
+        // $TODO: we should create the full frame memory block here, instead of copying
+        // the data below.
+        BOLT_SUB(sign_jws(key, conn->my_x5t, i_conn->x5c, bus_object, "", 1,
+                FCT_TEXT_PLAIN, 0, 0, (char**)&signed_data, &signed_data_len));
 
         BOLT_MALLOC(frame, 4 + signed_data_len + 5);
         set_frame_size(frame, (uint32_t)(signed_data_len + 5)); // without the minimal header
         *frame = FRAME_TYPE_SABORT | FRAME_LAST_MASK;
 
-#if XL4_DISABLE_JWS
-        frame[4] = CT_TRUST_MESSAGE;
-#else
         frame[4] = CT_JOSE_COMPACT;
-#endif
+
         memcpy(frame + 5, signed_data, signed_data_len);
+
         calculate_frame_crc(frame, (uint32_t)(4 + signed_data_len + 5)); // size with crc
 
         if ((err = post_frame(i_conn, frame, 4 + signed_data_len + 5, -1)) == E_XL4BUS_OK) {
             frame = 0; // consumed
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     cfg.free(signed_data);
     json_object_put(bus_object);
@@ -498,13 +502,13 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg) {
 
     uint8_t * frame = 0;
-    int err = E_XL4BUS_OK;
-    json_object * x5c = 0;
+    int err /*= E_XL4BUS_OK*/;
     char * base64 = 0;
     uint8_t * signed_buf = 0;
     json_object * bus_object = 0;
     connection_internal_t * i_conn = conn->_private;
     stream_t * stream = 0;
+    char * interim;
 
     do {
 
@@ -522,9 +526,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
             ref_stream(stream);
             stream->stream_id = msg->stream_id;
 
-#if XL4_SUPPORT_THREADS
-            BOLT_SYS(pf_lock(&i_conn->hash_lock), "");
-#endif
+            BOLT_SYS(LOCK(i_conn->hash_lock), "");
+
             // $TODO: HASH mem check!
             HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
             ref_stream(stream);
@@ -532,9 +535,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
             // printf("UUU Stream %p-%04x created\n", conn->_private, stream->stream_id);
 
-#if XL4_SUPPORT_THREADS
-            pf_unlock(&i_conn->hash_lock);
-#endif
+            UNLOCK(i_conn->hash_lock);
 
         } else {
 
@@ -542,48 +543,88 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
-#if !XL4_DISABLE_ENCRYPTION
+        cjose_jwk_t * session_key = 0;
 
-        // encrypt if we can
-        if (i_conn->remote_key) {
+        int use_session_key = msg->uses_session_key;
 
-            BOLT_SUB(encrypt_jwe(i_conn->remote_key, conn->remote_x5t, msg->data, msg->data_len,
-                    msg->content_type, 13, 9, (char**)&frame, &ser_len));
+        if (use_session_key && !(session_key = pick_session_key(conn))) {
+            use_session_key = 0;
+        }
+
+        int do_encrypt = msg->uses_encryption && ((!use_session_key && i_conn->remote_key) || use_session_key);
+
+        // we need to sign if signing was requested, but not if we are encrypting with session key (signing is part
+        // of the encryption then).
+        int do_sign = msg->uses_validation && !(do_encrypt && use_session_key);
+
+        cjose_jwk_t * encryption_key;
+        cjose_jwk_t * signing_key;
+
+        json_object * x5c;
+        char const * x5t;
+        char const * remote_x5t;
+
+        if (use_session_key) {
+            encryption_key = session_key;
+            signing_key = session_key;
+            x5c = 0;
+            x5t = 0;
+            remote_x5t = 0;
+        } else {
+            encryption_key = i_conn->remote_key;
+            signing_key = i_conn->private_key;
+            x5c = i_conn->x5c;
+            x5t = conn->my_x5t;
+            remote_x5t = conn->remote_x5t;
+        }
+
+        if (do_encrypt || do_sign) {
+
+            if (msg->bus_data) {
+                bus_object = json_tokener_parse(msg->bus_data);
+            } else {
+                bus_object = json_object_new_object();
+            }
+
+        }
+
+        if (do_encrypt) {
+
+            if (do_sign) {
+
+                size_t interim_len;
+
+                DBG("Signing, then encrypting message");
+
+                BOLT_SUB(sign_jws(signing_key, x5t, x5c, bus_object, msg->data, msg->data_len, msg->content_type, 0, 0, &interim, &interim_len));
+                BOLT_SUB(encrypt_jwe(encryption_key, remote_x5t, 0, interim, interim_len, deflate_content_type(FCT_JOSE_COMPACT), 13, 9, (char**)&frame, &ser_len));
+
+            } else {
+
+                DBG("Only encrypting message, session key:%s", BOOL_STR(use_session_key));
+                BOLT_SUB(encrypt_jwe(encryption_key, remote_x5t, bus_object, msg->data, msg->data_len, msg->content_type, 13, 9, (char**)&frame, &ser_len));
+
+            }
+
             ct = CT_JOSE_COMPACT;
 
-            DBG("Message encrypted with remote key");
+        } else if (do_sign) {
+
+            DBG("Only signing message, session key:%s", BOOL_STR(use_session_key));
+
+            BOLT_SUB(sign_jws(signing_key, x5t, x5c, bus_object, msg->data, msg->data_len, msg->content_type, 13, 9, (char**)&frame, &ser_len));
+
+            ct = CT_JOSE_COMPACT;
 
         } else {
 
-#else
-
-        // clear out x5c if encryption is disabled, it will never
-        // otherwise be cleared, and we'll be doing expensive validation
-        json_object_put(i_conn->x5c);
-        i_conn->x5c = 0;
-
-#endif /* !XL4_DISABLE_ENCRYPTION */
-
-            DBG("Not encrypting message, remote public key not set");
-
-            if (!z_strcmp(msg->content_type, "application/jose")) {
-                ct = CT_JOSE_COMPACT;
-            } else if (!z_strcmp(msg->content_type, "application/jose+json")) {
-                ct = CT_JOSE_JSON;
-            } else if (!z_strcmp(msg->content_type, "application/json")) {
-                ct = CT_APPLICATION_JSON;
-            } else if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage-trust+json")) {
-                ct = CT_TRUST_MESSAGE;
-            } else {
-                BOLT_SAY(E_XL4BUS_ARG, "Unsupported content type %s", msg->content_type);
-            }
+            DBG("Message is being passed through");
+            BOLT_SUB(get_numeric_content_type(msg->content_type, &ct));
 
             BOLT_MALLOC(frame, msg->data_len + 13);
             memcpy(frame + 9, msg->data, ser_len = msg->data_len);
 
-#if !XL4_DISABLE_ENCRYPTION
         }
-#endif
 
         // $TODO: support large messages!
         BOLT_IF(ser_len > 65000, E_XL4BUS_ARG, "Frame size too large: %d", ser_len);
@@ -611,11 +652,13 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
             release_stream(conn, stream, XL4SCR_LOCAL_CLOSED);
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     cfg.free(frame);
     cfg.free(base64);
-    json_object_put(x5c);
     cfg.free(signed_buf);
 
     unref_stream(stream);
@@ -632,7 +675,6 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
     if (err == E_XL4BUS_OK) {
 
-
         err = check_conn_io(conn);
 
         if (err != E_XL4BUS_OK) {
@@ -642,7 +684,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
         }
     }
 
-    return err;
+    // always return OK from here, because error is delivered through on_sent_message()
+    return E_XL4BUS_OK;
 
 }
 
@@ -689,9 +732,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
             stream->stream_id = stream_id;
 
-#if XL4_SUPPORT_THREADS
-            BOLT_SYS(pf_lock(&i_conn->hash_lock), "");
-#endif
+            BOLT_SYS(LOCK(i_conn->hash_lock), "");
 
             // printf("UUU Stream %p-%04x created\n", conn->_private, stream->stream_id);
 
@@ -700,9 +741,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
             ref_stream(stream);
             conn->stream_count++;
 
-#if XL4_SUPPORT_THREADS
-            pf_unlock(&i_conn->hash_lock);
-#endif
+            UNLOCK(i_conn->hash_lock);
 
         } else {
 
@@ -745,75 +784,39 @@ int process_normal_frame(xl4bus_connection_t * conn) {
         // Is the message now complete?
         if (frm.byte0 & FRAME_LAST_MASK) {
 
-            cjose_jws_t *jws = 0;
-
-            char *decrypted_ct = 0;
-            void *decrypted_data = 0;
-            json_object *bus_object = 0;
+            decrypt_and_verify_data_t dav = {0};
 
             do {
 
                 // the message is completed! Let's purge it.
-                xl4bus_ll_message_t message;
-                memset(&message, 0, sizeof(xl4bus_ll_message_t));
+                xl4bus_ll_message_t message = {0};
 
-                // the message can be encrypted with our private key, or not.
-                // let's try to treat it as encrypted message first.
+                init_dav(conn, &dav);
 
-                int decrypt_err = decrypt_jwe(stream->incoming_message_data.data,
-                        stream->incoming_message_data.len, stream->incoming_message_ct,
-                        conn->my_x5t, i_conn->private_key,
-                        &decrypted_data, &message.data_len, &decrypted_ct);
+                dav.in_data = stream->incoming_message_data.data;
+                dav.in_data_len = stream->incoming_message_data.len;
+                dav.in_ct = stream->incoming_message_ct;
 
-                if (!decrypt_err) {
+                BOLT_SUB(decrypt_and_verify(&dav));
 
-                    // decrypted OK
+                message.data = dav.out_data;
+                message.data_len = dav.out_data_len;
+                message.content_type = dav.out_ct;
 
-                    if (decrypted_ct) {
-                        message.content_type = decrypted_ct;
-                    } else {
-                        message.content_type = decrypted_ct =
-                                f_strdup("application/octet-stream");
-                    }
-
-                    message.data = decrypted_data;
-                    message.was_encrypted = 1;
-
-                    // we were able to decrypt our data, which means that the remote
-                    // has learned our public key, so we can drop sending it in full.
-                    json_object_put(i_conn->x5c);
-                    i_conn->x5c = 0;
-
-                } else {
-
-                    message.data = stream->incoming_message_data.data;
-                    message.data_len = stream->incoming_message_data.len;
-                    message.was_encrypted = 0;
-                    const char *ct = 0;
-                    switch (stream->incoming_message_ct) {
-                        case CT_JOSE_COMPACT:
-                            ct = "application/jose";
-                            break;
-                        case CT_JOSE_JSON:
-                            ct = "application/jose+json";
-                            break;
-                        case CT_APPLICATION_JSON:
-                            ct = "application/json";
-                            break;
-                        case CT_TRUST_MESSAGE:
-                            ct = "application/vnd.xl4.busmessage-trust+json";
-                            break;
-                        default:
-                            ct = "application/octet-stream";
-                            break;
-                    }
-                    message.content_type = decrypted_ct = f_strdup(ct);
-
-                }
+                message.uses_encryption = dav.was_encrypted;
+                message.uses_validation = dav.was_verified;
+                message.uses_session_key = dav.was_symmetric;
 
                 message.stream_id = stream_id;
                 message.is_reply = stream->is_reply;
                 message.is_final = stream->is_final;
+
+                message.remote_identity = dav.full_id;
+                message.bus_data = json_object_get_string(dav.bus_object);
+
+                if (dav.was_new_symmetric) {
+                    i_conn->session_key_use_ok = 1;
+                }
 
                 BOLT_SUB(conn->on_message(conn, &message));
 
@@ -828,11 +831,8 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
             clear_dbuf(&stream->incoming_message_data);
             stream->message_started = 0;
-            cjose_jws_release(jws);
-            cfg.free(decrypted_data);
-            cfg.free(decrypted_ct);
 
-            json_object_put(bus_object);
+            clean_decrypt_and_verify(&dav);
 
             if (stream->is_final) {
                 release_stream(conn, stream, XL4SCR_REMOTE_CLOSED);
@@ -840,7 +840,10 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     unref_stream(stream);
 
@@ -849,7 +852,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
 }
 
-int process_ctest_frame(xl4bus_connection_t * conn) {
+int process_test_frame(xl4bus_connection_t * conn) {
 
     int err = E_XL4BUS_OK;
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
@@ -871,56 +874,80 @@ int process_ctest_frame(xl4bus_connection_t * conn) {
             err = send_connectivity_test(conn, 1, frm.data.data);
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     return err;
 }
 
-int process_sabort_frame(xl4bus_connection_t * conn) {
+int process_abort_frame(xl4bus_connection_t * conn) {
 
     // $TODO: this doesn't work well yet. Because the encryption is turned off,
     // the key discovery doesn't happen properly, we aren't always going to have
     // the key of the remote, and be able to validate them. Once encryption used
     // all the time, this will work as well.
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK*/;
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+    decrypt_and_verify_data_t dav = {0};
 
     do {
         // must at least be 1 byte that indicates the content type.
         BOLT_IF(!frm.data.len, E_XL4BUS_DATA, "Abort frame must not be empty");
 
         uint16_t stream_id;
-        validated_object_t vo;
-        if (validate_jws(frm.data.data + 1, frm.data.len - 1, (int) frm.data.data[0],
-                conn, &vo, 0) == E_XL4BUS_OK) {
 
-            json_object * bus_object = vo.bus_object;
-            json_object *j;
-            if (bus_object && json_object_object_get_ex(bus_object, "stream-id", &j) &&
-                json_object_is_type(j, json_type_int)) {
+        dav.in_data = frm.data.data + 1;
+        dav.in_data_len = frm.data.len - 1;
+        dav.in_ct = frm.data.data[0];
 
-                int val = json_object_get_int(j);
-                if (!(val & 0xffff)) {
+        init_dav(conn, &dav);
 
-                    stream_id = (uint16_t) val;
+        BOLT_SUB(decrypt_and_verify(&dav));
+        BOLT_IF(!dav.was_verified, E_XL4BUS_DATA, "abort payload could not be verified");
 
-                    stream_t *stream;
-                    HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
-                    release_stream(conn, stream, XL4SCR_REMOTE_ABORTED);
+        int64_t in_stream_id;
+        BOLT_SUB(xl4json_get_pointer(dav.bus_object, "/stream-id", json_type_int, &in_stream_id));
+        if (!(in_stream_id & 0xffff)) {
 
-                }
-            }
+            stream_id = (uint16_t) in_stream_id;
 
-            clean_validated_object(&vo);
+            stream_t *stream = 0;
+            HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+            release_stream(conn, stream, XL4SCR_REMOTE_ABORTED);
 
         }
 
-
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
+
+    clean_decrypt_and_verify(&dav);
 
     return err;
 
 }
 
 #undef frm
+
+void init_dav(xl4bus_connection_t * conn, decrypt_and_verify_data_t * dav) {
+
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    dav->asymmetric_key = i_conn->private_key;
+    if (i_conn->session_key && i_conn->session_key_expiration > pf_ms_value()) {
+        dav->new_symmetric_key = i_conn->session_key;
+    }
+    if (i_conn->old_session_key && i_conn->old_session_key_expiration > pf_ms_value()) {
+        dav->old_symmetric_key = i_conn->session_key;
+    }
+
+    dav->remote_x5t = conn->remote_x5t;
+    dav->my_x5t = conn->my_x5t;
+    dav->trust = &i_conn->trust;
+    dav->crl = &i_conn->crl;
+
+}

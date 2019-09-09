@@ -9,6 +9,19 @@ extern uint32_t crcTable[];
 
 #define NULL_STR(a) ((a)?(a):"(null)")
 
+#define Z_FREE(a) do { cfg.free(a); a = 0; } while (0)
+#define Z(op, p) do { op(p); p = 0; } while (0)
+
+static inline int always_ok(void) { return E_XL4BUS_OK; }
+
+#if XL4_SUPPORT_THREADS
+#define LOCK(a) pf_lock(&a)
+#define UNLOCK(a) pf_unlock(&a)
+#else
+#define LOCK(a) always_ok()
+#define UNLOCK(a) do{}while(0)
+#endif
+
 // Credit : https://barrgroup.com/Embedded-Systems/How-To/CRC-Calculation-C-Code
 static inline void crcFast(void * data, size_t len, uint32_t * crc) {
 
@@ -81,9 +94,16 @@ static inline int timeval_to_millis(struct timeval * tv) {
     return  (int) (tv->tv_sec * 1000 + tv->tv_usec / 1000);
 }
 
-static inline int max_int(int a1, int a2) {
-    return a1 > a2 ? a1 : a2;
-}
+#define MAX_FUN(type) \
+    static inline type max_ ##type (type a1, type a2) { \
+        return a1 > a2 ? a1 : a2; \
+    } \
+    static inline type min_ ##type (type a1, type a2) { \
+        return a1 < a2 ? a1 : a2; \
+    }
+
+MAX_FUN(int)
+MAX_FUN(size_t)
 
 static inline void secure_bzero(void * addr, size_t len) {
     for (size_t i = 0; i<len; i++) {

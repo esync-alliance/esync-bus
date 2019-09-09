@@ -27,11 +27,11 @@ static void reconnect(xl4bus_client_t * clt) {
 
 static void help(void);
 
-void *make_jmsg(const char *say, size_t size) {
+void *make_j_msg(const char *say, size_t size) {
     const char *fmt = "{\"say\":\"%s\",\"pad\":\".\"}";
-    size_t minlen = strlen(say) + strlen(fmt) - 2 + 1;
-    if (size < minlen) {
-        size = minlen;
+    size_t min_len = strlen(say) + strlen(fmt) - 2 + 1;
+    if (size < min_len) {
+        size = min_len;
     }
     char *msg = malloc(size);
     int n = snprintf(msg, size, fmt, say) + 1;
@@ -51,7 +51,7 @@ int main(int argc, char ** argv) {
 
     signal(SIGINT, signal_f);
 
-    while ((c = getopt(argc, argv, "c:dfm:s:xh")) != -1) {
+    while ((c = getopt(argc, argv, "Cc:dfm:s:xh")) != -1) {
 
         switch (c) {
 
@@ -124,25 +124,28 @@ int main(int argc, char ** argv) {
         xl4bus_copy_address(&addr, 1, &msg->address);
         msg->content_type = "application/json";
 
-        void *msgdat = NULL;
+        void *msg_data = NULL;
         if (g_msg_size) {
-            msgdat = make_jmsg("hello", (size_t)g_msg_size);
-            msg->data = msgdat;
+            msg_data = make_j_msg("hello", (size_t) g_msg_size);
+            msg->data = msg_data;
         } else {
             msg->data = "{\"say\":\"hello\"}";
         }
 
         msg->data_len = strlen(msg->data) + 1;
 
-        if (xl4bus_send_message(&clt, msg, msgdat)) {
-            handle_delivered(&clt, msg, msgdat, 0);     // if send message failed cleanup here
+        if (xl4bus_send_message(&clt, msg, msg_data)) {
+            handle_delivered(&clt, msg, msg_data, 0);     // if send message failed cleanup here
         }
-    };
+    }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-noreturn"
     while (1) {
         sleep(60);
     }
-    free(cert_dir);
+#pragma clang diagnostic pop
+    // free(cert_dir);
 }
 
 void conn_info(struct xl4bus_client * clt, xl4bus_client_condition_t cond) {
@@ -167,7 +170,10 @@ void help() {
 
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
 static void msg_info(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok) {
+#pragma clang diagnostic pop
 
     // we don't have to do any clean up.
     printf("Message %p delivered %s\n", msg, ok?"OK":"NOT OK");
@@ -194,23 +200,23 @@ void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
         src = f_strdup("no source!");
     }
 
-    static struct timespec lasttime;
+    static struct timespec last_time;
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    struct timespec diff = ts_diff(now,lasttime);
+    struct timespec diff = ts_diff(now,last_time);
     double ms=(diff.tv_sec*1e6+diff.tv_nsec/1000)/1000;
-    lasttime=now;
+    last_time=now;
 
-    char rmsgdat[40];
+    char raw_msg_data[40];
     size_t len = msg->data_len;
-    if (len > sizeof(rmsgdat) - 5) {
-        len = sizeof(rmsgdat) - 5;
-        memcpy(rmsgdat, msg->data, len);
-        strcpy(rmsgdat + len, "...\n");
+    if (len > sizeof(raw_msg_data) - 5) {
+        len = sizeof(raw_msg_data) - 5;
+        memcpy(raw_msg_data, msg->data, len);
+        strcpy(raw_msg_data + len, "...\n");
     } else {
-        snprintf(rmsgdat, sizeof(rmsgdat), "%s\n", (const char *) msg->data);
+        snprintf(raw_msg_data, sizeof(raw_msg_data), "%s\n", (const char *) msg->data);
     }
-    printf("%.03fmS:  From %s %s(%ld) %s", ms, src, msg->content_type, msg->data_len, rmsgdat);
+    printf("%.03fmS:  From %s %s(%ld) %s", ms, src, msg->content_type, msg->data_len, raw_msg_data);
 
     free(src);
 
@@ -221,22 +227,25 @@ void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
     xl4bus_message_t *r_msg = f_malloc(sizeof(xl4bus_message_t));
     xl4bus_copy_address(msg->source_address, 1, &r_msg->address);
     r_msg->content_type = "application/json";
-    void *msgdat = NULL;
+    void *msg_data = NULL;
     if (g_msg_size) {
-        msgdat = make_jmsg("hello-back", (size_t) g_msg_size);
-        r_msg->data = msgdat;
+        msg_data = make_j_msg("hello-back", (size_t) g_msg_size);
+        r_msg->data = msg_data;
     } else {
         r_msg->data = "{\"say\":\"hello-back\"}";
     }
 
     r_msg->data_len = strlen(r_msg->data) + 1;
 
-    if (xl4bus_send_message2(clt, r_msg, msgdat, 0)) {
-        handle_delivered(clt, r_msg, msgdat, 0);     // if send message failed cleanup here
+    if (xl4bus_send_message2(clt, r_msg, msg_data, 0)) {
+        handle_delivered(clt, r_msg, msg_data, 0);     // if send message failed cleanup here
     }
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
 void handle_presence(struct xl4bus_client * clt, xl4bus_address_t * connected, xl4bus_address_t * disconnected) {
+#pragma clang diagnostic pop
 
     char * as = addr_to_str(connected);
     printf("CONNECTED: %s\n", as);
@@ -248,7 +257,10 @@ void handle_presence(struct xl4bus_client * clt, xl4bus_address_t * connected, x
 
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
 void handle_delivered(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok) {
+#pragma clang diagnostic pop
 
     xl4bus_free_address(msg->address, 1);
     if (arg == msg->data)
@@ -256,6 +268,9 @@ void handle_delivered(struct xl4bus_client * clt, xl4bus_message_t * msg, void *
     free(msg);
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
 void signal_f(int s) {
+#pragma clang diagnostic pop
     exit(3);
 }

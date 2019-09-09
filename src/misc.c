@@ -9,6 +9,7 @@
 #include "porting.h"
 #include "misc.h"
 #include "debug.h"
+#include "basics.h"
 #include "xl4bus_version.h"
 
 xl4bus_ll_cfg_t cfg;
@@ -259,7 +260,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
                         if (buf == conn->identity.x509.chain) {
                             // first cert, need to build my x5t
-                            BOLT_SUB(make_cert_hash((*buf)->buf.data, (*buf)->buf.len, &conn->my_x5t));
+                            BOLT_SUB(base64url_hash((*buf)->buf.data, (*buf)->buf.len, &conn->my_x5t, &conn->my_x5t_bin));
                         }
                         BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->buf.data, (*buf)->buf.len));
 
@@ -280,7 +281,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
                                 size_t pem_len = strlen(pem);
 
                                 BOLT_CJOSE(cjose_base64_decode(pem, pem_len, &der, &der_len, &c_err));
-                                BOLT_SUB(make_cert_hash(der, der_len, &conn->my_x5t));
+                                BOLT_SUB(base64url_hash(der, der_len, &conn->my_x5t, &conn->my_x5t_bin));
                             } while (0);
 
                             free(der);
@@ -336,10 +337,13 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
         BOLT_SUB(check_conn_io(conn));
 
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
-        shutdown_connection_ts(conn);
+        shutdown_connection_ts(conn, "initialization failed");
     }
 
     json_object_put(json_cert);
@@ -399,17 +403,17 @@ int add_to_dbuf(dbuf_t * into, void * from, size_t from_len) {
 
 }
 
-void free_dbuf(dbuf_t ** dbuf) {
-    clear_dbuf(*dbuf);
-    free(*dbuf);
-    *dbuf = 0;
+void free_dbuf(dbuf_t ** buf) {
+    clear_dbuf(*buf);
+    free(*buf);
+    *buf = 0;
 }
 
-void clear_dbuf(dbuf_t * dbuf) {
+void clear_dbuf(dbuf_t * buf) {
 
-    if (dbuf) {
-        cfg.free(dbuf->data);
-        memset(dbuf, 0, sizeof(dbuf_t));
+    if (buf) {
+        cfg.free(buf->data);
+        memset(buf, 0, sizeof(dbuf_t));
     }
 
 }
@@ -450,10 +454,10 @@ void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
 
 }
 
-void shutdown_connection_ts(xl4bus_connection_t * conn) {
+void shutdown_connection_ts(xl4bus_connection_t * conn, char const * reason) {
 
     if (conn->_init_magic != MAGIC_INIT) {
-        DBG("Attempting to shut down uninitialized connection %p", conn);
+        DBG("Attempting to shut down uninitialized connection %p (reason %s)", conn, reason);
         return;
     }
 
@@ -475,6 +479,7 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
     stream_t * aux;
 
     HASH_ITER(hh, i_conn->streams, stream, aux) {
+        // DBG("Release stream %05x %p from conn %p", stream->stream_id, stream, conn);
         release_stream(conn, stream, XL4SCR_CONN_SHUTDOWN);
     }
 
@@ -494,7 +499,10 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
 
     cjose_jwk_release(i_conn->private_key);
     cjose_jwk_release(i_conn->remote_key);
+    cjose_jwk_release(i_conn->session_key);
+    cjose_jwk_release(i_conn->old_session_key);
     cfg.free(conn->my_x5t);
+    clear_dbuf(&conn->my_x5t_bin);
     cfg.free(conn->remote_x5t);
     cfg.free(conn->remote_x5c);
     json_object_put(i_conn->x5c);
@@ -509,6 +517,8 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
     if (conn->on_shutdown) {
         conn->on_shutdown(conn);
     }
+
+    DBG("Connection %p shutdown: %s", conn, reason);
 
 }
 
@@ -642,7 +652,7 @@ char * inflate_content_type(char const * ct) {
 
 }
 
-const char * pack_content_type(const char * ct) {
+const char * deflate_content_type(const char * ct) {
 
     // this is for https://tools.ietf.org/html/rfc7515#section-4.1.10,
     // application/ can be omitted if there are no other slashes.
@@ -656,6 +666,33 @@ const char * pack_content_type(const char * ct) {
     }
 
     return ct;
+
+}
+
+int get_numeric_content_type(char const * str, uint8_t * num) {
+
+    int err = E_XL4BUS_OK;
+
+    do {
+
+        if (!z_strcmp(str, FCT_JOSE_COMPACT)) {
+            *num = CT_JOSE_COMPACT;
+        } else if (!z_strcmp(str, FCT_JOSE_JSON)) {
+            *num = CT_JOSE_JSON;
+        } else if (!z_strcmp(str, FCT_APPLICATION_JSON)) {
+            *num = CT_APPLICATION_JSON;
+        } else if (!z_strcmp(str, FCT_TRUST_MESSAGE)) {
+            *num = CT_TRUST_MESSAGE;
+        } else {
+            BOLT_SAY(E_XL4BUS_ARG, "Unsupported content type %s", str);
+        }
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
+
+    return err;
 
 }
 
@@ -765,7 +802,10 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
         BOLT_CJOSE(*jwk = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
 
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     if (pwd) {
         secure_bzero(pwd, pwd_len);
@@ -783,7 +823,7 @@ int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
 
     int err = E_XL4BUS_OK;
     char * base64 = 0;
-    size_t base64_len;
+    size_t base64_len = 0;
     cjose_err c_err;
 
     do {
@@ -854,25 +894,14 @@ int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
 
         BOLT_MEM(*to = json_object_new_string_len(base64, (int) base64_len));
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     cfg.free(base64);
 
     return err;
-
-}
-
-void clean_validated_object(validated_object_t * vo) {
-
-    cjose_jws_release(vo->exp_jws);
-    json_object_put(vo->bus_object);
-    json_object_put(vo->x5c);
-    release_remote_info(vo->remote_info);
-    cfg.free(vo->content_type);
-
-    if (vo->data_copy) {
-        cfg.free(vo->data);
-    }
 
 }
 
@@ -906,6 +935,9 @@ int xl4bus_copy_address(xl4bus_address_t * src, int chain, xl4bus_address_t ** r
             case XL4BAT_GROUP:
                 BOLT_MEM(new->group = f_strdup(src->group));
                 break;
+            case XL4BAT_X5T_S256:
+                BOLT_MEM(new->x5ts256 = f_strdup(src->x5ts256));
+                break;
             default:
                 BOLT_SAY(E_XL4BUS_ARG, "Unknown address type %d", src->type);
         }
@@ -937,16 +969,12 @@ int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t * strea
 
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
 
-#if XL4_SUPPORT_THREADS
     int locked = 0;
-#endif
 
     do {
 
-#if XL4_SUPPORT_THREADS
-        BOLT_SYS(pf_lock(&i_conn->hash_lock), "");
+        BOLT_SYS(LOCK(i_conn->hash_lock), "");
         locked = 1;
-#endif
 
         uint16_t old;
 
@@ -970,15 +998,191 @@ int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t * strea
             }
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
-#if XL4_SUPPORT_THREADS
     if (locked) {
-        pf_unlock(&i_conn->hash_lock);
+        UNLOCK(i_conn->hash_lock);
     }
-#endif
 
     return err;
 
+
+}
+
+char const * str_content_type(int ct) {
+
+    switch (ct) {
+        case CT_JOSE_COMPACT:
+            return FCT_JOSE_COMPACT;
+        case CT_JOSE_JSON:
+            return FCT_JOSE_JSON;
+        case CT_APPLICATION_JSON:
+            return FCT_APPLICATION_JSON;
+        case CT_TRUST_MESSAGE:
+            return FCT_TRUST_MESSAGE;
+        default:
+            return FCT_APPLICATION_OCTET_STREAM;
+    }
+
+}
+
+json_object * xl4json_make_obj(json_object * obj, ...) {
+
+    va_list ap;
+    va_start(ap, obj);
+    obj = xl4json_make_obj_v(obj, ap);
+    va_end(ap);
+    return obj;
+
+}
+
+
+json_object * xl4json_make_obj_v(json_object *obj, va_list ap2) {
+
+    if (!obj) {
+        obj = json_object_new_object();
+        if (!obj) { return 0; } // oom
+    }
+
+    va_list ap;
+    va_copy(ap, ap2);
+
+    int no_mem = 0;
+
+    while (1) {
+
+        const char * key = va_arg(ap, char*);
+        const char * prop = va_arg(ap, char*);
+        if (!key) { break; }
+
+        json_object * val = 0;
+
+        int no_null = 0;
+
+        if (*key == '@') {
+            key++;
+            no_null = 1;
+        }
+
+        switch (*key) {
+
+            case 'J':
+            case 'j':
+                val = va_arg(ap, json_object*);
+                if (no_null && json_object_is_type(val, json_type_null)) {
+                    Z(json_object_put, val);
+                }
+                break;
+
+            case 'M':
+            case 'm':
+                val = va_arg(ap, json_object*);
+                if (!val) {
+                    no_mem = 1;
+                }
+                break;
+
+            case 'B':
+            case 'b':
+                if (!(val = json_object_new_boolean(va_arg(ap, int)))) {
+                    no_mem = 1;
+                }
+                break;
+
+            case 'D':
+            case 'd':
+                if (!(val = json_object_new_double(va_arg(ap, double)))) {
+                    no_mem = 1;
+                }
+                break;
+
+            case 'I':
+            case 'i':
+                if (!(val = json_object_new_int(va_arg(ap, int)))) {
+                    no_mem = 1;
+                }
+                break;
+
+            case '6':
+                if (!(val = json_object_new_int64(va_arg(ap, int64_t)))) {
+                    no_mem = 1;
+                }
+                break;
+
+            case 'S':
+            case 's':
+            {
+                char * str = va_arg(ap, char*);
+                if (str) {
+                    if (!(val = json_object_new_string(str))) {
+                        no_mem = 1;
+                    }
+                }
+            }
+                break;
+
+            case 'X':
+            case 'x':
+            {
+                char * str = va_arg(ap, char*);
+                if (str) {
+                    if (!(val = json_object_new_string(str))) {
+                        no_mem = 1;
+                    }
+                    free(str);
+                }
+            }
+            break;
+
+            default:
+                break;
+
+        }
+
+        if (no_mem) {
+            break;
+        }
+
+        if (!no_null || val) {
+            if (json_object_object_add(obj, prop, val)) {
+                // json-c documentation doesn't say anything about
+                // memory, but what else could have went wrong?
+                no_mem = 1;
+                break;
+            }
+        }
+
+    }
+
+    va_end(ap);
+
+    if (no_mem) {
+        json_object_put(obj);
+        return 0;
+    }
+
+    return obj;
+
+}
+
+void zero_s(void * ptr, size_t s) {
+
+    // $TODO: I don't understand why memset_s is not available,
+    // <string.h> is included, and language is set to c11...
+    // memset_s(ptr, s, 0, s);
+
+    volatile unsigned char *p = ptr;
+    while (s--) { *p++ = 0; }
+
+}
+
+void free_s(void * ptr, size_t s) {
+
+    zero_s(ptr, s);
+
+    cfg.free(ptr);
 
 }

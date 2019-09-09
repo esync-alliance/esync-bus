@@ -3,8 +3,9 @@
 #include <libxl4bus/low_level.h>
 #include <libxl4bus/high_level.h>
 #include "utlist.h"
+#include "basics.h"
 
-#include "hash_list.h"
+#include "lib/hash_list.h"
 
 #include "broker.h"
 #include "lib/common.h"
@@ -17,6 +18,7 @@
 typedef struct msg_context {
 
     uint32_t magic;
+
     union {
         struct {
             char * in_msg_id;
@@ -25,76 +27,47 @@ typedef struct msg_context {
         };
     };
 
+    json_object * json;
+    json_object * bus_object;
+
 } msg_context_t;
 
 static void free_message_context(msg_context_t *);
 
-static conn_info_hash_list_t * ci_by_name = 0;
-static conn_info_hash_list_t * ci_by_x5t = 0;
+static hash_list_t * ci_by_name = 0;
 
 int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
-    int err /* = E_XL4BUS_OK */;
+    int err /*= E_XL4BUS_OK*/;
     json_object * root = 0;
     conn_info_t * ci = conn->custom;
     json_object * connected = 0;
-    validated_object_t vot;
     xl4bus_address_t * forward_to = 0;
     xl4bus_identity_t id;
     cjose_err c_err;
     char * in_msg_id = 0;
-    int trusted = 0;
     UT_array send_list;
+    json_object * bus_object = 0;
+    uint8_t * kty_data = 0;
+    size_t kty_data_len = 0;
 
     utarray_init(&send_list, &ut_ptr_icd);
-    memset(&vot, 0, sizeof(vot));
     memset(&id, 0, sizeof(id));
 
     do {
 
-        // all incoming messages must pass JWS validation, and hence must be JWS messages.
-        // note, since validate_jws only supports compact serialization, we only expect compact serialization here.
+        BOLT_IF(!msg->uses_validation, E_XL4BUS_DATA, "Message was not validated");
 
-#if XL4_DISABLE_JWS
-
-        if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage-trust+json")) {
-            trusted = 1;
+        DBG("Incoming BUS object: %p-%04x %s", conn, msg->stream_id, SAFE_STR(msg->bus_data));
+        if (msg->bus_data) {
+            BOLT_IF(!(bus_object = json_tokener_parse(msg->bus_data)), E_XL4BUS_DATA, "Can not parse bus object");
         } else {
-#endif
-
-            BOLT_IF(z_strcmp(msg->content_type, "application/jose"), E_XL4BUS_DATA,
-                    "JWS compact message required, got %s", NULL_STR(msg->content_type));
-
-#if XL4_DISABLE_JWS
+            BOLT_MEM(bus_object = json_object_new_object());
         }
-#endif
 
-        BOLT_SUB(validate_jws(trusted, msg->data, msg->data_len, &vot));
+        if (msg->remote_identity) {
 
-        BOLT_IF(ci->remote_x5t && z_strcmp(ci->remote_x5t, vot.remote_info->x5t),
-                E_XL4BUS_DATA, "Switching remote identities is not supported");
-
-        DBG("Incoming BUS object: %p-%04x %s", conn, msg->stream_id, json_object_get_string(vot.bus_object));
-
-        if (vot.x5c) {
-
-            id.type = XL4BIT_X509;
-
-            size_t certs = json_object_array_length(vot.x5c);
-
-            id.x509.chain = f_malloc(sizeof(void*) * (certs+1));
-
-            for (size_t i=0; i<certs; i++) {
-                id.x509.chain[i] = f_malloc(sizeof(xl4bus_asn1_t));
-                id.x509.chain[i]->enc = XL4BUS_ASN1ENC_DER;
-                const char * in = json_object_get_string(json_object_array_get_idx(vot.x5c, i));
-                size_t in_len = strlen(in);
-                BOLT_CJOSE(cjose_base64_decode(in, in_len, &id.x509.chain[i]->buf.data, &id.x509.chain[i]->buf.len, &c_err));
-            }
-
-            BOLT_NEST();
-
-            BOLT_SUB(xl4bus_set_remote_identity(conn, &id));
+            BOLT_SUB(xl4bus_set_remote_identity(conn, msg->remote_identity));
 
             if (debug) {
                 char * json_addr;
@@ -122,77 +95,94 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         BOLT_IF(!ci->remote_x5c || !ci->remote_x5t, E_XL4BUS_DATA, "Remote identity is not fully established");
 
-        // DBG("Incoming message content type %s", vot.content_type);
+        if (!strcmp(FCT_BUS_MESSAGE, msg->content_type)) {
 
-        if (!strcmp("application/vnd.xl4.busmessage+json", vot.content_type)) {
-
-            // the json must be ASCIIZ.
-            BOLT_IF((vot.data_len == 0) || vot.data[vot.data_len - 1], E_XL4BUS_CLIENT,
+            // the incoming JSON must be ASCIIZ.
+            BOLT_IF((msg->data_len == 0) || ((char const*)msg->data)[msg->data_len - 1], E_XL4BUS_CLIENT,
                     "Incoming message is not ASCIIZ");
 
-            BOLT_IF(!(root = json_tokener_parse((const char*)vot.data)),
-                    E_XL4BUS_CLIENT, "Not valid json: %s", vot.data);
+            BOLT_IF(!(root = json_tokener_parse((const char*)msg->data)),
+                    E_XL4BUS_CLIENT, "Not valid json: %s", msg->data);
 
-            json_object *aux;
-            BOLT_IF(!json_object_object_get_ex(root, "type", &aux) || !json_object_is_type(aux, json_type_string),
-                    E_XL4BUS_CLIENT, "No/non-string type property in %s", vot.data);
-
-            const char *type = json_object_get_string(aux);
+            const char *type = 0;
+            BOLT_SUB(xl4json_get_pointer(root, "/type", json_type_string, &type));
 
             // DBG("LLP message type %s", type);
 
-            if (!strcmp(type, "xl4bus.registration-request")) {
+            if (!strcmp(type, MSG_TYPE_REG_REQUEST)) {
 
-                BOLT_IF(ci->reg_req, E_XL4BUS_CLIENT, "already registered");
-                ci->reg_req = 1;
+                // update session key.
 
-                BOLT_MEM(connected = json_object_new_array());
+                xl4bus_key_t session_key;
+                session_key.type = XL4KT_AES_256;
 
-                for (xl4bus_address_t *r_addr = conn->remote_address_list; r_addr; r_addr = r_addr->next) {
+                char const * kty;
+                char const * k;
 
-                    if (r_addr->type == XL4BAT_GROUP) {
+                BOLT_SUB(xl4json_get_pointer(root, "/body/session-key/kty", json_type_string, &kty));
+                BOLT_IF(z_strcmp(kty, "oct"), E_XL4BUS_CLIENT, "Unknown key format %s", kty);
+                BOLT_SUB(xl4json_get_pointer(root, "/body/session-key/k", json_type_string, &k));
 
-                        ci->group_names = f_realloc(ci->group_names, sizeof(char *) * (ci->group_count + 1));
-                        ci->group_names[ci->group_count] = f_strdup(r_addr->group);
-                        HASH_LIST_ADD(ci_by_group, ci, group_names[ci->group_count]);
-                        ci->group_count++;
+                BOLT_CJOSE(cjose_base64url_decode(k, strlen(k), &kty_data, &kty_data_len, &c_err));
+                BOLT_IF(kty_data_len != sizeof(session_key.aes_256), E_XL4BUS_CLIENT, "Invalid key size %d", kty_data_len);
 
-                        json_object *cel;
-                        json_object *sel;
-                        BOLT_MEM(cel = json_object_new_object());
-                        json_object_array_add(connected, cel);
-                        BOLT_MEM(sel = json_object_new_string(r_addr->group));
-                        json_object_object_add(cel, "group", sel);
+                memcpy(session_key.aes_256, kty_data, kty_data_len);
 
-                    } else if (r_addr->type == XL4BAT_SPECIAL) {
+                xl4bus_set_session_key(conn, &session_key, 1);
 
-                        if (r_addr->special == XL4BAS_DM_CLIENT) {
+                if (!ci->reg_req) {
 
-                            ci->is_dm_client = 1;
+                    ci->reg_req = 1;
 
-                            ADD_TO_ARRAY_ONCE(&dm_clients, ci);
+                    BOLT_MEM(connected = json_object_new_array());
 
-                            json_object *cel = json_object_new_object();
-                            json_object_object_add(cel, "special", json_object_new_string("dmclient"));
+                    for (xl4bus_address_t *r_addr = conn->remote_address_list; r_addr; r_addr = r_addr->next) {
+
+                        if (r_addr->type == XL4BAT_GROUP) {
+
+                            ci->group_names = f_realloc(ci->group_names, sizeof(char *) * (ci->group_count + 1));
+                            ci->group_names[ci->group_count] = f_strdup(r_addr->group);
+                            HASH_LIST_ADD(ci_by_group, ci, group_names[ci->group_count]);
+                            ci->group_count++;
+
+                            json_object *cel;
+                            json_object *sel;
+                            BOLT_MEM(cel = json_object_new_object());
                             json_object_array_add(connected, cel);
+                            BOLT_MEM(sel = json_object_new_string(r_addr->group));
+                            json_object_object_add(cel, "group", sel);
+
+                        } else if (r_addr->type == XL4BAT_SPECIAL) {
+
+                            if (r_addr->special == XL4BAS_DM_CLIENT) {
+
+                                ci->is_dm_client = 1;
+
+                                ADD_TO_ARRAY_ONCE(&dm_clients, ci);
+
+                                json_object *cel = json_object_new_object();
+                                json_object_object_add(cel, "special", json_object_new_string("dmclient"));
+                                json_object_array_add(connected, cel);
+
+                            }
+
+                        } else if (r_addr->type == XL4BAT_UPDATE_AGENT) {
+
+                            // $TODO: If the update agent address is too long, this becomes
+                            // a silent failure. May be this should be detected?
+                            hash_tree_add(ci, r_addr->update_agent);
+                            HASH_LIST_ADD(ci_by_name, ci, ua_names[ci->ua_count]);
+
+                            ci->ua_count++;
+
+                            json_object *cel;
+                            json_object *sel;
+                            BOLT_MEM(cel = json_object_new_object());
+                            json_object_array_add(connected, cel);
+                            BOLT_MEM(sel = json_object_new_string(r_addr->update_agent));
+                            json_object_object_add(cel, "update-agent", sel);
 
                         }
-
-                    } else if (r_addr->type == XL4BAT_UPDATE_AGENT) {
-
-                        // $TODO: If the update agent address is too long, this becomes
-                        // a silent failure. May be this should be detected?
-                        hash_tree_add(ci, r_addr->update_agent);
-                        HASH_LIST_ADD(ci_by_name, ci, ua_names[ci->ua_count]);
-
-                        ci->ua_count++;
-
-                        json_object *cel;
-                        json_object *sel;
-                        BOLT_MEM(cel = json_object_new_object());
-                        json_object_array_add(connected, cel);
-                        BOLT_MEM(sel = json_object_new_string(r_addr->update_agent));
-                        json_object_object_add(cel, "update-agent", sel);
 
                     }
 
@@ -225,8 +215,8 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         json_object_object_add(cux, "special", dux);
                     }
 
-                    conn_info_hash_list_t *tmp;
-                    conn_info_hash_list_t *cti;
+                    hash_list_t *tmp;
+                    hash_list_t *cti;
 
                     HASH_ITER(hh, ci_by_name, cti, tmp) {
                         UTCOUNT_WITHOUT(&cti->items, ci, lc);
@@ -272,19 +262,17 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 break;
 
-            } else if (!strcmp("xl4bus.request-destinations", type)) {
+            } else if (!strcmp(MSG_TYPE_REQ_DESTINATIONS, type)) {
 
                 // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
 
                 json_object *x5t = 0;
                 char const * req_dest = "(NONE)";
 
-                if (json_object_object_get_ex(root, "body", &aux) && json_object_is_type(aux, json_type_object)) {
-                    json_object *array;
-                    if (json_object_object_get_ex(aux, "destinations", &array)) {
-                        req_dest = json_object_get_string(array);
-                        gather_destinations(array, &x5t, 0);
-                    }
+                json_object * array;
+                if (xl4json_get_pointer(root, "/body/destinations", json_type_array, &array) == E_XL4BUS_OK) {
+                    req_dest = json_object_get_string(array);
+                    gather_destinations(array, &x5t, 0);
                 }
 
                 // send destination list
@@ -304,61 +292,58 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 break;
 
-            } else if (!strcmp("xl4bus.request-cert", type)) {
+            } else if (!strcmp(MSG_TYPE_REQ_CERT, type)) {
 
                 json_object * x5c = json_object_new_array();
 
-                if (json_object_object_get_ex(root, "body", &aux) && json_object_is_type(aux, json_type_object)) {
-                    json_object *array;
-                    if (json_object_object_get_ex(aux, "x5t#S256", &array) &&
-                        json_object_is_type(array, json_type_array)) {
+                json_object *array;
+                if (xl4json_get_pointer(root, "/body/x5t#S256", json_type_array, &array) == E_XL4BUS_OK) {
 
-                        size_t l = json_object_array_length(array);
-                        for (size_t i=0; i<l; i++) {
+                    size_t l = json_object_array_length(array);
+                    for (size_t i=0; i<l; i++) {
 
-                            json_object * x5t_json = json_object_array_get_idx(array, i);
-                            if (!json_object_is_type(x5t_json, json_type_string)) { continue; }
+                        json_object * x5t_json = json_object_array_get_idx(array, i);
+                        if (!json_object_is_type(x5t_json, json_type_string)) { continue; }
 
-                            const char * x5t = json_object_get_string(x5t_json);
+                        const char * x5t = json_object_get_string(x5t_json);
 
-                            UT_array * items = 0;
+                        UT_array * items = 0;
 
-                            conn_info_hash_list_t * val;
-                            HASH_FIND(hh, ci_by_x5t, x5t, strlen(x5t)+1, val);
-                            if (val) {
-                                items = &val->items;
-                            }
+                        hash_list_t * val;
+                        HASH_FIND(hh, ci_by_x5t, x5t, strlen(x5t)+1, val);
+                        if (val) {
+                            items = &val->items;
+                        }
 
-                            if (!items) { continue; }
+                        if (!items) { continue; }
 
-                            int l2 = utarray_len(items);
+                        int l2 = utarray_len(items);
 
-                            // because these must be the same x5t, we only need
-                            // to send out one x5c, because they all must be the same
+                        // because these must be the same x5t, we only need
+                        // to send out one x5c, because they all must be the same
 
-                            if (l2 > 1) { l2 = 1; }
+                        if (l2 > 1) { l2 = 1; }
 
-                            for (int j=0; j<l2; j++) {
+                        for (int j=0; j<l2; j++) {
 
-                                conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(items, j);
-                                if (ci2->remote_x5c) {
-                                    json_object_array_add(x5c, json_object_get(ci2->remote_x5c));
-                                }
-
+                            conn_info_t * ci2 = *(conn_info_t **) utarray_eltptr(items, j);
+                            if (ci2->remote_x5c) {
+                                json_object_array_add(x5c, json_object_get(ci2->remote_x5c));
                             }
 
                         }
 
                     }
+
                 }
 
                 json_object * body = json_object_new_object();
                 json_object_object_add(body, "x5c", x5c);
-                send_json_message(ci, "xl4bus.cert-details", body, msg->stream_id, 1, 0);
+                send_json_message(ci, MSG_TYPE_CERT_DETAILS, body, msg->stream_id, 1, 0);
 
                 break;
 
-            } else if (!strcmp("xl4bus.message-confirm", type)) {
+            } else if (!strcmp(MSG_TYPE_MESSAGE_CONFIRM, type)) {
                 // do nothing, it's the client telling us it's OK.
 
                 E900(f_asprintf("Confirmed receipt of %p-%04x", conn, msg->stream_id), conn->remote_address_list, 0);
@@ -377,7 +362,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             in_msg_id = f_asprintf("%p-%04x", conn, (unsigned int)stream_id);
 
-            if (!json_object_object_get_ex(vot.bus_object, "destinations", &destinations)) {
+            if (!json_object_object_get_ex(bus_object, "destinations", &destinations)) {
                 E900(f_asprintf("Rejected message %s - no destinations", in_msg_id), conn->remote_address_list, 0);
                 BOLT_SAY(E_XL4BUS_DATA, "Not XL4 message, no destinations in bus object");
             }
@@ -410,6 +395,10 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 msg->is_final = 0;
                 msg->is_reply = 0;
 
+                msg->uses_validation = 1;
+                msg->uses_session_key = 1;
+                msg->uses_encryption = 1;
+
                 count(0, 1);
 
                 // note: we are sending data that is inside the incoming message.
@@ -420,7 +409,6 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 msg_context_t * ctx = f_malloc(sizeof(msg_context_t));
 
                 do {
-
 
                     BOLT_SUB(xl4bus_get_next_outgoing_stream(ci2->conn, &msg->stream_id));
 
@@ -455,11 +443,16 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         conn->remote_address_list, forward_to);
             }
 
-            send_json_message(ci, "xl4bus.message-confirm", 0, stream_id, 1, 1);
+            if (!msg->is_final) {
+                send_json_message(ci, "xl4bus.message-confirm", 0, stream_id, 1, 1);
+            }
 
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     for (xl4bus_asn1_t ** asn1 = id.x509.chain; asn1 && *asn1; asn1++) {
         free((*asn1)->buf.data);
@@ -471,16 +464,11 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     json_object_put(root);
     json_object_put(connected);
+    json_object_put(bus_object);
     xl4bus_free_address(forward_to, 1);
 
-    cjose_jws_release(vot.exp_jws);
-    json_object_put(vot.bus_object);
-    json_object_put(vot.x5c);
-    free(vot.content_type);
-    if (vot.data_copy) {
-        free(vot.data);
-    }
     free(in_msg_id);
+    free_s(kty_data, kty_data_len);
 
     return err;
 
@@ -632,13 +620,11 @@ void on_sent_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void
                     (unsigned int)msg->stream_id, xl4bus_strerr(err)), ctx->from, ctx->to);
         }
 
-    } else if (ctx->magic == MAGIC_SYS_MESSAGE) {
+    } else if (ctx->magic != MAGIC_SYS_MESSAGE) {
 
-        free((void*)msg->data);
-
-    } else {
         FATAL("Unknown magic %x in call back, something is really wrong", ctx->magic);
         _exit(1);
+
     }
 
     free_message_context(ctx);
@@ -655,6 +641,9 @@ void free_message_context(msg_context_t * ctx) {
         free(ctx->in_msg_id);
     }
 
+    json_object_put(ctx->json);
+    json_object_put(ctx->bus_object);
+
     free(ctx);
 
 }
@@ -663,54 +652,54 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
         uint16_t stream_id, int is_reply, int is_final) {
 
     int err/* = E_XL4BUS_OK*/;
-    json_object * json = 0;
-    json_object * bus_object = 0;
+    msg_context_t * ctx;
 
     do {
 
         xl4bus_connection_t * conn = ci->conn;
 
-        json = json_object_new_object();
-        bus_object = json_object_new_object();
+        ctx = f_malloc(sizeof(msg_context_t));
+        ctx->magic = MAGIC_SYS_MESSAGE;
+        ctx->json = json_object_new_object();
+        ctx->bus_object = json_object_new_object();
 
-        json_object_object_add(json, "type", json_object_new_string(type));
+        json_object_object_add(ctx->json, "type", json_object_new_string(type));
         if (body) {
-            json_object_object_add(json, "body", body);
+            json_object_object_add(ctx->json, "body", body);
         }
 
-        xl4bus_ll_message_t x_msg;
-        memset(&x_msg, 0, sizeof(xl4bus_ll_message_t));
+        // $TODO: It's only OK to use stack for the message object because
+        // is_mt in send_ll_message is 0!
+        xl4bus_ll_message_t x_msg = {0};
 
-        char const * json_str = json_object_get_string(json);
-
-        BOLT_SUB(sign_jws(ci, bus_object, json_str, strlen(json_str) + 1, "application/vnd.xl4.busmessage+json",
-                &x_msg.data, &x_msg.data_len));
-
-        // sign_jws always make objects of content type application/jose
-#if XL4_DISABLE_JWS
-        x_msg.content_type = "application/vnd.xl4.busmessage-trust+json";
-#else
-        x_msg.content_type = "application/jose";
-#endif
+        char const * json_str = json_object_get_string(ctx->json);
+        x_msg.data = json_str;
+        x_msg.data_len = strlen(json_str) + 1;
+        x_msg.content_type = FCT_BUS_MESSAGE;
 
         x_msg.stream_id = stream_id;
         x_msg.is_reply = is_reply;
         x_msg.is_final = is_final;
 
-        DBG("Outgoing on %p-%04x : %s", conn, stream_id, json_object_get_string(json));
+        x_msg.uses_encryption = 1;
+        x_msg.uses_validation = 1;
+        x_msg.uses_session_key = 1;
 
-        msg_context_t * ctx = f_malloc(sizeof(msg_context_t));
-        ctx->magic = MAGIC_SYS_MESSAGE;
+        DBG("Outgoing on %p-%04x : %s", conn, stream_id, json_str);
 
-        if ((err = xl4bus_send_ll_message(conn, &x_msg, ctx, 0)) != E_XL4BUS_OK) {
+        err = xl4bus_send_ll_message(conn, &x_msg, ctx, 0);
+        ctx = 0;
+        if (err != E_XL4BUS_OK) {
             MSG_OUT("failed to send a message : %s\n", xl4bus_strerr(err));
             xl4bus_shutdown_connection(conn);
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
-    json_object_put(json);
-    json_object_put(bus_object);
+    free_message_context(ctx);
 
     return err;
 

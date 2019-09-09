@@ -5,7 +5,6 @@ project(libxl4bus)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_VERBOSE_MAKEFILE on)
 set(CMAKE_C_VISIBILITY_PRESET hidden)
-#set(CMAKE_BUILD_TYPE Debug)
 
 set(PORT $ENV{LIBXL4BUS_PORT})
 
@@ -198,7 +197,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/identity.c
     src/misc.c
     src/net.c
-    src/signed.c
+    src/jwx.c
     src/internal.h
     src/porting.h
     src/misc.h
@@ -217,6 +216,9 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/include/libxl4bus/types.h
     src/lib/rb_tree.h
     src/lib/rb_tree.c
+    src/basics.h
+    src/basics.c
+    src/lib/hash_list.h
 )
 
 set(DEPS_CFG ${PORT}/deps.cmk)
@@ -265,7 +267,7 @@ endif()
 
 if (BUILD_BINS)
 
-    set(LIB_SRC
+    set(BIN_LIB_SRC
         src/lib/common.h
         src/lib/common.c
         src/lib/debug.h
@@ -273,53 +275,59 @@ if (BUILD_BINS)
         src/lib/rb_tree.h
         src/lib/rb_tree.c
         src/lib/poll_help.h
+        src/basics.h
+        src/basics.c
         ${PORT_SOURCE}
     )
 
     add_executable(ll-client
             src/test_clients/ll-client.c
-            ${LIB_SRC}
+            ${BIN_LIB_SRC}
         )
-    add_executable(xl4bus-broker
-            src/broker/broker.h
+
+    set(BROKER_SRC src/broker/broker.h
             src/broker/bus.c
             src/broker/crypto.c
             src/broker/e900.c
             src/broker/gather.c
-            src/broker/hash_list.h
+            src/lib/hash_list.h
             src/broker/hash_tree.c
-            src/broker/main.c
+            src/broker/broker.c
             src/uthash.h
             src/utarray.h
-            ${LIB_SRC}
-        )
+            ${BIN_LIB_SRC}
+            )
+
+
+    add_executable(xl4bus-broker ${BROKER_SRC})
+    add_executable(xl4bus-broker-untested ${BROKER_SRC})
 
     add_executable(tree-test
         src/tests/tree.c
-        ${LIB_SRC}
+        ${BIN_LIB_SRC}
         )
 
     if (XL4_HAVE_EPOLL)
         add_executable(timeout-test
             src/tests/timeout.c
-            ${LIB_SRC}
+            ${BIN_LIB_SRC}
             )
         set(TEST_BINARIES "tree-test" "timeout-test")
     else()
         set(TEST_BINARIES "tree-test")
     endif()
 
-    set(BINARIES "ll-client" "xl4bus-broker" ${TEST_BINARIES})
+    set(BINARIES "ll-client" "xl4bus-broker" "xl4bus-broker-untested" ${TEST_BINARIES})
 
     if (XL4_PROVIDE_THREADS)
 
         add_executable(ll-server
                 src/test_clients/ll-server.c
-                ${LIB_SRC}
+                ${BIN_LIB_SRC}
             )
         add_executable(hl-client
                 src/test_clients/hl-client.c
-                ${LIB_SRC}
+                ${BIN_LIB_SRC}
             )
         targets_link_libraries(ll-server hl-client LIBRARIES Threads::Threads)
         set(BINARIES ${BINARIES} ll-server hl-client)

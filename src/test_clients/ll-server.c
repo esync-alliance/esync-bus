@@ -186,7 +186,7 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
 int on_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg) {
 
-    printf("hooray, a message, encrypted=%d!\n", msg->was_encrypted);
+    printf("hooray, a message, encrypted=%d!\n", msg->uses_encryption);
 
     xl4bus_ll_message_t * x_msg;
     x_msg = f_malloc(sizeof(xl4bus_ll_message_t));
