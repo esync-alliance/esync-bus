@@ -9,7 +9,11 @@
 #include <libxl4bus/types_base.h>
 #include <libxl4bus/build_config.h>
 
+// forward declarations
 struct xl4bus_client;
+struct xl4bus_identity;
+struct xl4bus_X509v3_Identity;
+struct xl4bus_connection;
 
 /**
  * Used as a general buffer, when variably sized
@@ -254,10 +258,25 @@ typedef struct xl4bus_ll_message {
     int is_reply;
 
     /**
-     * If !0, then the message was encrypted by the sender, and was decrypted
-     * successfully before being passed down.
+     * For received messages, `!0` indicates that the message was encrypted when received,
+     * and has been decrypted since, or `0` otherwise, including cases when it could not be decrypted.
+     * For sending messages, `!0` indicates that the message must be encrypted, or `0` not to encrypt it.
      */
-    int was_encrypted;
+    int uses_encryption;
+
+    /**
+     * For received messages, `!0` is set when ::uses_encryption is `!0`, and the session key was used for
+     * decryption, instead of identity's key, `0` otherwise.
+     * For sending messages, `!0` indicates that the message should be encrypted using session key, if such is
+     * available.
+     */
+    int uses_session_key;
+
+    /**
+     * For received messages, `!0` indicates that the message contained signature that was validated, `0` otherwise.
+     * For sending messages, `!0` indicates that the message must be signed, or `0` not to sign it.
+     */
+    int uses_validation;
 
     /**
      * If !0, then contains the timeout value, next message should
@@ -267,10 +286,13 @@ typedef struct xl4bus_ll_message {
      */
     unsigned timeout_ms;
 
-} xl4bus_ll_message_t;
+    /**
+     * If set, then the remote has provided a full identity, as specified. Note that this is possible
+     * even if the identity has previously been provided, and the newly provided identity may differ.
+     */
+    struct xl4bus_identity * remote_identity;
 
-struct xl4bus_X509v3_Identity;
-struct xl4bus_connection;
+} xl4bus_ll_message_t;
 
 /**
  * Requests read availability to be polled for, or indicates a read operation is available.
@@ -377,7 +399,9 @@ typedef int (*xl4bus_mt_message_callback) (struct xl4bus_connection *, void *, s
 typedef struct xl4bus_certificate_cache xl4bus_certificate_cache_t;
 
 /**
- * X.509 based identity. Must contain X.509 certification and private key data.
+ * X.509 based identity. For representing own identity,
+ * must contain X.509 certification and private key data.
+ * For representing remote identities, only certificate chain is provided.
  */
 typedef struct xl4bus_X509v3_Identity {
 
@@ -494,6 +518,33 @@ typedef struct xl4bus_identity {
     };
 
 } xl4bus_identity_t;
+
+/**
+ * Enumerates support key types.
+ */
+typedef enum xl4bus_key_type {
+
+    /**
+     * Represents invalid key type value.
+     */
+    XL4KT_INVALID,
+
+    /**
+     * Represents 256 bit AES key.
+     */
+    XL4KT_AES_256
+
+} xl4bus_key_type_t;
+
+typedef struct xl4bus_key {
+
+    xl4bus_key_type_t type;
+    uint64_t expires;
+    union {
+        uint8_t aes_256[256/8];
+    };
+
+} xl4bus_key_t;
 
 typedef struct xl4bus_connection {
 

@@ -9,6 +9,9 @@ extern uint32_t crcTable[];
 
 #define NULL_STR(a) ((a)?(a):"(null)")
 
+#define Z_FREE(a) do { cfg.free(a); a = 0; } while (0)
+#define Z(op, p) do { op(p); p = 0; } while (0)
+
 // Credit : https://barrgroup.com/Embedded-Systems/How-To/CRC-Calculation-C-Code
 static inline void crcFast(void * data, size_t len, uint32_t * crc) {
 

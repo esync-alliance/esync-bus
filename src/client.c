@@ -35,9 +35,12 @@ static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 static int create_ll_connection(xl4bus_client_t *);
 static void process_message_out(xl4bus_client_t *, message_internal_t *, int);
-static int get_xl4bus_message(validated_object_t const *, json_object **, char const **);
+static int get_xl4bus_message_vo(validated_object_t const *, json_object **, char const **);
+static int get_xl4bus_message_msg(xl4bus_ll_message_t const *, json_object **, char const **);
+static int get_xl4bus_message(char const * data, size_t data_len, char const * ct, json_object **, char const **);
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
 static int handle_presence(xl4bus_client_t * clt, json_object*);
+static int handle_key_request(xl4bus_client_t * clt, json_object*);
 static int pick_timeout(int t1, int t2);
 static int send_json_message(xl4bus_client_t * clt, int is_reply, int is_final, uint16_t stream_id, const char * type, json_object * body, int);
 static const cjose_jwk_t * key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *);
@@ -980,16 +983,9 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     json_object * req_destinations = 0;
     cjose_err c_err;
 
-    validated_object_t vot;
-    xl4bus_identity_t id;
+    xl4bus_identity_t id = {};
     message_internal_t * mint = 0;
-
-    // this is set to an X5T value of the remote that sent
-    // us a message, but we didn't find a corresponding x5t
-    char * missing_remote = 0;
-
-    memset(&vot, 0, sizeof(vot));
-    memset(&id, 0, sizeof(id));
+    char * key_base64 = 0;
 
     do {
 
@@ -999,54 +995,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
         char const * type;
-        int x_ct = CT_JOSE_COMPACT;
 
-#if XL4_DISABLE_JWS
-        if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage-trust+json")) {
-            x_ct = CT_TRUST_MESSAGE;
-        } else {
-
-#endif
-            // all incoming messages must pass JWS validation, and hence must be JWS messages.
-            // note, since validate_jws only supports compact serialization, we only expect compact serialization here.
-            BOLT_IF(z_strcmp(msg->content_type, "application/jose"), E_XL4BUS_DATA,
-                    "JWS compact message required, got %s", NULL_STR(msg->content_type));
-
-
-#if XL4_DISABLE_JWS
-        }
-#endif
-
-        err = validate_jws(msg->data, msg->data_len, x_ct, i_clt->ll, &vot, &missing_remote);
-        if (err != E_XL4BUS_OK) {
-            if (missing_remote) {
-                err = E_XL4BUS_OK;
-            } else {
-                BOLT_NEST();
-            }
-        }
-
-        if (vot.x5c) {
-
-            id.type = XL4BIT_X509;
-
-            int certs = json_object_array_length(vot.x5c);
-
-            BOLT_MALLOC(id.x509.chain, sizeof(void*) * (certs+1));
-
-            for (int i=0; i<certs; i++) {
-                BOLT_MALLOC(id.x509.chain[i], sizeof(xl4bus_asn1_t));
-                id.x509.chain[i]->enc = XL4BUS_ASN1ENC_DER;
-                const char * in = json_object_get_string(json_object_array_get_idx(vot.x5c, i));
-                size_t in_len = strlen(in);
-                BOLT_CJOSE(cjose_base64_decode(in, in_len, &id.x509.chain[i]->buf.data, &id.x509.chain[i]->buf.len, &c_err));
-            }
-
-            BOLT_NEST();
-
-            BOLT_SUB(xl4bus_set_remote_identity(i_clt->ll, &id));
-
-        }
+        BOLT_IF(!msg->uses_validation, E_XL4BUS_DATA, "Incoming message is not validated, refusing to process");
 
         if (i_clt->state == CS_RUNNING) {
 
@@ -1065,10 +1015,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             if (mint && !mint->in_restart) {
 
-                BOLT_IF(missing_remote, E_XL4BUS_DATA,
-                        "Can not cope with missing remote in internal message exchange");
-
-                BOLT_SUB(get_xl4bus_message(&vot, &root, &type));
+                BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
 
                 DBG("mint %p state %d, received %s", mint, mint->mis, json_object_get_string(root));
 
@@ -1082,6 +1029,9 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     err = ll_msg_cb(conn, &mint->ll_msg);
                     if (err != E_XL4BUS_OK) {
                         xl4bus_abort_stream(conn, msg->stream_id);
+                        // $TODO: The error remains to be set to NOT OK, which will lead
+                        // to us returning it to low level, and low level terminating the connection
+                        // That sounds wrong, if all we wanted was to abort the stream...
                     }
 
                     BOLT_NEST();
@@ -1193,15 +1143,16 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             } else {
 
-                if (!z_strcmp(vot.content_type, "application/vnd.xl4.busmessage+json")) {
+                if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage+json")) {
 
-                    BOLT_IF(missing_remote, E_XL4BUS_DATA,
-                            "Remote must not be missing for system messages");
+                    BOLT_IF(!msg->uses_validation || !msg->uses_encryption, E_XL4BUS_DATA, "System messages must be signed and encrypted");
 
-                    BOLT_SUB(get_xl4bus_message(&vot, &root, &type));
+                    BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
 
                     if (!strcmp(type, "xl4bus.presence")) {
+
                         handle_presence(clt, root);
+
                     } else {
 
                         DBG("Unknown message type %s received : %s", type, json_object_get_string(root));
@@ -1209,6 +1160,9 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     }
 
                 } else {
+
+                    // OK, the incoming message must have come from another client (and not from the broker).
+                    // In this case, it must be W4, W5 or W6 type.
 
                     // if remote is missing, we must ask for the key, and table the message for now.
 
@@ -1225,7 +1179,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         mint->ll_msg.data_len = msg->data_len;
                         BOLT_MALLOC(mint->ll_msg.data, msg->data_len);
                         memcpy((void*)mint->ll_msg.data, msg->data, msg->data_len);
-                        mint->ll_msg.was_encrypted = msg->was_encrypted;
+                        mint->ll_msg.uses_encryption = msg->uses_encryption;
                         mint->ll_msg.stream_id = msg->stream_id;
                         mint->ll_msg.is_reply = msg->is_reply;
                         mint->ll_msg.is_final = 0;
@@ -1269,14 +1223,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             DBG("Payload is not jose message");
 
-#if XL4_DISABLE_ENCRYPTION
-                            BOLT_MEM(message.content_type = f_strdup(vot.content_type));
-                            BOLT_MALLOC(message.data, vot.data_len);
-                            memcpy((void*)message.data, vot.data, vot.data_len);
-                            message.data_len = vot.data_len;
-#else
                             BOLT_SAY(E_XL4BUS_DATA, "Encryption is required");
-#endif
 
                         } else {
 
@@ -1285,13 +1232,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             BOLT_CJOSE(jwe = cjose_jwe_import_json((char *) vot.data, vot.data_len - 1, &c_err));
 
-#if XL4_FAKE_ENCRYPTION
-                            BOLT_CJOSE(jwk = cjose_jwk_import(FAKE_KEY, strlen(FAKE_KEY), &c_err));
-                            BOLT_CJOSE(message.data = cjose_jwe_decrypt(jwe, jwk, &message.data_len, &c_err));
-#else
                             BOLT_CJOSE(message.data = cjose_jwe_decrypt_multi(jwe, key_locator, clt,
                                     &message.data_len, &c_err));
-#endif
 
                             cjose_header_t *hdr = cjose_jwe_get_protected(jwe);
 
@@ -1346,22 +1288,48 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         }
 
-        BOLT_IF(missing_remote, E_XL4BUS_DATA,
-                "Can not cope with missing remote during connection negotiation");
-
-        BOLT_SUB(get_xl4bus_message(&vot, &root, &type));
+        BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
 
         if (i_clt->state == CS_EXPECTING_ALGO && !strcmp(type, "xl4bus.alg-supported")) {
 
+            // $TODO: check the algorithms!
+
             i_clt->state = CS_EXPECTING_CONFIRM;
+
+            int64_t protocol;
+
+            BOLT_SUB(xl4json_get_pointer(root, "/body/protocol-version", json_type_int, &protocol));
+            BOLT_IF(protocol != 2, E_XL4BUS_DATA, "Unsupported protocol version %" PRId64, protocol);
+
+            xl4bus_key_t key = {
+                    .type = XL4KT_AES_256,
+            };
+
+            pf_random(key.aes_256, sizeof(key.aes_256));
+
+            BOLT_SUB(xl4bus_set_session_key(conn, &key));
+
+            BOLT_CJOSE(cjose_base64url_encode(key.aes_256, sizeof(key.aes_256), &key_base64, 0, &c_err));
+
+            json_object * body;
+
+            BOLT_MEM(body = xl4json_make_obj(0,
+                    "M", "session-key", xl4json_make_obj(0,
+                            "S", "kty", "oct",
+                            "S", "k", key_base64,
+                            NULL),
+                    NULL));
 
             // send registration request.
             // https://gitlab.excelfore.com/schema/json/xl4bus/registration-request.json
             BOLT_SUB(send_json_message(clt, 1, 0, msg->stream_id,
-                    "xl4bus.registration-request", 0, 1));
+                    "xl4bus.registration-request", body, 1));
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
                 !strcmp(type, "xl4bus.presence") && msg->is_final) {
+
+            BOLT_IF(!msg->uses_session_key || msg->uses_validation,
+                    E_XL4BUS_DATA, "Presence message must use session key");
 
             i_clt->state = CS_RUNNING;
             if (clt->on_status) {
@@ -1399,6 +1367,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         } else {
 
+            // $TODO: well, nothing is actually being reset here...
             DBG("Resetting handshake. State: %s, incoming typ: %s, is_final: %d", state_str(i_clt->state),
                     type, msg->is_final);
 
@@ -1414,11 +1383,10 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     unref_mint(mint);
 
-    cfg.free(missing_remote);
-
-    clean_validated_object(&vot);
     json_object_put(root);
     json_object_put(req_destinations);
+
+    free_s(key_base64);
 
     return err;
 
@@ -1584,21 +1552,33 @@ static void process_message_out(xl4bus_client_t * clt, message_internal_t * mint
 
 }
 
-int get_xl4bus_message(validated_object_t const * vot, json_object ** json, char const ** type) {
+int get_xl4bus_message_msg(xl4bus_ll_message_t const * msg, json_object ** json, char const ** type) {
+
+    return get_xl4bus_message(msg->data, msg->data_len, msg->content_type, json, type);
+
+}
+
+int get_xl4bus_message_vo(validated_object_t const * vot, json_object ** json, char const ** type) {
+
+    return get_xl4bus_message((char const*)vot->data, vot->data_len, vot->content_type, json, type);
+
+}
+
+int get_xl4bus_message(char const * data, size_t data_len, char const* ct, json_object ** json, char const ** type) {
 
     int err = E_XL4BUS_OK;
     *json = 0;
 
     do {
 
-        BOLT_IF(z_strcmp("application/vnd.xl4.busmessage+json", vot->content_type),
-                E_XL4BUS_CLIENT, "Invalid content type %s", SAFE_STR(vot->content_type));
+        BOLT_IF(z_strcmp("application/vnd.xl4.busmessage+json", ct),
+                E_XL4BUS_CLIENT, "Invalid content type %s", SAFE_STR(ct));
 
         // the json must be ASCIIZ.
-        BOLT_IF((vot->data)[vot->data_len-1], E_XL4BUS_CLIENT, "Incoming XL4 message is not ASCIIZ");
+        BOLT_IF(data[data_len-1], E_XL4BUS_CLIENT, "Incoming XL4 message is not ASCIIZ");
 
         // $TODO: distinguish out of memory
-        BOLT_IF(!(*json = json_tokener_parse(vot->data)), E_XL4BUS_CLIENT, "Not valid json: %s", vot->data);
+        BOLT_IF(!(*json = json_tokener_parse(data)), E_XL4BUS_CLIENT, "Not valid json: %s", data);
 
         json_object * aux;
         BOLT_IF(!json_object_object_get_ex(*json, "type", &aux) || !json_object_is_type(aux, json_type_string),

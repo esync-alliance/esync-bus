@@ -198,7 +198,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/identity.c
     src/misc.c
     src/net.c
-    src/signed.c
+        src/jwx.c
     src/internal.h
     src/porting.h
     src/misc.h

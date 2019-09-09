@@ -399,17 +399,17 @@ int add_to_dbuf(dbuf_t * into, void * from, size_t from_len) {
 
 }
 
-void free_dbuf(dbuf_t ** dbuf) {
-    clear_dbuf(*dbuf);
-    free(*dbuf);
-    *dbuf = 0;
+void free_dbuf(dbuf_t ** buf) {
+    clear_dbuf(*buf);
+    free(*buf);
+    *buf = 0;
 }
 
-void clear_dbuf(dbuf_t * dbuf) {
+void clear_dbuf(dbuf_t * buf) {
 
-    if (dbuf) {
-        cfg.free(dbuf->data);
-        memset(dbuf, 0, sizeof(dbuf_t));
+    if (buf) {
+        cfg.free(buf->data);
+        memset(buf, 0, sizeof(dbuf_t));
     }
 
 }
@@ -980,5 +980,22 @@ int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t * strea
 
     return err;
 
+
+}
+
+char const * str_content_type(int ct) {
+
+    switch (ct) {
+        case CT_JOSE_COMPACT:
+            return FCT_JOSE_COMPACT;
+        case CT_JOSE_JSON:
+            return FCT_JOSE_JSON;
+        case CT_APPLICATION_JSON:
+            return FCT_APPLICATION_JSON;
+        case CT_TRUST_MESSAGE:
+            return FCT_TRUST_MESSAGE;
+        default:
+            return FCT_APPLICATION_OCTET_STREAM;
+    }
 
 }

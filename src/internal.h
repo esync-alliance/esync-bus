@@ -53,6 +53,13 @@
 #define CT_APPLICATION_JSON 2
 #define CT_TRUST_MESSAGE 3
 
+#define FCT_JOSE_COMPACT "application/jose"
+#define FCT_JOSE_JSON "application/jose+json"
+#define FCT_APPLICATION_JSON "application/json"
+#define FCT_TRUST_MESSAGE "application/vnd.xl4.busmessage-trust+json"
+#define FCT_APPLICATION_OCTET_STREAM "application/octet-stream"
+
+
 #define KU_FLAG_ENCRYPT (1<<0)
 #define KU_FLAG_SIGN (1<<1)
 
@@ -136,6 +143,7 @@ typedef struct connection_internal {
 
     cjose_jwk_t * private_key;
     cjose_jwk_t * remote_key;
+    cjose_jwk_t * session_key;
     json_object * x5c;
 
     int ku_flags;
@@ -189,19 +197,34 @@ typedef enum message_info_state {
     MIS_WAIT_DETAILS,
     MIS_WAIT_CONFIRM,
     /* for incoming messages */
-    MIS_NEED_REMOTE
+    MIS_NEED_REMOTE,
+    /* for key requests */
+    MIS_EXPECTING_KEY
 } message_info_state_t;
 
 typedef struct remote_info {
 
     UT_hash_handle hh;
+
     // $TODO: we don't use crt after we processed incoming x5c, may
     // be we should dump it?
     mbedtls_x509_crt crt;
+
     char * x5t;
     cjose_jwk_t * key;
     // parsed xl4 bus addresses declared in the cert.
     xl4bus_address_t * addresses;
+
+    char * to_kid;
+    cjose_jwk_t * to_key;
+    uint64_t to_key_expiration;
+
+    char * from_kid;
+    cjose_jwk_t * from_key;
+    uint64_t from_key_expiration;
+
+    uint8_t from_kid_prefix[256 / 8 + 256 / 8];
+
     int ref_count;
 
 } remote_info_t;
@@ -284,14 +307,43 @@ typedef struct validated_object {
     remote_info_t * remote_info;
     char * content_type;
 
-    int data_copy;
-
-    // these are internal, and are maintained by the ones above
+    // these are not to be cleaned up!
     uint8_t * data;
     size_t data_len;
 
 } validated_object_t;
 
+typedef struct decrypt_and_verify_data {
+
+    void const * in_data;
+    size_t in_data_len;
+    int in_ct;
+
+    void const * out_data;
+    size_t out_data_len;
+    char const * out_ct;
+
+    cjose_jwk_t const * asymmetric_key;
+    cjose_jwk_t const * symmetric_key;
+
+    int was_encrypted;
+    int was_symmetric;
+    int was_verified;
+
+    json_object * bus_object;
+
+    remote_info_t * remote;
+
+    char * missing_kid;
+    char * missing_x5t;
+
+    // items below need to be freed after result is processed, freeing this data
+    // will invalidate the result, but the result may not depend on this data either
+    void * x_data;
+    void * x_content_type;
+    cjose_jws_t * x_jws;
+
+} decrypt_and_verify_data_t;
 
 typedef int (*x509_lookup_t)(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
 
@@ -313,16 +365,22 @@ stream_t * ref_stream(stream_t *);
 void unref_stream(stream_t *);
 void release_stream(xl4bus_connection_t *, stream_t *, xl4bus_stream_close_reason_t);
 
-/* signed.c */
+/* jwx.c */
 // $TODO: validate incoming JWS message
 #define validate_jws XI(validate_jws)
 #define sign_jws XI(sign_jws)
 #define encrypt_jwe XI(encrypt_jwe)
 #define decrypt_jwe XI(decrypt_jwe)
+#define decrypt_and_verify XI(decrypt_and_verify)
+#define clean_decrypt_and_verify XI(clean_decrypt_and_verify)
 int validate_jws(void const * bin, size_t bin_len, int ct, xl4bus_connection_t * conn, validated_object_t * vo, char ** missing_remote);
 int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void * data, size_t data_len, char const * ct, char ** jws_data, size_t * jws_len);
 int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
-int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * key, void ** decrypted, size_t * decrypted_len, char ** cty);
+int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * a_key, cjose_jwk_t * s_key,
+        int * is_verified, void ** decrypted, size_t * decrypted_len, char ** cty);
+
+int decrypt_and_verify(decrypt_and_verify_data_t * dav);
+void clean_decrypt_and_verify(decrypt_and_verify_data_t * dav);
 
 /* addr.c */
 
@@ -351,6 +409,8 @@ int build_address_list(json_object *, xl4bus_address_t **);
 #define inflate_content_type XI(inflate_content_type)
 #define asn1_to_json XI(asn1_to_json)
 #define clean_validated_object XI(clean_validated_object)
+#define str_content_type XI(str_content_type)
+#define xl4json_get_pointer XI(xl4json_get_pointer)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -369,6 +429,73 @@ const char * pack_content_type(const char *);
 int asn1_to_json(xl4bus_asn1_t *, json_object **);
 char * inflate_content_type(char const *);
 void clean_validated_object(validated_object_t * );
+char const * str_content_type(int ct);
+int xl4json_get_pointer(json_object *, char const *, json_type, void *);
+void free_s(void*);
+
+/**
+ * Helper method to create json object from a set of properties.
+ * The variable parameters that follow the first argument are treated as
+ * property type, including instruction on how to add the property, followed by property name,
+ * and optionally followed by property value. The very last, single,
+ * parameter value must be `(void*)0`. Property names are literals. Property types are literals
+ * carrying special meaning described below:
+ *
+ * ['@''&'] <type char>
+ *
+ * The following property types are recognized:
+ *
+ * J - json_object *, the parameter must be a pointer to a json object. The
+ *     reference count for the JSON object is not modified, however the object
+ *     is attached to the structure of the returned object, which effectively
+ *     moves one reference count from the invoking code to the returned object.
+ *     if you need to keep the reference to the json object, call `json_object_get`
+ *     on the argument.
+ * M - json_object *, works almost the same way as with 'J', but, if the actual object
+ *     pointer encountered in the corresponding position is 0, treats this as a memory
+ *     allocation failure, causing the function to return 0. This is useful to have
+ *     chained make_json_obj() calls, without explicitly doing memory checks.
+ * N - null, no value
+ * B - boolean, argument is type int
+ * D - number, argument is type double
+ * I - number, argument is int
+ * 6 - number, argument is int64_t
+ * S - string, argument is char*
+ * X - string, argument is char*, but the string is freed after use
+ *
+ * Lowercase letters can be used as well.
+ *
+ * A special prefix '@' can be used, in which case if the value
+ * could not be created (null), then no property is added.
+ * A special prefix '&' can be used, in which case the key is in the next
+ * parameter, so there is a total of 3 parameters for entry.
+ *
+ * Examples:
+ * `make_json_obj(0, "B", "clean", 1, "S", "code", "x12", 0)` -> creates
+ * new object `{"clean":true, "code":"x12"}`
+ *
+ * @param obj If `0`, then a new JSON object will be created, otherwise properties
+ * will be added to the specified JSON object. If memory problems are detected, and the
+ * existing object is provided, `0` will be returned from this function, and reference
+ * count on the existing object will be dropped to avoid memory leaks in cases like:
+ * `obj = make_json_obj(obj, ...)`. If you don't want the object to be released, call
+ * `json_object_get()` on the first parameter, but then call `json_object_put` on the returned
+ * object. This generally will work:
+ * `json_object_put(obj = make_json_obj(obj, ...)`. If `0` were returned then `json_object_put` is a no-op.
+ * @param ... sequence of parameters identifying JSON object properties to add,
+ * terminated with `0`.
+ * @return populated object or `0` if there were memory issues creating any of the objects.
+ */
+json_object * xl4json_make_obj(json_object * obj, ...);
+
+/**
+ * This is analogous to ::make_json_obj, but uses `va_list` arguments instead
+ * of variadic arguments.
+ * @param obj json object to pass to ::make_json_obj
+ * @param ap2 represents variadic arguments
+ * @return populated object or `0` if there were problems creating any of the objects.
+ */
+json_object * xl4json_make_obj_v(json_object *obj, va_list ap2);
 
 /* x509.c */
 

@@ -88,25 +88,6 @@
 #cmakedefine01 XL4_HAVE_EPOLL
 
 /**
- * If 1, the library will not encrypt traffic, nor require
- * encryption.
- */
-#cmakedefine01 XL4_DISABLE_ENCRYPTION
-
-/**
- * If 1, the library will encrypt traffic, but the encryption
- * will be done using a hard-coded key; only AES encryption
- * is used in that case.
- */
-#cmakedefine01 XL4_FAKE_ENCRYPTION
-
-/**
- * If 1, the library will disable signing, and not require
- * JWS verification on the payload.
- */
-#cmakedefine01 XL4_DISABLE_JWS
-
-/**
  * Limit the amount of path element that the user agent may have.
  */
 #cmakedefine XL4_MAX_UA_PATHS

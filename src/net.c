@@ -745,11 +745,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
         // Is the message now complete?
         if (frm.byte0 & FRAME_LAST_MASK) {
 
-            cjose_jws_t *jws = 0;
-
-            char *decrypted_ct = 0;
-            void *decrypted_data = 0;
-            json_object *bus_object = 0;
+            decrypt_and_verify_data_t dav = {0};
 
             do {
 
@@ -757,59 +753,22 @@ int process_normal_frame(xl4bus_connection_t * conn) {
                 xl4bus_ll_message_t message;
                 memset(&message, 0, sizeof(xl4bus_ll_message_t));
 
-                // the message can be encrypted with our private key, or not.
-                // let's try to treat it as encrypted message first.
+                dav.in_data = stream->incoming_message_data.data;
+                dav.in_data_len = stream->incoming_message_data.len;
+                dav.in_ct = stream->incoming_message_ct;
 
-                int decrypt_err = decrypt_jwe(stream->incoming_message_data.data,
-                        stream->incoming_message_data.len, stream->incoming_message_ct,
-                        conn->my_x5t, i_conn->private_key,
-                        &decrypted_data, &message.data_len, &decrypted_ct);
+                dav.asymmetric_key = i_conn->private_key;
+                dav.symmetric_key = i_conn->session_key;
 
-                if (!decrypt_err) {
+                BOLT_SUB(decrypt_and_verify(&dav));
 
-                    // decrypted OK
+                message.data = dav.out_data;
+                message.data_len = dav.out_data_len;
+                message.content_type = dav.out_ct;
 
-                    if (decrypted_ct) {
-                        message.content_type = decrypted_ct;
-                    } else {
-                        message.content_type = decrypted_ct =
-                                f_strdup("application/octet-stream");
-                    }
-
-                    message.data = decrypted_data;
-                    message.was_encrypted = 1;
-
-                    // we were able to decrypt our data, which means that the remote
-                    // has learned our public key, so we can drop sending it in full.
-                    json_object_put(i_conn->x5c);
-                    i_conn->x5c = 0;
-
-                } else {
-
-                    message.data = stream->incoming_message_data.data;
-                    message.data_len = stream->incoming_message_data.len;
-                    message.was_encrypted = 0;
-                    const char *ct = 0;
-                    switch (stream->incoming_message_ct) {
-                        case CT_JOSE_COMPACT:
-                            ct = "application/jose";
-                            break;
-                        case CT_JOSE_JSON:
-                            ct = "application/jose+json";
-                            break;
-                        case CT_APPLICATION_JSON:
-                            ct = "application/json";
-                            break;
-                        case CT_TRUST_MESSAGE:
-                            ct = "application/vnd.xl4.busmessage-trust+json";
-                            break;
-                        default:
-                            ct = "application/octet-stream";
-                            break;
-                    }
-                    message.content_type = decrypted_ct = f_strdup(ct);
-
-                }
+                message.uses_encryption = dav.was_encrypted;
+                message.uses_validation = dav.was_verified;
+                message.uses_session_key = dav.was_symmetric;
 
                 message.stream_id = stream_id;
                 message.is_reply = stream->is_reply;
@@ -828,11 +787,8 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
             clear_dbuf(&stream->incoming_message_data);
             stream->message_started = 0;
-            cjose_jws_release(jws);
-            cfg.free(decrypted_data);
-            cfg.free(decrypted_ct);
 
-            json_object_put(bus_object);
+            clean_decrypt_and_verify(&dav);
 
             if (stream->is_final) {
                 release_stream(conn, stream, XL4SCR_REMOTE_CLOSED);

@@ -236,7 +236,7 @@ int on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     my_info_t * ci = conn->custom;
 
     iDBG("hooray, a message through %s.%d, encrypted=%d!",
-            ci->name, msg->stream_id, msg->was_encrypted);
+            ci->name, msg->stream_id, msg->uses_encryption);
     msg->timeout_ms = 1000;
 
     return E_XL4BUS_OK;

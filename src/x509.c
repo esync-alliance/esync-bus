@@ -126,6 +126,8 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** r
     uint8_t * der = 0;
     cjose_jwk_rsa_keyspec rsa_ks;
 
+    uint8_t * bin_x5t = 0;
+
     memset(&rsa_ks, 0, sizeof(cjose_jwk_rsa_keyspec));
 
     if (rmi) { *rmi = 0; }
@@ -172,7 +174,7 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** r
 
             }
         }
-        BOLT_SUB(err);
+        BOLT_NEST();
 
         connection_internal_t * i_conn = conn->_private;
 
@@ -397,7 +399,21 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** r
 
         }
 
-        BOLT_NEST();
+        // build KID prefix, for KIDs that that remote must use to
+        // send stuff to us.
+
+        size_t bin_x5t_len;
+
+        BOLT_CJOSE(cjose_base64url_decode(entry->x5t, strlen(entry->x5t), &bin_x5t, &bin_x5t_len, &c_err));
+        BOLT_IF(bin_x5t_len != 64, E_XL4BUS_INTERNAL, "Unexpected x5t binary len %zu", bin_x5t_len);
+
+        memcpy(entry->from_kid_prefix, bin_x5t, bin_x5t_len);
+        Z_FREE(bin_x5t);
+
+        BOLT_CJOSE(cjose_base64url_decode(conn->my_x5t, strlen(conn->my_x5t), &bin_x5t, &bin_x5t_len, &c_err));
+        BOLT_IF(bin_x5t_len != 64, E_XL4BUS_INTERNAL, "Unexpected x5t binary len %zu", bin_x5t_len);
+
+        memcpy(entry->from_kid_prefix + bin_x5t_len, bin_x5t, bin_x5t_len);
 
 #if XL4_SUPPORT_THREADS
         BOLT_SYS(pf_lock(&cert_cache_lock), "");
@@ -428,6 +444,7 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** r
 
     cfg.free(der);
     clean_keyspec(&rsa_ks);
+    cfg.free(bin_x5t);
 
     release_remote_info(entry);
 
