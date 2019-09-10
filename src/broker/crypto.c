@@ -634,7 +634,7 @@ int sign_jws(conn_info_t * ci, json_object * bus_object, const void *data, size_
 
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, "RS256", &c_err));
 
-        ct = pack_content_type(ct);
+        ct = deflate_content_type(ct);
 
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, ct, &c_err));
 

@@ -75,7 +75,7 @@ static inline char * inflate_content_type(char const * ct) {
 
 }
 
-static const char * pack_content_type(const char * ct) {
+static const char * deflate_content_type(const char * ct) {
 
     // this is for https://tools.ietf.org/html/rfc7515#section-4.1.10,
     // application/ can be omitted if there are no other slashes.

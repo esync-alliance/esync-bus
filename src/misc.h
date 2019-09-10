@@ -12,6 +12,16 @@ extern uint32_t crcTable[];
 #define Z_FREE(a) do { cfg.free(a); a = 0; } while (0)
 #define Z(op, p) do { op(p); p = 0; } while (0)
 
+static inline int always_ok(void) { return E_XL4BUS_OK; }
+
+#if XL4_SUPPORT_THREADS
+#define LOCK(a) pf_lock(&a)
+#define UNLOCK(a) pf_unlock(&cert_cache_lock)
+#else
+#define LOCK(a) always_ok()
+#define UNLOCK(a) do{}while(0)
+#endif
+
 // Credit : https://barrgroup.com/Embedded-Systems/How-To/CRC-Calculation-C-Code
 static inline void crcFast(void * data, size_t len, uint32_t * crc) {
 

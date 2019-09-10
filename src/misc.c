@@ -642,7 +642,7 @@ char * inflate_content_type(char const * ct) {
 
 }
 
-const char * pack_content_type(const char * ct) {
+const char * deflate_content_type(const char * ct) {
 
     // this is for https://tools.ietf.org/html/rfc7515#section-4.1.10,
     // application/ can be omitted if there are no other slashes.
@@ -656,6 +656,30 @@ const char * pack_content_type(const char * ct) {
     }
 
     return ct;
+
+}
+
+int get_numeric_content_type(char const * str, uint8_t * num) {
+
+    int err = E_XL4BUS_OK;
+
+    do {
+
+        if (!z_strcmp(str, FCT_JOSE_COMPACT)) {
+            *num = CT_JOSE_COMPACT;
+        } else if (!z_strcmp(str, FCT_JOSE_JSON)) {
+            *num = CT_JOSE_JSON;
+        } else if (!z_strcmp(str, FCT_APPLICATION_JSON)) {
+            *num = CT_APPLICATION_JSON;
+        } else if (!z_strcmp(str, FCT_TRUST_MESSAGE)) {
+            *num = CT_TRUST_MESSAGE;
+        } else {
+            BOLT_SAY(E_XL4BUS_ARG, "Unsupported content type %s", str);
+        }
+
+    } while (0);
+
+    return err;
 
 }
 
@@ -862,20 +886,6 @@ int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
 
 }
 
-void clean_validated_object(validated_object_t * vo) {
-
-    cjose_jws_release(vo->exp_jws);
-    json_object_put(vo->bus_object);
-    json_object_put(vo->x5c);
-    release_remote_info(vo->remote_info);
-    cfg.free(vo->content_type);
-
-    if (vo->data_copy) {
-        cfg.free(vo->data);
-    }
-
-}
-
 int xl4bus_copy_address(xl4bus_address_t * src, int chain, xl4bus_address_t ** receiver) {
 
     xl4bus_address_t * new_chain = 0;
@@ -997,5 +1007,195 @@ char const * str_content_type(int ct) {
         default:
             return FCT_APPLICATION_OCTET_STREAM;
     }
+
+}
+
+int xl4json_get_pointer(json_object * obj, char const * path, json_type type, void * target) {
+
+    json_object * leaf;
+    if (!json_pointer_get(obj, path, &leaf)) {
+        return E_XL4BUS_ARG;
+    }
+    if (!json_object_is_type(leaf, type)) {
+        return E_XL4BUS_ARG;
+    }
+
+    if (target) {
+
+        switch (type) {
+
+            case json_type_null:
+                *(void**)target = 0;
+                break;
+            case json_type_boolean:
+                *(int*)target = json_object_get_boolean(leaf);
+                break;
+            case json_type_double:
+                *(double*)target = json_object_get_double(leaf);
+                break;
+            case json_type_int:
+                *(int64_t*)target = json_object_get_int64(leaf);
+                break;
+            case json_type_object:
+            case json_type_array:
+                *(json_object**)target = leaf;
+                break;
+            case json_type_string:
+                *(char const **)target = json_object_get_string(leaf);
+                break;
+            default:
+                return E_XL4BUS_ARG;
+        }
+
+    }
+
+    return E_XL4BUS_OK;
+
+}
+
+json_object * xl4json_make_obj(json_object * obj, ...) {
+
+    va_list ap;
+    va_start(ap, obj);
+    obj = xl4json_make_obj_v(obj, ap);
+    va_end(ap);
+    return obj;
+
+}
+
+
+json_object * xl4json_make_obj_v(json_object *obj, va_list ap2) {
+
+    if (!obj) {
+        obj = json_object_new_object();
+        if (!obj) { return 0; } // oom
+    }
+
+    va_list ap;
+    va_copy(ap, ap2);
+
+    int no_mem = 0;
+
+    while (1) {
+
+        const char * key = va_arg(ap, char*);
+        const char * prop = va_arg(ap, char*);
+        if (!key) { break; }
+
+        json_object * val = 0;
+
+        int no_null = 0;
+
+        if (*key == '@') {
+            key++;
+            no_null = 1;
+        }
+
+        switch (*key) {
+
+            case 'J':
+            case 'j':
+                val = va_arg(ap, json_object*);
+                if (no_null && json_object_is_type(val, json_type_null)) {
+                    Z(json_object_put, val);
+                }
+                break;
+
+            case 'M':
+            case 'm':
+                val = va_arg(ap, json_object*);
+                if (!val) {
+                    no_mem = 1;
+                }
+                break;
+
+            case 'B':
+            case 'b':
+                if (!(val = json_object_new_boolean(va_arg(ap, int)))) {
+                    no_mem = 1;
+                }
+                break;
+
+            case 'D':
+            case 'd':
+                if (!(val = json_object_new_double(va_arg(ap, double)))) {
+                    no_mem = 1;
+                }
+                break;
+
+            case 'I':
+            case 'i':
+                if (!(val = json_object_new_int(va_arg(ap, int)))) {
+                    no_mem = 1;
+                }
+                break;
+
+            case '6':
+                if (!(val = json_object_new_int64(va_arg(ap, int64_t)))) {
+                    no_mem = 1;
+                }
+                break;
+
+            case 'S':
+            case 's':
+            {
+                char * str = va_arg(ap, char*);
+                if (str) {
+                    if (!(val = json_object_new_string(str))) {
+                        no_mem = 1;
+                    }
+                }
+            }
+                break;
+
+            case 'X':
+            case 'x':
+            {
+                char * str = va_arg(ap, char*);
+                if (str) {
+                    if (!(val = json_object_new_string(str))) {
+                        no_mem = 1;
+                    }
+                    free(str);
+                }
+            }
+            break;
+
+            default:
+                break;
+
+        }
+
+        if (no_mem) {
+            break;
+        }
+
+        if (!no_null || val) {
+            json_object_object_add(obj, prop, val);
+        }
+
+    }
+
+    va_end(ap);
+
+    if (no_mem) {
+        json_object_put(obj);
+        return 0;
+    }
+
+    return obj;
+
+}
+
+void free_s(void * ptr, size_t s) {
+
+    // $TODO: I don't understand why memset_s is not available,
+    // <string.h> is included, and language is set to c11...
+    // memset_s(ptr, s, 0, s);
+
+    volatile unsigned char *p = ptr;
+    while (s--) { *p++ = 0; }
+
+    cfg.free(ptr);
 
 }

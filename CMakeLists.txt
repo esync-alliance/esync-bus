@@ -280,8 +280,8 @@ if (BUILD_BINS)
             src/test_clients/ll-client.c
             ${LIB_SRC}
         )
-    add_executable(xl4bus-broker
-            src/broker/broker.h
+
+    set(BROKER_SRC src/broker/broker.h
             src/broker/bus.c
             src/broker/crypto.c
             src/broker/e900.c
@@ -292,7 +292,11 @@ if (BUILD_BINS)
             src/uthash.h
             src/utarray.h
             ${LIB_SRC}
-        )
+            )
+
+
+    add_executable(xl4bus-broker ${BROKER_SRC})
+    add_executable(xl4bus-broker-untested ${BROKER_SRC})
 
     add_executable(tree-test
         src/tests/tree.c
@@ -309,7 +313,7 @@ if (BUILD_BINS)
         set(TEST_BINARIES "tree-test")
     endif()
 
-    set(BINARIES "ll-client" "xl4bus-broker" ${TEST_BINARIES})
+    set(BINARIES "ll-client" "xl4bus-broker" "xl4bus-broker-untested" ${TEST_BINARIES})
 
     if (XL4_PROVIDE_THREADS)
 

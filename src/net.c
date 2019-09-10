@@ -542,8 +542,6 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
-#if !XL4_DISABLE_ENCRYPTION
-
         // encrypt if we can
         if (i_conn->remote_key) {
 
@@ -555,28 +553,9 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         } else {
 
-#else
-
-        // clear out x5c if encryption is disabled, it will never
-        // otherwise be cleared, and we'll be doing expensive validation
-        json_object_put(i_conn->x5c);
-        i_conn->x5c = 0;
-
-#endif /* !XL4_DISABLE_ENCRYPTION */
-
             DBG("Not encrypting message, remote public key not set");
 
-            if (!z_strcmp(msg->content_type, "application/jose")) {
-                ct = CT_JOSE_COMPACT;
-            } else if (!z_strcmp(msg->content_type, "application/jose+json")) {
-                ct = CT_JOSE_JSON;
-            } else if (!z_strcmp(msg->content_type, "application/json")) {
-                ct = CT_APPLICATION_JSON;
-            } else if (!z_strcmp(msg->content_type, "application/vnd.xl4.busmessage-trust+json")) {
-                ct = CT_TRUST_MESSAGE;
-            } else {
-                BOLT_SAY(E_XL4BUS_ARG, "Unsupported content type %s", msg->content_type);
-            }
+            BOLT_SUB(get_numeric_content_type(msg->content_type, &ct));
 
             BOLT_MALLOC(frame, msg->data_len + 13);
             memcpy(frame + 9, msg->data, ser_len = msg->data_len);
@@ -760,6 +739,11 @@ int process_normal_frame(xl4bus_connection_t * conn) {
                 dav.asymmetric_key = i_conn->private_key;
                 dav.symmetric_key = i_conn->session_key;
 
+                dav.remote_x5t = conn->remote_x5t;
+                dav.my_x5t = conn->my_x5t;
+                dav.trust = &i_conn->trust;
+                dav.crl = &i_conn->crl;
+
                 BOLT_SUB(decrypt_and_verify(&dav));
 
                 message.data = dav.out_data;
@@ -841,39 +825,37 @@ int process_sabort_frame(xl4bus_connection_t * conn) {
 
     int err = E_XL4BUS_OK;
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+    decrypt_and_verify_data_t dav = {0};
 
     do {
         // must at least be 1 byte that indicates the content type.
         BOLT_IF(!frm.data.len, E_XL4BUS_DATA, "Abort frame must not be empty");
 
         uint16_t stream_id;
-        validated_object_t vo;
-        if (validate_jws(frm.data.data + 1, frm.data.len - 1, (int) frm.data.data[0],
-                conn, &vo, 0) == E_XL4BUS_OK) {
 
-            json_object * bus_object = vo.bus_object;
-            json_object *j;
-            if (bus_object && json_object_object_get_ex(bus_object, "stream-id", &j) &&
-                json_object_is_type(j, json_type_int)) {
+        dav.in_data = frm.data.data + 1;
+        dav.in_data_len = frm.data.len - 1;
+        dav.in_ct = frm.data.data[0];
 
-                int val = json_object_get_int(j);
-                if (!(val & 0xffff)) {
+        BOLT_SUB(decrypt_and_verify(&dav));
+        BOLT_IF(!dav.was_verified, E_XL4BUS_DATA, "abort payload could not be verified");
 
-                    stream_id = (uint16_t) val;
+        json_object * bus_object = dav.bus_object;
+        int64_t in_stream_id;
+        BOLT_SUB(xl4json_get_pointer(dav.bus_object, "/stream-id", json_type_int, &in_stream_id));
+        if (!(in_stream_id & 0xffff)) {
 
-                    stream_t *stream;
-                    HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
-                    release_stream(conn, stream, XL4SCR_REMOTE_ABORTED);
+            stream_id = (uint16_t) in_stream_id;
 
-                }
-            }
-
-            clean_validated_object(&vo);
+            stream_t *stream;
+            HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+            release_stream(conn, stream, XL4SCR_REMOTE_ABORTED);
 
         }
 
-
     } while (0);
+
+    clean_decrypt_and_verify(&dav);
 
     return err;
 

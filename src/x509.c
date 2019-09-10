@@ -30,6 +30,13 @@
 
 remote_info_t * x5t_cache = 0;
 
+// $TODO: The KID cache is even more controversial. The KID is based on
+// local and remote X5t values, so it's really per identity used in a client,
+// but to implement it per client is simply more tedious, especially when it comes
+// to clean up. Since using multiple identities is not a use case for us right now,
+// I'm making this a global. The work to refactor this can be not so trivial.
+remote_info_t * kid_cache = 0;
+
 #if XL4_SUPPORT_THREADS
 void * cert_cache_lock;
 #endif
@@ -119,7 +126,21 @@ void print_time(char * time, mbedtls_x509_time * x509_time) {
 }
 #endif
 
-int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** rmi) {
+int accept_remote_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** rmi) {
+
+    // $TODO: This business with ku_flags is weird, they should probably be tracked in remote_info_t,
+    // rather than in connection object, it makes no sense to set them in connection here. For tnow they
+    // are just simply ignored.
+    int ku_flags;
+
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    return accept_x5c(x5c, conn->my_x5t, &i_conn->trust, &i_conn->crl, &ku_flags, rmi);
+
+}
+
+int accept_x5c(json_object * x5c, char const * my_x5t, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl,
+        int * ku_flags, remote_info_t ** rmi) {
 
     int err = E_XL4BUS_OK;
     remote_info_t * entry = 0;
@@ -176,10 +197,8 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** r
         }
         BOLT_NEST();
 
-        connection_internal_t * i_conn = conn->_private;
-
         uint32_t flags;
-        BOLT_MTLS(mbedtls_x509_crt_verify(&entry->crt, &i_conn->trust, &i_conn->crl, 0, &flags, 0, 0));
+        BOLT_MTLS(mbedtls_x509_crt_verify(&entry->crt, trust, crl, 0, &flags, 0, 0));
 
         BOLT_IF(!mbedtls_pk_can_do(&entry->crt.pk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA certs are supported");
         mbedtls_rsa_context * prk_rsa = mbedtls_pk_rsa(entry->crt.pk);
@@ -193,13 +212,13 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** r
         const char * eku_oid = "1.3.6.1.4.1.45473.3.1";
         if (!mbedtls_x509_crt_check_key_usage(&entry->crt, MBEDTLS_X509_KU_DIGITAL_SIGNATURE) &&
                 !mbedtls_x509_crt_check_extended_key_usage(&entry->crt, eku_oid, strlen(eku_oid))) {
-            i_conn->ku_flags |= KU_FLAG_SIGN;
+            *ku_flags |= KU_FLAG_SIGN;
         }
 
         eku_oid = "1.3.6.1.4.1.45473.3.2";
         if (!mbedtls_x509_crt_check_key_usage(&entry->crt, MBEDTLS_X509_KU_KEY_ENCIPHERMENT) &&
                 !mbedtls_x509_crt_check_extended_key_usage(&entry->crt, eku_oid, strlen(eku_oid))) {
-            i_conn->ku_flags |= KU_FLAG_ENCRYPT;
+            *ku_flags |= KU_FLAG_ENCRYPT;
         }
 
         {
@@ -405,29 +424,31 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** r
         size_t bin_x5t_len;
 
         BOLT_CJOSE(cjose_base64url_decode(entry->x5t, strlen(entry->x5t), &bin_x5t, &bin_x5t_len, &c_err));
-        BOLT_IF(bin_x5t_len != 64, E_XL4BUS_INTERNAL, "Unexpected x5t binary len %zu", bin_x5t_len);
+        BOLT_IF(bin_x5t_len != 256/8, E_XL4BUS_INTERNAL, "Unexpected x5t binary len %zu", bin_x5t_len);
 
         memcpy(entry->from_kid_prefix, bin_x5t, bin_x5t_len);
         Z_FREE(bin_x5t);
 
-        BOLT_CJOSE(cjose_base64url_decode(conn->my_x5t, strlen(conn->my_x5t), &bin_x5t, &bin_x5t_len, &c_err));
-        BOLT_IF(bin_x5t_len != 64, E_XL4BUS_INTERNAL, "Unexpected x5t binary len %zu", bin_x5t_len);
+        BOLT_CJOSE(cjose_base64url_decode(my_x5t, strlen(my_x5t), &bin_x5t, &bin_x5t_len, &c_err));
+        BOLT_IF(bin_x5t_len != 256/8, E_XL4BUS_INTERNAL, "Unexpected x5t binary len %zu", bin_x5t_len);
 
         memcpy(entry->from_kid_prefix + bin_x5t_len, bin_x5t, bin_x5t_len);
 
-#if XL4_SUPPORT_THREADS
-        BOLT_SYS(pf_lock(&cert_cache_lock), "");
-#endif
+        BOLT_SYS(LOCK(cert_cache_lock), "");
 
         remote_info_t * old;
-        HASH_FIND_STR(x5t_cache, entry->x5t, old);
+        HASH_FIND(hh_x5t, x5t_cache, entry->x5t, strlen(entry->x5t), old);
         if (old) {
-            HASH_DEL(x5t_cache, old);
+            HASH_DELETE(hh_x5t, x5t_cache, old);
+            if (old->in_kid_hash) {
+                HASH_DELETE(hh_kid, kid_cache, old);
+            }
             release_remote_info(old);
         }
+
+        BOLT_HASH_ADD_KEYPTR(hh_x5t, x5t_cache, entry->x5t, strlen(entry->x5t), entry);
         entry->ref_count++; // it's going to be in the hash, so rev up the ref_count,
-                            // no need for atomicity here, however, it's not visible anywhere yet.
-        HASH_ADD_KEYPTR(hh, x5t_cache, entry->x5t, strlen(entry->x5t), entry);
+        // no need for atomicity here, however, it's not visible anywhere yet.
 
         if (rmi) {
             // still, nobody can have access to the record, because we are still
@@ -436,9 +457,7 @@ int accept_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t ** r
             *rmi = entry;
         }
 
-#if XL4_SUPPORT_THREADS
-        pf_unlock(&cert_cache_lock);
-#endif
+        UNLOCK(cert_cache_lock);
 
     } while (0);
 
@@ -458,20 +477,17 @@ remote_info_t * find_by_x5t(const char * x5t) {
 
     if (!x5t) { return 0; }
 
-#if XL4_SUPPORT_THREADS
-    if (pf_lock(&cert_cache_lock)) {
+    if (LOCK(cert_cache_lock)) {
         return 0;
     }
-#endif
 
-    HASH_FIND_STR(x5t_cache, x5t, entry);
+    HASH_FIND(hh_x5t, x5t_cache, x5t, strlen(x5t), entry);
+
     if (entry) {
         pf_add_and_get(&entry->ref_count, 1);
     }
 
-#if XL4_SUPPORT_THREADS
-    pf_unlock(&cert_cache_lock);
-#endif
+    UNLOCK(cert_cache_lock);
 
     return entry;
 
@@ -529,3 +545,98 @@ int make_cert_hash(void * der, size_t der_len, char ** cert_hash) {
 
 }
 
+int process_remote_key(json_object * body, char const * local_x5t, remote_info_t * source) {
+
+    int err /*= E_XL4BUS_OK*/;
+    cjose_err c_err;
+    uint8_t * bin = 0;
+    uint8_t * x5t_bin = 0;
+    mbedtls_md_context_t mdc;
+    int locked = 0;
+    cjose_jwk_t * key = 0;
+
+    mbedtls_md_init(&mdc);
+
+    do {
+
+        char const * aux;
+        BOLT_SUB(xl4json_get_pointer(body, "/kty", json_type_string, &aux));
+        BOLT_IF(strcmp("aux", "oct"), E_XL4BUS_DATA, "Unknown key type %s", aux);
+        BOLT_SUB(xl4json_get_pointer(body, "/k", json_type_string, &aux));
+
+        size_t bin_len;
+
+        BOLT_CJOSE(cjose_base64url_decode(aux, strlen(aux), &bin, &bin_len, &c_err));
+        // check that the key size makes sense.
+        BOLT_IF(bin_len != 128 / 8 && bin_len != 192 / 8 && bin_len != 256 / 8, E_XL4BUS_DATA, "Invalid key size %zu", bin_len);
+
+        BOLT_CJOSE(key = cjose_jwk_create_oct_spec(bin, bin_len, &c_err));
+
+        // calculate the KID
+        // Let KID = Base64 ( A⌢B⌢SHA-256(A⌢B⌢K))
+
+        int hash_len = mbedtls_md_get_size(hash_sha256);
+
+        // let's get A⌢B⌢K first
+        BOLT_REALLOC(bin, uint8_t, bin_len + hash_len * 2, bin_len);
+        memmove(bin + hash_len * 2, bin, bin_len - hash_len * 2);
+
+        size_t ck_len = 0;
+        cjose_base64url_decode(source->x5t, strlen(source->x5t), &x5t_bin, &ck_len, &c_err);
+        BOLT_IF(ck_len != hash_len, E_XL4BUS_INTERNAL, "Bad hash length %zu", ck_len);
+        memcpy(bin, x5t_bin, hash_len);
+        Z_FREE(x5t_bin);
+
+        cjose_base64url_decode(local_x5t, strlen(local_x5t), &x5t_bin, &ck_len, &c_err);
+        BOLT_IF(ck_len != hash_len, E_XL4BUS_INTERNAL, "Bad hash length %zu", ck_len);
+        memcpy(bin + hash_len, x5t_bin, hash_len);
+
+        // the top cert is the reference point.
+        uint8_t hash_val[hash_len];
+
+        // calculate sha-256 of the entire DER
+        BOLT_MTLS(mbedtls_md_setup(&mdc, hash_sha256, 0));
+        BOLT_MTLS(mbedtls_md_starts(&mdc));
+        BOLT_MTLS(mbedtls_md_update(&mdc, bin, bin_len));
+        BOLT_MTLS(mbedtls_md_finish(&mdc, hash_val));
+
+        // we have hash of A⌢B⌢K, let's replace A⌢B⌢K with A⌢B⌢SHA-256(A⌢B⌢K)
+
+        BOLT_REALLOC(bin, uint8_t, hash_len * 3, bin_len);
+        memcpy(bin + hash_len * 2, hash_val, hash_len);
+
+        // if we base64 bin, we got our KID
+
+        LOCK(cert_cache_lock);
+        locked = 1;
+
+        if (source->in_kid_hash) {
+            HASH_DELETE(hh_kid, kid_cache, source);
+            source->in_kid_hash = 0;
+        }
+
+        Z_FREE(source->from_kid);
+        Z(cjose_jwk_release, source->from_key);
+
+        size_t o_len;
+        BOLT_CJOSE(cjose_base64url_encode(bin, bin_len, &source->from_kid, &o_len, &c_err));
+        BOLT_CJOSE(source->from_key = cjose_jwk_retain(key, &c_err));
+
+        BOLT_HASH_ADD_KEYPTR(hh_kid, kid_cache, source->from_kid, o_len, source);
+        source->in_kid_hash = 1;
+
+    } while (0);
+
+    if (locked) {
+        UNLOCK(cert_cache_lock);
+    }
+
+    mbedtls_md_free(&mdc);
+    cjose_jwk_release(key);
+
+    cfg.free(bin);
+    cfg.free(x5t_bin);
+
+    return err;
+
+}

@@ -2,6 +2,7 @@
   <dictionary name="vps">
     <words>
       <w>addr</w>
+      <w>asciiz</w>
       <w>beforehands</w>
       <w>calloc</w>
       <w>cjose</w>
