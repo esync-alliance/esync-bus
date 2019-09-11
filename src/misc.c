@@ -947,16 +947,12 @@ int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t * strea
 
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
 
-#if XL4_SUPPORT_THREADS
     int locked = 0;
-#endif
 
     do {
 
-#if XL4_SUPPORT_THREADS
-        BOLT_SYS(pf_lock(&i_conn->hash_lock), "");
+        BOLT_SYS(LOCK(i_conn->hash_lock), "");
         locked = 1;
-#endif
 
         uint16_t old;
 
@@ -982,11 +978,9 @@ int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t * strea
 
     } while (0);
 
-#if XL4_SUPPORT_THREADS
     if (locked) {
-        pf_unlock(&i_conn->hash_lock);
+        UNLOCK(i_conn->hash_lock);
     }
-#endif
 
     return err;
 
@@ -1013,7 +1007,7 @@ char const * str_content_type(int ct) {
 int xl4json_get_pointer(json_object * obj, char const * path, json_type type, void * target) {
 
     json_object * leaf;
-    if (!json_pointer_get(obj, path, &leaf)) {
+    if (json_pointer_get(obj, path, &leaf)) {
         return E_XL4BUS_ARG;
     }
     if (!json_object_is_type(leaf, type)) {
@@ -1171,7 +1165,12 @@ json_object * xl4json_make_obj_v(json_object *obj, va_list ap2) {
         }
 
         if (!no_null || val) {
-            json_object_object_add(obj, prop, val);
+            if (json_object_object_add(obj, prop, val)) {
+                // json-c documentation doesn't say anything about
+                // memory, but what else could have went wrong?
+                no_mem = 1;
+                break;
+            }
         }
 
     }

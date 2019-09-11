@@ -44,15 +44,11 @@ void release_stream(xl4bus_connection_t * conn, stream_t * stream, xl4bus_stream
         conn->on_stream_closure(conn, stream->stream_id, scr);
     }
 
-#if XL4_SUPPORT_THREADS
-    if (!pf_lock(&i_conn->hash_lock)) {
-#endif
+    if (!LOCK(i_conn->hash_lock)) {
         HASH_DEL(i_conn->streams, stream);
         conn->stream_count--;
-#if XL4_SUPPORT_THREADS
-        pf_unlock(&i_conn->hash_lock);
+        UNLOCK(i_conn->hash_lock);
     }
-#endif
 
     remove_stream_timeout(conn, stream);
 
@@ -463,8 +459,8 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 
         size_t signed_data_len;
 
-        BOLT_SUB(sign_jws(conn, bus_object, "", 1,
-                "text/plain", (char**)&signed_data, &signed_data_len));
+        BOLT_SUB(sign_jws(i_conn->private_key, conn->my_x5t, i_conn->x5c, bus_object, "", 1,
+                FCT_TEXT_PLAIN, 0, 0, (char**)&signed_data, &signed_data_len));
 
         BOLT_MALLOC(frame, 4 + signed_data_len + 5);
         set_frame_size(frame, (uint32_t)(signed_data_len + 5)); // without the minimal header
@@ -498,13 +494,13 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg) {
 
     uint8_t * frame = 0;
-    int err = E_XL4BUS_OK;
-    json_object * x5c = 0;
+    int err /*= E_XL4BUS_OK*/;
     char * base64 = 0;
     uint8_t * signed_buf = 0;
     json_object * bus_object = 0;
     connection_internal_t * i_conn = conn->_private;
     stream_t * stream = 0;
+    char * interim;
 
     do {
 
@@ -522,9 +518,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
             ref_stream(stream);
             stream->stream_id = msg->stream_id;
 
-#if XL4_SUPPORT_THREADS
-            BOLT_SYS(pf_lock(&i_conn->hash_lock), "");
-#endif
+            BOLT_SYS(LOCK(i_conn->hash_lock), "");
+
             // $TODO: HASH mem check!
             HASH_ADD(hh, i_conn->streams, stream_id, 2, stream);
             ref_stream(stream);
@@ -532,9 +527,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
             // printf("UUU Stream %p-%04x created\n", conn->_private, stream->stream_id);
 
-#if XL4_SUPPORT_THREADS
-            pf_unlock(&i_conn->hash_lock);
-#endif
+            UNLOCK(i_conn->hash_lock);
 
         } else {
 
@@ -542,27 +535,83 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
-        // encrypt if we can
-        if (i_conn->remote_key) {
+        BOLT_IF(msg->uses_session_key && (!i_conn->session_key || (pf_ms_value() >= i_conn->session_key_expiration)),
+                E_XL4BUS_ARG, "Session key use requested, but session is invalid, or key is expired");
 
-            BOLT_SUB(encrypt_jwe(i_conn->remote_key, conn->remote_x5t, msg->data, msg->data_len,
-                    msg->content_type, 13, 9, (char**)&frame, &ser_len));
+        int do_encrypt = msg->uses_encryption && ((!msg->uses_session_key && i_conn->remote_key) || msg->uses_session_key);
+
+        // we need to sign if signing was requested, but not if we are encrypting with session key (signing is part
+        // of the encryption then).
+        int do_sign = msg->uses_validation && !(do_encrypt && msg->uses_session_key);
+
+        cjose_jwk_t * encryption_key;
+        cjose_jwk_t * signing_key;
+
+        json_object * x5c;
+        char const * x5t;
+        char const * remote_x5t;
+
+        if (msg->uses_session_key) {
+            encryption_key = i_conn->session_key;
+            signing_key = i_conn->session_key;
+            x5c = 0;
+            x5t = 0;
+            remote_x5t = 0;
+        } else {
+            encryption_key = i_conn->remote_key;
+            signing_key = i_conn->private_key;
+            x5c = i_conn->x5c;
+            x5t = conn->my_x5t;
+            remote_x5t = conn->remote_x5t;
+        }
+
+        if (do_encrypt || do_sign) {
+
+            if (msg->bus_data) {
+                bus_object = json_tokener_parse(msg->bus_data);
+            } else {
+                bus_object = json_object_new_object();
+            }
+
+        }
+
+        if (do_encrypt) {
+
+            if (do_sign) {
+
+                size_t interim_len;
+
+                DBG("Signing, then encrypting message");
+
+                BOLT_SUB(sign_jws(signing_key, x5t, x5c, bus_object, msg->data, msg->data_len, msg->content_type, 0, 0, &interim, &interim_len));
+                BOLT_SUB(encrypt_jwe(encryption_key, remote_x5t, 0, interim, interim_len, deflate_content_type(FCT_JOSE_COMPACT), 13, 9, (char**)&frame, &ser_len));
+
+            } else {
+
+                DBG("Only encrypting message");
+                BOLT_SUB(encrypt_jwe(encryption_key, remote_x5t, bus_object, msg->data, msg->data_len, msg->content_type, 13, 9, (char**)&frame, &ser_len));
+
+            }
+
             ct = CT_JOSE_COMPACT;
 
-            DBG("Message encrypted with remote key");
+        } else if (do_sign) {
+
+            DBG("Only signing message");
+
+            BOLT_SUB(sign_jws(signing_key, x5t, x5c, bus_object, msg->data, msg->data_len, msg->content_type, 13, 9, (char**)&frame, &ser_len));
+
+            ct = CT_JOSE_COMPACT;
 
         } else {
 
-            DBG("Not encrypting message, remote public key not set");
-
+            DBG("Message is being passed through");
             BOLT_SUB(get_numeric_content_type(msg->content_type, &ct));
 
             BOLT_MALLOC(frame, msg->data_len + 13);
             memcpy(frame + 9, msg->data, ser_len = msg->data_len);
 
-#if !XL4_DISABLE_ENCRYPTION
         }
-#endif
 
         // $TODO: support large messages!
         BOLT_IF(ser_len > 65000, E_XL4BUS_ARG, "Frame size too large: %d", ser_len);
@@ -594,7 +643,6 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
     cfg.free(frame);
     cfg.free(base64);
-    json_object_put(x5c);
     cfg.free(signed_buf);
 
     unref_stream(stream);
@@ -668,9 +716,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
             stream->stream_id = stream_id;
 
-#if XL4_SUPPORT_THREADS
-            BOLT_SYS(pf_lock(&i_conn->hash_lock), "");
-#endif
+            BOLT_SYS(LOCK(i_conn->hash_lock), "");
 
             // printf("UUU Stream %p-%04x created\n", conn->_private, stream->stream_id);
 
@@ -679,9 +725,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
             ref_stream(stream);
             conn->stream_count++;
 
-#if XL4_SUPPORT_THREADS
-            pf_unlock(&i_conn->hash_lock);
-#endif
+            UNLOCK(i_conn->hash_lock);
 
         } else {
 

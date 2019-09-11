@@ -288,7 +288,7 @@ if (BUILD_BINS)
             src/broker/gather.c
             src/broker/hash_list.h
             src/broker/hash_tree.c
-            src/broker/main.c
+            src/broker/broker.c
             src/uthash.h
             src/utarray.h
             ${LIB_SRC}

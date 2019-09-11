@@ -1,5 +1,4 @@
 
-
 #include <libxl4bus/high_level.h>
 #include <libxl4bus/low_level.h>
 #include <netdb.h>
@@ -17,6 +16,17 @@ typedef struct aes_search_data {
     char * missing_kid;
     xl4bus_connection_t * conn;
 } aes_search_data_t;
+
+typedef struct ll_message_container {
+
+    xl4bus_ll_message_t msg;
+
+    void * data;
+    char * content_type;
+    json_object * json;
+    json_object * bus_object;
+
+} ll_message_container_t;
 
 static void client_thread(void *);
 static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
@@ -45,12 +55,12 @@ static int get_xl4bus_message(char const * data, size_t data_len, char const * c
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
 static int handle_presence(xl4bus_client_t * clt, json_object*);
 static int pick_timeout(int t1, int t2);
-static int send_json_message(xl4bus_client_t * clt, int is_reply, int is_final, uint16_t stream_id, const char * type, json_object * body, int);
+static int send_json_message(xl4bus_client_t * clt, int use_session, int is_reply, int is_final, uint16_t stream_id, const char * type, json_object * j_type, int);
 static const cjose_jwk_t * rsa_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *data);
 static const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *data);
 static void stop_client_ts(xl4bus_client_t * clt);
-static int to_broker(xl4bus_client_t *, xl4bus_ll_message_t *, xl4bus_address_t * addr, int, int);
-static void free_outgoing_message(xl4bus_ll_message_t *);
+static int to_broker(xl4bus_client_t *, ll_message_container_t * msg, xl4bus_address_t * addr, int, int);
+static void free_outgoing_message(ll_message_container_t *);
 static int receive_cert_details(xl4bus_client_t *, message_internal_t *, xl4bus_ll_message_t *, json_object *);
 static int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int app_thread, int sure);
 static int record_mint(xl4bus_client_t * clt, message_internal_t * mint, int is_add, int with_list, int with_hash);
@@ -885,51 +895,15 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     cjose_jwe_t * encrypted = 0;
     cjose_header_t * hdr = 0;
     cjose_jwe_recipient_t recipients[mint->key_idx];
-    xl4bus_ll_message_t * x_msg = 0;
+    ll_message_container_t * msg = 0;
     cjose_jwk_t * key = 0;
 
     do {
 
-        BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
+        BOLT_MALLOC(msg, sizeof(ll_message_container_t));
 
-        x_msg->stream_id = mint->stream_id;
-        x_msg->is_reply = 1;
-
-#if XL4_DISABLE_ENCRYPTION
-
-        // we don't need to copy the data, but this code path should not be normally used,
-        // and if we don't copy, then we need to implement logic for freeing the data with discrimination
-        // on whether it's allocated or not.
-
-        memset(recipients, 0, sizeof(cjose_jwe_recipient_t) * mint->key_idx);
-        BOLT_MALLOC(x_msg->data, x_msg->data_len = mint->msg->data_len);
-        memcpy((void*)x_msg->data, mint->msg->data, x_msg->data_len);
-        BOLT_MEM(x_msg->content_type = f_strdup(mint->msg->content_type));
-
-#elif XL4_FAKE_ENCRYPTION
-
-        DBG("Will encrypt with hard-coded key");
-
-        memset(recipients, 0, sizeof(cjose_jwe_recipient_t) * mint->key_idx);
-
-        // I need to create a special JWK with the hardcoded key.
-
-        BOLT_CJOSE(key = cjose_jwk_import(FAKE_KEY, strlen(FAKE_KEY), &c_err));
-
-        BOLT_CJOSE(hdr = cjose_header_new(&c_err));
-
-        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_DIR, &c_err));
-        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A256CBC_HS512, &c_err));
-        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_CTY, pack_content_type(mint->msg->content_type), &c_err));
-
-        BOLT_CJOSE(encrypted =
-                cjose_jwe_encrypt(key, hdr, mint->msg->data, mint->msg->data_len, &c_err));
-
-        BOLT_CJOSE(x_msg->data = cjose_jwe_export_json(encrypted, &c_err));
-        x_msg->data_len = strlen(x_msg->data) + 1;
-        BOLT_MEM(x_msg->content_type = f_strdup("application/jose+json"));
-
-#else
+        msg->msg.stream_id = mint->stream_id;
+        msg->msg.is_reply = 1;
 
         DBG("Will encrypt with %d keys", mint->key_idx);
 
@@ -955,16 +929,13 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
         BOLT_CJOSE(encrypted =
                 cjose_jwe_encrypt_multi(recipients, mint->key_idx, hdr, 0, mint->msg->data, mint->msg->data_len, &c_err));
 
-        BOLT_CJOSE(x_msg->data = cjose_jwe_export_json(encrypted, &c_err));
-        x_msg->data_len = strlen(x_msg->data) + 1;
-        BOLT_MEM(x_msg->content_type = f_strdup("application/jose+json"));
-
-#endif
+        BOLT_CJOSE(msg->data = cjose_jwe_export_json(encrypted, &c_err));
+        msg->msg.data = msg->data;
+        msg->msg.data_len = strlen(msg->msg.data) + 1;
+        msg->msg.content_type = FCT_JOSE_JSON;
 
         CHANGE_MIS(mint, MIS_WAIT_CONFIRM, "sending main message");
-        BOLT_SUB(to_broker(clt, x_msg, mint->msg->address, 1, 1));
-
-        x_msg = 0; /* to_broker() would have released data and message itself as long as it doesn't error out. */
+        BOLT_SUB(to_broker(clt, msg, mint->msg->address, 1, 1));
 
     } while (0);
 
@@ -975,7 +946,9 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     }
     cjose_jwk_release(key);
 
-    free_outgoing_message(x_msg);
+    if (err != E_XL4BUS_OK) {
+        free_outgoing_message(msg);
+    }
 
     return err;
 
@@ -1100,7 +1073,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             CHANGE_MIS(mint, MIS_WAIT_DETAILS, "requested certificates");
 
-                            BOLT_SUB(send_json_message(clt, 1, 0, mint->stream_id,
+                            BOLT_SUB(send_json_message(clt, 1, 1, 0, mint->stream_id,
                                     "xl4bus.request-cert", body, 1));
 
                         } while (0);
@@ -1216,7 +1189,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                                 BOLT_MEM(bux = json_object_new_array());
                                 BOLT_MEM(!json_object_array_add(bux, aux));
                                 json_object_object_add(root, "x5t#S256", bux);
-                                BOLT_SUB(send_json_message(clt, 1, 0, msg->stream_id,
+                                BOLT_SUB(send_json_message(clt, 1, 1, 0, msg->stream_id,
                                         "xl4bus.request-cert", root, 1));
 
                             } else {
@@ -1233,7 +1206,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                                         NULL));
 
                                 mint2->key_wait = ref_mint(mint);
-                                send_json_message(clt, 0, 0, mint->stream_id, "xl4bus.request-destinations", root, 1);
+                                send_json_message(clt, 1, 0, 0, mint->stream_id, "xl4bus.request-destinations", root, 1);
                                 record_mint(clt, mint2, 1, 0, 1);
 
                             }
@@ -1296,7 +1269,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     BOLT_NEST();
 
                     // tell broker we are done
-                    send_json_message(clt, 1, 1, msg->stream_id,
+                    send_json_message(clt, 1, 1, 1, msg->stream_id,
                             "xl4bus.message-confirm", 0, 1);
 
                 }
@@ -1317,6 +1290,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             int64_t protocol;
 
+            // DBG("root:%s", json_object_get_string(root));
             BOLT_SUB(xl4json_get_pointer(root, "/body/protocol-version", json_type_int, &protocol));
             BOLT_IF(protocol != 2, E_XL4BUS_DATA, "Unsupported protocol version %" PRId64, protocol);
 
@@ -1341,7 +1315,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             // send registration request.
             // https://gitlab.excelfore.com/schema/json/xl4bus/registration-request.json
-            BOLT_SUB(send_json_message(clt, 1, 0, msg->stream_id,
+            BOLT_SUB(send_json_message(clt, 0, 1, 0, msg->stream_id,
                     "xl4bus.registration-request", body, 1));
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
@@ -1560,7 +1534,7 @@ void process_message_out(xl4bus_client_t * clt, message_internal_t * mint, int t
         json_object_object_add(json, "destinations", json_object_get(mint->addr));
 
         CHANGE_MIS(mint, MIS_WAIT_DESTINATIONS, "virgin message out on stream %05x", mint->stream_id);
-        send_json_message(clt, 0, 0, mint->stream_id, "xl4bus.request-destinations", json, thread_safe);
+        send_json_message(clt, 1, 0, 0, mint->stream_id, "xl4bus.request-destinations", json, thread_safe);
         break;
 
     }
@@ -1663,7 +1637,7 @@ void release_message(xl4bus_client_t * clt, message_internal_t * mint, int err) 
 
 void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
     if (err == E_XL4BUS_OK) {
-        free_outgoing_message(msg);
+        free_outgoing_message((ll_message_container_t*)msg);
     }
 }
 
@@ -1748,43 +1722,48 @@ int pick_timeout(int t1, int t2) {
     return t2;
 }
 
-int send_json_message(xl4bus_client_t * clt, int is_reply, int is_final,
-        uint16_t stream_id, const char * type, json_object * body, int thread_safe) {
+int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, int is_final,
+        uint16_t stream_id, const char * type, json_object * j_type, int thread_safe) {
 
     int err /* = E_XL4BUS_OK */;
 
-    json_object * json = 0;
-    xl4bus_ll_message_t * x_msg = 0;
+    ll_message_container_t * msg = 0;
 
     do {
 
-        BOLT_MEM(json = json_object_new_object());
-        if (body) {
-            json_object_object_add(json, "body", json_object_get(body));
+        BOLT_MALLOC(msg, sizeof(ll_message_container_t));
+
+        BOLT_MEM(msg->json = json_object_new_object());
+        if (j_type) {
+            json_object_object_add(msg->json, "body", json_object_get(j_type));
         }
 
-        BOLT_MEM(body = json_object_new_string(type));
-        json_object_object_add(json, "type", body);
+        BOLT_MEM(j_type = json_object_new_string(type));
+        BOLT_MEM(!json_object_object_add(msg->json, "type", j_type));
+        j_type = 0;
 
-        BOLT_MALLOC(x_msg, sizeof(xl4bus_ll_message_t));
+        const char * bux = json_object_get_string(msg->json);
 
-        const char * bux = json_object_get_string(json);
-
-        x_msg->data = bux;
-        x_msg->data_len = strlen(bux) + 1;
-        x_msg->content_type = "application/vnd.xl4.busmessage+json";
-        x_msg->stream_id = stream_id;
-        x_msg->is_reply = is_reply;
-        x_msg->is_final = is_final;
+        msg->msg.data = bux;
+        msg->msg.data_len = strlen(bux) + 1;
+        msg->msg.content_type = FCT_BUS_MESSAGE;
+        msg->msg.stream_id = stream_id;
+        msg->msg.is_reply = is_reply;
+        msg->msg.is_final = is_final;
 
         DBG("XCHG: %05x sending json on stream : %s",
-                x_msg->stream_id, json_object_get_string(json));
+                msg->msg.stream_id, bux);
 
-        BOLT_SUB(to_broker(clt, x_msg, 0, 0, thread_safe));
+        BOLT_SUB(to_broker(clt, &msg->msg, 0, use_session_key, thread_safe));
 
     } while(0);
 
-    json_object_put(json);
+    if (err) {
+        free_outgoing_message(msg);
+    }
+
+    json_object_put(j_type);
+
     return err;
 
 }
@@ -1823,20 +1802,17 @@ const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void 
 
 }
 
-int to_broker(xl4bus_client_t * clt, xl4bus_ll_message_t * msg, xl4bus_address_t * addr, int free_data, int thread_safe) {
+int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_address_t * addr,
+        int use_session_key, int thread_safe) {
 
     // we need to sign the message, and pass it to the lower level,
     // where it will be encrypted and sent out.
 
-    json_object * bus_object = 0;
+    json_object *array = 0;
 
     int err = 0;
 
     client_internal_t * i_clt = clt->_private;
-
-    void * signed_data = 0;
-    char * ct = 0;
-    size_t signed_data_len;
 
     do {
 
@@ -1844,54 +1820,46 @@ int to_broker(xl4bus_client_t * clt, xl4bus_ll_message_t * msg, xl4bus_address_t
         // so there is no need to attach the "destinations" object with an empty array
         // make sure the remote doesn't have any expectations for the presence of this array
         // and make this block conditional on address being set at all.
-        BOLT_MEM(bus_object = json_object_new_object());
-        json_object *array;
+        BOLT_MEM(msg->bus_object = json_object_new_object());
         BOLT_SUB(make_json_address(addr, &array));
-        json_object_object_add(bus_object, "destinations", array);
+        BOLT_MEM(!json_object_object_add(msg->bus_object, "destinations", array));
+        array = 0;
 
-        DBG("Attaching BUS object: %s", json_object_get_string(bus_object));
+        DBG("Attaching BUS object: %s", json_object_get_string(msg->bus_object));
 
-        BOLT_SUB(sign_jws(i_clt->ll, bus_object, msg->data, msg->data_len,
-                msg->content_type, (char**)&signed_data, &signed_data_len));
+        msg->msg.bus_data = json_object_get_string(msg->bus_object);
 
-#if XL4_DISABLE_JWS
-        BOLT_MEM(ct = f_strdup("application/vnd.xl4.busmessage-trust+json"));
-#else
-        BOLT_MEM(ct = f_strdup("application/jose"));
-#endif
-
-        // OK, everything worked, free old data if needed and replace.
-        if (free_data) {
-            cfg.free((void*)msg->data);
-            cfg.free((void*)msg->content_type);
+        msg->msg.uses_validation = 1;
+        msg->msg.uses_encryption = 1;
+        if (use_session_key) {
+            msg->msg.uses_session_key = 1;
         }
 
-        // no freeing content type, it's always constant for this method
-        // cfg.free((void*)msg->content_type);
-
-        msg->data = signed_data;
-        signed_data = 0;
-        msg->content_type = ct;
-        ct = 0;
-        msg->data_len = signed_data_len;
-
-        BOLT_SUB(SEND_LL(i_clt->ll, msg, 0, thread_safe));
+        BOLT_SUB(SEND_LL(i_clt->ll, &msg->msg, 0, thread_safe));
 
     } while (0);
 
-    json_object_put(bus_object);
-    cfg.free(signed_data);
-    cfg.free(ct);
+    if (err != E_XL4BUS_OK) {
+        free_outgoing_message(msg);
+    }
+
+    json_object_put(array);
 
     return err;
 
 }
 
-void free_outgoing_message(xl4bus_ll_message_t * msg) {
+void free_outgoing_message(ll_message_container_t * msg) {
+
     if (!msg) { return; }
-    cfg.free((void*)msg->data);
-    cfg.free((void*)msg->content_type);
+
+    cfg.free(msg->data);
+    cfg.free(msg->content_type);
+    json_object_put(msg->json);
+    json_object_put(msg->bus_object);
+
     cfg.free(msg);
+
 }
 
 #if XL4_SUPPORT_THREADS

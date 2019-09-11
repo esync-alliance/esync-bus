@@ -292,6 +292,12 @@ typedef struct xl4bus_ll_message {
      */
     struct xl4bus_identity * remote_identity;
 
+    /**
+     * If set, contains additional data that is either to be sent as authenticated header data, or has been
+     * received as authenticated header data; only from the signed part of the message.
+     */
+    char const * bus_data;
+
 } xl4bus_ll_message_t;
 
 /**

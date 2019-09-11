@@ -16,7 +16,7 @@ static inline int always_ok(void) { return E_XL4BUS_OK; }
 
 #if XL4_SUPPORT_THREADS
 #define LOCK(a) pf_lock(&a)
-#define UNLOCK(a) pf_unlock(&cert_cache_lock)
+#define UNLOCK(a) pf_unlock(&a)
 #else
 #define LOCK(a) always_ok()
 #define UNLOCK(a) do{}while(0)

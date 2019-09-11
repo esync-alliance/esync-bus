@@ -60,6 +60,7 @@
 #define FCT_TRUST_MESSAGE "application/vnd.xl4.busmessage-trust+json"
 #define FCT_APPLICATION_OCTET_STREAM "application/octet-stream"
 #define FCT_BUS_MESSAGE "application/vnd.xl4.busmessage+json"
+#define FCT_TEXT_PLAIN "text/plain"
 
 #define KU_FLAG_ENCRYPT (1<<0)
 #define KU_FLAG_SIGN (1<<1)
@@ -145,6 +146,7 @@ typedef struct connection_internal {
     cjose_jwk_t * private_key;
     cjose_jwk_t * remote_key;
     cjose_jwk_t * session_key;
+    uint64_t session_key_expiration;
     json_object * x5c;
 
     int ku_flags;
@@ -380,8 +382,9 @@ void release_stream(xl4bus_connection_t *, stream_t *, xl4bus_stream_close_reaso
 #define decrypt_jwe XI(decrypt_jwe)
 #define decrypt_and_verify XI(decrypt_and_verify)
 #define clean_decrypt_and_verify XI(clean_decrypt_and_verify)
-int sign_jws(xl4bus_connection_t * conn, json_object * bus_object, const void * data, size_t data_len, char const * ct, char ** jws_data, size_t * jws_len);
-int encrypt_jwe(cjose_jwk_t *, const char * x5t, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
+int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object * bus_object, const void * data,
+        size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
+int encrypt_jwe(cjose_jwk_t *, const char * x5t, json_object * bus_object, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
 int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * a_key, cjose_jwk_t * s_key,
         int * is_verified, void ** decrypted, size_t * decrypted_len, char ** cty);
 int decrypt_and_verify(decrypt_and_verify_data_t * dav);

@@ -407,6 +407,7 @@ int main(int argc, char ** argv) {
                         json_object_array_add(aux, json_object_new_string("RSA-OAEP"));
                         json_object_object_add(body, "encryption-alg", aux = json_object_new_array());
                         json_object_array_add(aux, json_object_new_string("A128CBC-HS256"));
+                        json_object_object_add(body, "protocol-version", json_object_new_int(2));
 
                         uint16_t stream_id;
                         err = xl4bus_get_next_outgoing_stream(ci->conn, &stream_id) ||
