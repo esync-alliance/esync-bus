@@ -3,6 +3,7 @@
 #include "porting.h"
 #include "misc.h"
 #include "debug.h"
+#include "basics.h"
 
 static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes);
 static void set_frame_size(void *, uint32_t);
@@ -459,6 +460,9 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 
         size_t signed_data_len;
 
+        // $TODO: we should create the full frame memory block here, instead of copying
+        // the data below.
+        DBG("Abort: x5c:%p", i_conn->x5c);
         BOLT_SUB(sign_jws(i_conn->private_key, conn->my_x5t, i_conn->x5c, bus_object, "", 1,
                 FCT_TEXT_PLAIN, 0, 0, (char**)&signed_data, &signed_data_len));
 
@@ -466,12 +470,10 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
         set_frame_size(frame, (uint32_t)(signed_data_len + 5)); // without the minimal header
         *frame = FRAME_TYPE_SABORT | FRAME_LAST_MASK;
 
-#if XL4_DISABLE_JWS
-        frame[4] = CT_TRUST_MESSAGE;
-#else
         frame[4] = CT_JOSE_COMPACT;
-#endif
+
         memcpy(frame + 5, signed_data, signed_data_len);
+
         calculate_frame_crc(frame, (uint32_t)(4 + signed_data_len + 5)); // size with crc
 
         if ((err = post_frame(i_conn, frame, 4 + signed_data_len + 5, -1)) == E_XL4BUS_OK) {
@@ -535,14 +537,17 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
-        BOLT_IF(msg->uses_session_key && (!i_conn->session_key || (pf_ms_value() >= i_conn->session_key_expiration)),
-                E_XL4BUS_ARG, "Session key use requested, but session is invalid, or key is expired");
+        int use_session_key = msg->uses_session_key;
+        if (use_session_key && (!i_conn->session_key || (pf_ms_value() >= i_conn->session_key_expiration))) {
+            DBG("Session key use requested, but no session key or key is expired");
+            use_session_key = 0;
+        }
 
-        int do_encrypt = msg->uses_encryption && ((!msg->uses_session_key && i_conn->remote_key) || msg->uses_session_key);
+        int do_encrypt = msg->uses_encryption && ((!use_session_key && i_conn->remote_key) || use_session_key);
 
         // we need to sign if signing was requested, but not if we are encrypting with session key (signing is part
         // of the encryption then).
-        int do_sign = msg->uses_validation && !(do_encrypt && msg->uses_session_key);
+        int do_sign = msg->uses_validation && !(do_encrypt && use_session_key);
 
         cjose_jwk_t * encryption_key;
         cjose_jwk_t * signing_key;
@@ -551,7 +556,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
         char const * x5t;
         char const * remote_x5t;
 
-        if (msg->uses_session_key) {
+        if (use_session_key) {
             encryption_key = i_conn->session_key;
             signing_key = i_conn->session_key;
             x5c = 0;
@@ -588,7 +593,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
             } else {
 
-                DBG("Only encrypting message");
+                DBG("Only encrypting message, session key:%s", BOOL_STR(use_session_key));
                 BOLT_SUB(encrypt_jwe(encryption_key, remote_x5t, bus_object, msg->data, msg->data_len, msg->content_type, 13, 9, (char**)&frame, &ser_len));
 
             }
@@ -597,7 +602,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         } else if (do_sign) {
 
-            DBG("Only signing message");
+            DBG("Only signing message, session key:%s", BOOL_STR(use_session_key));
 
             BOLT_SUB(sign_jws(signing_key, x5t, x5c, bus_object, msg->data, msg->data_len, msg->content_type, 13, 9, (char**)&frame, &ser_len));
 
@@ -802,6 +807,8 @@ int process_normal_frame(xl4bus_connection_t * conn) {
                 message.is_reply = stream->is_reply;
                 message.is_final = stream->is_final;
 
+                message.remote_identity = dav.full_id;
+
                 BOLT_SUB(conn->on_message(conn, &message));
 
                 // It's possible that on_message call released our stream,
@@ -867,7 +874,7 @@ int process_sabort_frame(xl4bus_connection_t * conn) {
     // the key of the remote, and be able to validate them. Once encryption used
     // all the time, this will work as well.
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK*/;
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
     decrypt_and_verify_data_t dav = {0};
 
@@ -881,10 +888,13 @@ int process_sabort_frame(xl4bus_connection_t * conn) {
         dav.in_data_len = frm.data.len - 1;
         dav.in_ct = frm.data.data[0];
 
+        dav.trust = &i_conn->trust;
+        dav.crl = &i_conn->crl;
+        dav.my_x5t = conn->my_x5t;
+
         BOLT_SUB(decrypt_and_verify(&dav));
         BOLT_IF(!dav.was_verified, E_XL4BUS_DATA, "abort payload could not be verified");
 
-        json_object * bus_object = dav.bus_object;
         int64_t in_stream_id;
         BOLT_SUB(xl4json_get_pointer(dav.bus_object, "/stream-id", json_type_int, &in_stream_id));
         if (!(in_stream_id & 0xffff)) {

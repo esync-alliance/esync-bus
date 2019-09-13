@@ -4,6 +4,7 @@
 #include <netdb.h>
 #include "internal.h"
 #include "misc.h"
+#include "basics.h"
 
 #if XL4_PROVIDE_THREADS
 
@@ -25,6 +26,7 @@ typedef struct ll_message_container {
     char * content_type;
     json_object * json;
     json_object * bus_object;
+    int no_cleanup;
 
 } ll_message_container_t;
 
@@ -43,7 +45,7 @@ static char * state_str(client_state_t);
 #define SEND_LL(a,b,c,d) xl4bus_send_ll_message(a,b,c)
 #endif
 
-static void ares_gethostbyname_cb(void *, int, int, struct hostent*);
+static void ares_gethostbyname_cb(void *, int, int __unused, struct hostent*);
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
 static int ll_poll_cb(struct xl4bus_connection*, int, int);
 static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
@@ -130,7 +132,10 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
         }
 #endif
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     // note, the caller must call process_client right away.
 
@@ -167,7 +172,10 @@ int xl4bus_flag_poll(xl4bus_client_t * clt, int fd, int modes) {
         pfd->fd = fd;
         pfd->flags = modes;
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     return err;
 
@@ -416,8 +424,8 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                     continue;
                 }
 
-                void * ip_addr;
-                int ip_len;
+                void * ip_addr = 0;
+                int ip_len = 0;
 #if XL4_SUPPORT_IPV6
                 if (addr->family == AF_INET6) {
                     ip_addr = addr->ipv6;
@@ -622,7 +630,10 @@ int internal_set_poll(xl4bus_client_t *clt, int fd, int modes) {
 
 #endif
 
-void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct hostent* hent) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
+void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent* hent) {
+#pragma clang diagnostic pop
 
     xl4bus_client_t * clt = arg;
     client_internal_t * i_clt = clt->_private;
@@ -697,7 +708,10 @@ void ares_gethostbyname_cb(void * arg, int status, int timeouts, struct hostent*
             }
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
         drop_client(clt, XL4BCC_RESOLUTION_FAILED);
@@ -843,7 +857,10 @@ int create_ll_connection(xl4bus_client_t * clt) {
 
         i_clt->state = CS_EXPECTING_ALGO;
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     return err;
 
@@ -882,7 +899,10 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
 
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     return err;
 
@@ -937,7 +957,10 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
         CHANGE_MIS(mint, MIS_WAIT_CONFIRM, "sending main message");
         BOLT_SUB(to_broker(clt, msg, mint->msg->address, 1, 1));
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     cjose_jwe_release(encrypted);
     cjose_header_release(hdr);
@@ -946,7 +969,7 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     }
     cjose_jwk_release(key);
 
-    if (err != E_XL4BUS_OK) {
+    if (msg && !msg->no_cleanup) {
         free_outgoing_message(msg);
     }
 
@@ -1168,7 +1191,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                                 mint->mis = MIS_NEED_REMOTE;
                             } else {
                                 mint->mis = MIS_WAITING_KEY;
-                            };
+                            }
 
                             BOLT_MEM(mint->ll_msg.content_type = f_strdup(msg->content_type));
                             mint->ll_msg.data_len = msg->data_len;
@@ -1321,7 +1344,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
                 !strcmp(type, "xl4bus.presence") && msg->is_final) {
 
-            BOLT_IF(!msg->uses_session_key || msg->uses_validation,
+            BOLT_IF(!msg->uses_session_key || !msg->uses_validation,
                     E_XL4BUS_DATA, "Presence message must use session key");
 
             i_clt->state = CS_RUNNING;
@@ -1366,7 +1389,10 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     for (xl4bus_asn1_t ** asn1 = id.x509.chain; asn1 && *asn1; asn1++) {
         cfg.free((*asn1)->buf.data);
@@ -1417,7 +1443,10 @@ int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int 
 
         record_mint(clt, mint, 1, 1, 0);
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
         dispose_message(clt, mint);
@@ -1431,7 +1460,10 @@ int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int 
 
 }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 int xl4bus_stop_client(xl4bus_client_t *clt) {
+#pragma clang diagnostic pop
 
     client_internal_t *i_clt = clt->_private;
 
@@ -1458,7 +1490,10 @@ int xl4bus_stop_client(xl4bus_client_t *clt) {
 
             BOLT_NEST();
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
         } while (0);
+#pragma clang diagnostic pop
 
         return err;
 
@@ -1575,7 +1610,10 @@ int get_xl4bus_message(char const * data, size_t data_len, char const* ct, json_
 
         *type = json_object_get_string(aux);
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
         json_object_put(*json);
@@ -1635,15 +1673,16 @@ void release_message(xl4bus_client_t * clt, message_internal_t * mint, int err) 
 
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
 void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
-    if (err == E_XL4BUS_OK) {
-        free_outgoing_message((ll_message_container_t*)msg);
-    }
+#pragma clang diagnostic pop
+    free_outgoing_message((ll_message_container_t*)msg);
 }
 
 int xl4bus_address_to_json(xl4bus_address_t *addr, char **json) {
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK*/;
     char * res = 0;
     json_object * j_res = 0;
 
@@ -1653,7 +1692,10 @@ int xl4bus_address_to_json(xl4bus_address_t *addr, char **json) {
         BOLT_SUB(make_json_address(addr, &j_res));
         BOLT_MEM(res = f_strdup(json_object_get_string(j_res)));
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     json_object_put(j_res);
 
@@ -1696,7 +1738,10 @@ int handle_presence(xl4bus_client_t * clt, json_object * root) {
 
         clt->on_presence(clt, connected_top, disconnected_top);
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
 #define FREE_LIST(a) do { \
     while (a) { \
@@ -1754,11 +1799,14 @@ int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, 
         DBG("XCHG: %05x sending json on stream : %s",
                 msg->msg.stream_id, bux);
 
-        BOLT_SUB(to_broker(clt, &msg->msg, 0, use_session_key, thread_safe));
+        BOLT_SUB(to_broker(clt, msg, 0, use_session_key, thread_safe));
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
-    if (err) {
+    if (msg && !msg->no_cleanup) {
         free_outgoing_message(msg);
     }
 
@@ -1768,7 +1816,10 @@ int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, 
 
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
 const cjose_jwk_t * rsa_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void * data) {
+#pragma clang diagnostic pop
 
     const char * x5t = cjose_header_get(hdr, "x5t#S256", 0);
     if (!x5t) { return 0; }
@@ -1835,13 +1886,13 @@ int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_addres
             msg->msg.uses_session_key = 1;
         }
 
+        msg->no_cleanup = 1;
         BOLT_SUB(SEND_LL(i_clt->ll, &msg->msg, 0, thread_safe));
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
-
-    if (err != E_XL4BUS_OK) {
-        free_outgoing_message(msg);
-    }
+#pragma clang diagnostic pop
 
     json_object_put(array);
 
@@ -1863,7 +1914,10 @@ void free_outgoing_message(ll_message_container_t * msg) {
 }
 
 #if XL4_SUPPORT_THREADS
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
 int handle_mt_message(struct xl4bus_connection * conn, void * buf, size_t buf_size) {
+#pragma clang diagnostic pop
 
     if (buf_size == sizeof(itc_message_t) && ((itc_message_t*)buf)->magic == ITC_STOP_CLIENT_MAGIC) {
         ((client_internal_t *) ((xl4bus_client_t *) (((itc_message_t *) buf)->ref))->_private)->stop = 1;
@@ -1937,7 +1991,10 @@ int receive_cert_details(xl4bus_client_t * clt, message_internal_t * mint, xl4bu
             }
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     return err;
 
@@ -1998,7 +2055,10 @@ int record_mint(xl4bus_client_t * clt, message_internal_t * mint, int is_add, in
 
         record_mint_nl(clt, mint, is_add, with_list, with_hash);
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
 #if XL4_SUPPORT_THREADS
     if (locked) {

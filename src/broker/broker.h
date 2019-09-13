@@ -12,7 +12,7 @@
 #include <mbedtls/pk.h>
 
 #include "json-c-rename.h"
-#include "json.h"
+#include <json.h>
 #include "utarray.h"
 #include "uthash.h"
 

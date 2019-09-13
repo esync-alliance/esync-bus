@@ -198,7 +198,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/identity.c
     src/misc.c
     src/net.c
-        src/jwx.c
+    src/jwx.c
     src/internal.h
     src/porting.h
     src/misc.h
@@ -217,6 +217,8 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/include/libxl4bus/types.h
     src/lib/rb_tree.h
     src/lib/rb_tree.c
+    src/basics.h
+    src/basics.c
 )
 
 set(DEPS_CFG ${PORT}/deps.cmk)
@@ -273,6 +275,8 @@ if (BUILD_BINS)
         src/lib/rb_tree.h
         src/lib/rb_tree.c
         src/lib/poll_help.h
+        src/basics.h
+        src/basics.c
         ${PORT_SOURCE}
     )
 

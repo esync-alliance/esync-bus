@@ -4,6 +4,7 @@
 #include "porting.h"
 #include "misc.h"
 #include "debug.h"
+#include "basics.h"
 
 int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object * bus_object, const void * data, size_t data_len, char const * ct,
         int pad, int offset, char ** jws_data, size_t * jws_len) {
@@ -91,10 +92,22 @@ int encrypt_jwe(cjose_jwk_t * key, const char * x5t, json_object * bus_object, c
         BOLT_CJOSE(j_hdr = cjose_header_new(&c_err));
 
         BOLT_CJOSE(used_key = cjose_jwk_retain(key, &c_err));
-        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_RSA_OAEP, &c_err));
-        BOLT_CJOSE(cjose_header_set(j_hdr, "x5t#S256", x5t, &c_err));
 
-        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A256CBC_HS512, &c_err));
+        cjose_jwk_kty_t kty;
+        BOLT_CJOSE(kty = cjose_jwk_get_kty(used_key, &c_err));
+
+        if (kty == CJOSE_JWK_KTY_RSA) {
+            BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_RSA_OAEP, &c_err));
+        } else if (kty == CJOSE_JWK_KTY_OCT) {
+            BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_A256KW, &c_err));
+        }
+
+        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A128CBC_HS256, &c_err));
+
+        if (x5t) {
+            BOLT_CJOSE(cjose_header_set(j_hdr, "x5t#S256", x5t, &c_err));
+        }
+
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, deflate_content_type(ct), &c_err));
 
         if (bus_object) {
@@ -131,7 +144,6 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
     int err = E_XL4BUS_OK;
     cjose_jwk_t * used_key = 0;
     int is_symmetric = 0;
-    xl4bus_identity_t * full_id = 0;
     char * x5c = 0;
     json_object * x5c_json = 0;
 
@@ -170,12 +182,13 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
                     key_locator_data = dav->asymmetric_locator_data;
 
                 } else {
-                    BOLT_IF(!dav->symmetric_key, E_XL4BUS_ARG, "Incoming message uses asymmetric encryption, but no asymmetric key is available");
-                    BOLT_CJOSE(used_key = cjose_jwk_retain(dav->symmetric_key, &c_err));
+                    BOLT_IF(!dav->asymmetric_key, E_XL4BUS_ARG, "Incoming message uses asymmetric encryption, but no asymmetric key is available");
+                    BOLT_CJOSE(used_key = cjose_jwk_retain(dav->asymmetric_key, &c_err));
 
                     char const * x5t_in;
                     BOLT_CJOSE(x5t_in = cjose_header_get(p_headers, "x5t#S256", &c_err));
-                    BOLT_IF(strcmp(x5t_in, dav->remote_x5t) != 0, E_XL4BUS_DATA, "Incoming tag %s, expected tag %s", x5t_in, dav->remote_x5t);
+                    BOLT_IF(z_strcmp(x5t_in, dav->my_x5t) != 0, E_XL4BUS_DATA,
+                            "Message encrypted for tag %s, my tag is tag %s", x5t_in, dav->remote_x5t);
                 }
 
             } else if (!z_strcmp(alg, CJOSE_HDR_ALG_A128KW) || !z_strcmp(alg, CJOSE_HDR_ALG_A192KW) || !z_strcmp(alg, CJOSE_HDR_ALG_A256KW)) {
@@ -224,8 +237,16 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
             dav->out_data = dav->x_data;
             dav->out_ct = dav->x_content_type;
             if (is_symmetric) {
+
                 dav->was_verified = 1;
                 dav->was_symmetric = 1;
+
+                char const * bus_data;
+                BOLT_CJOSE(bus_data = (char*)cjose_header_get(p_headers, "x-xl4bus", &c_err));
+                if (bus_data) {
+                    dav->bus_object = json_tokener_parse(bus_data);
+                }
+
             }
 
         } while (0);
@@ -292,23 +313,24 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
 
                 if (x5c) {
 
-                    BOLT_MALLOC(full_id, sizeof(xl4bus_identity_t));
+                    BOLT_MALLOC(dav->full_id, sizeof(xl4bus_identity_t));
 
                     BOLT_IF((!(x5c_json = json_tokener_parse(x5c)) ||
                              !json_object_is_type(x5c_json, json_type_array)),
                             E_XL4BUS_DATA, "x5c attribute is not a json array");
 
-                    full_id->type = XL4BIT_X509;
+                    dav->full_id->type = XL4BIT_X509;
                     size_t cert_count = json_object_array_length(x5c_json);
-                    BOLT_MALLOC(full_id->x509.chain, sizeof(void*) * cert_count);
+                    BOLT_MALLOC(dav->full_id->x509.chain, sizeof(void*) * (cert_count+1));
                     for (size_t i = 0; i < cert_count; i++) {
                         json_object * item = json_object_array_get_idx(x5c_json, i);
                         size_t base64_len = json_object_get_string_len(item);
                         BOLT_IF(!base64_len, E_XL4BUS_DATA, "Empty certificate in chain");
                         char const * base64 = json_object_get_string(item);
-                        BOLT_MALLOC(full_id->x509.chain[i], sizeof(xl4bus_asn1_t));
+                        BOLT_MALLOC(dav->full_id->x509.chain[i], sizeof(xl4bus_asn1_t));
                         BOLT_CJOSE(cjose_base64_decode(base64, base64_len,
-                                &full_id->x509.chain[i]->buf.data, &full_id->x509.chain[i]->buf.len, &c_err));
+                                &dav->full_id->x509.chain[i]->buf.data, &dav->full_id->x509.chain[i]->buf.len, &c_err));
+                        dav->full_id->x509.chain[i]->enc = XL4BUS_ASN1ENC_DER;
                     }
 
                     BOLT_NEST();
@@ -343,6 +365,12 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
             uint8_t * pt;
             size_t pt_len;
 
+            char const * bus_data;
+            BOLT_CJOSE(bus_data = (char*)cjose_header_get(p_headers, "x-xl4bus", &c_err));
+            if (bus_data) {
+                dav->bus_object = json_tokener_parse(bus_data);
+            }
+
             BOLT_CJOSE(cjose_jws_get_plaintext(dav->x_jws, &pt, &pt_len, &c_err));
 
             // past that point, the only acceptable errors are memory related.
@@ -367,7 +395,10 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
             err = E_XL4BUS_OK;
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     cjose_jwe_release(jwe);
     cjose_jwk_release(used_key);
@@ -562,6 +593,15 @@ void clean_decrypt_and_verify(decrypt_and_verify_data_t * dav) {
     cfg.free(dav->x_content_type);
     cjose_jws_release(dav->x_jws);
 
+    if (dav->full_id) {
+        for (xl4bus_asn1_t ** asn1 = dav->full_id->x509.chain; asn1 && *asn1; asn1++) {
+            cfg.free((*asn1)->buf.data);
+            cfg.free(*asn1);
+        }
+        cfg.free(dav->full_id->x509.chain);
+        cfg.free(dav->full_id);
+    }
+
     memset(dav, 0, sizeof(decrypt_and_verify_data_t));
 
 }
@@ -578,8 +618,31 @@ int xl4bus_set_session_key(xl4bus_connection_t * conn, xl4bus_key_t * key) {
         BOLT_CJOSE(jwk = cjose_jwk_create_oct_spec(key->aes_256, 256/8, &c_err));
 
         connection_internal_t * i_conn = conn->_private;
+
+        if (i_conn->session_key) {
+
+            size_t old_data_len;
+            size_t new_data_len;
+
+            BOLT_CJOSE(old_data_len = cjose_jwk_get_keysize(i_conn->session_key, &c_err));
+            BOLT_CJOSE(new_data_len = cjose_jwk_get_keysize(jwk, &c_err));
+
+            void * old_key_data;
+            void * new_key_data;
+
+            BOLT_CJOSE(old_key_data = cjose_jwk_get_keydata(i_conn->session_key, &c_err));
+            BOLT_CJOSE(new_key_data = cjose_jwk_get_keydata(jwk, &c_err));
+
+            BOLT_IF(old_data_len == new_data_len && !memcmp(old_key_data, new_key_data, old_data_len),
+                    E_XL4BUS_ARG, "Repeated session key");
+
+        }
+
         Z(cjose_jwk_release, i_conn->session_key);
         BOLT_CJOSE(i_conn->session_key = cjose_jwk_retain(jwk, &c_err));
+        i_conn->session_key_expiration = pf_ms_value() + 24 * MILLIS_PER_DAY;
+
+        DBG("Session key set on connection %p", conn);
 
     } while (0);
 

@@ -37,7 +37,7 @@
 
 #define HASH_NONFATAL_OOM 1
 #define uthash_malloc(c) cfg.malloc(c)
-#define uthash_free(c,d) do { cfg.free(c); memset(c, 0, d); } while(0)
+#define uthash_free(c,d) do { memset(c, 0, d); cfg.free(c); } while(0)
 #include "uthash.h"
 #include "utlist.h"
 
@@ -49,18 +49,6 @@
 #define FRAME_MSG_FIRST_MASK (1<<3)
 #define FRAME_MSG_FINAL_MASK (1<<4)
 
-#define CT_JOSE_COMPACT 0
-#define CT_JOSE_JSON    1
-#define CT_APPLICATION_JSON 2
-#define CT_TRUST_MESSAGE 3
-
-#define FCT_JOSE_COMPACT "application/jose"
-#define FCT_JOSE_JSON "application/jose+json"
-#define FCT_APPLICATION_JSON "application/json"
-#define FCT_TRUST_MESSAGE "application/vnd.xl4.busmessage-trust+json"
-#define FCT_APPLICATION_OCTET_STREAM "application/octet-stream"
-#define FCT_BUS_MESSAGE "application/vnd.xl4.busmessage+json"
-#define FCT_TEXT_PLAIN "text/plain"
 
 #define KU_FLAG_ENCRYPT (1<<0)
 #define KU_FLAG_SIGN (1<<1)
@@ -354,6 +342,8 @@ typedef struct decrypt_and_verify_data {
     void * x_content_type;
     cjose_jws_t * x_jws;
 
+    xl4bus_identity_t * full_id;
+
 } decrypt_and_verify_data_t;
 
 typedef int (*x509_lookup_t)(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
@@ -418,7 +408,6 @@ int build_address_list(json_object *, xl4bus_address_t **);
 #define get_numeric_content_type XI(get_numeric_content_type)
 #define asn1_to_json XI(asn1_to_json)
 #define str_content_type XI(str_content_type)
-#define xl4json_get_pointer XI(xl4json_get_pointer)
 #define free_s XI(free_s)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
@@ -439,7 +428,6 @@ char * inflate_content_type(char const *);
 int get_numeric_content_type(char const *, uint8_t *);
 int asn1_to_json(xl4bus_asn1_t *, json_object **);
 char const * str_content_type(int ct);
-int xl4json_get_pointer(json_object *, char const *, json_type, void *);
 void free_s(void*, size_t);
 
 /**

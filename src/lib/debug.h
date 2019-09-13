@@ -19,7 +19,7 @@ extern int debug;
 
 void debug_out(char const * func, char const * file, int line, int how, char const * str, ...);
 
-#define LINE_OUT(how, str, args...) debug_out(__func__, chop_path(__FILE__), __LINE__, how, str, ## args);
+#define LINE_OUT(how, str, args...) debug_out(__func__, chop_path(__FILE__), __LINE__, how, str, ## args)
 
 #define LINE_OUT_SYS(how,a,b...) LINE_OUT(how, a " - %s (%d)", ##b, strerror(errno), errno)
 
