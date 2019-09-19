@@ -260,7 +260,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
                         if (buf == conn->identity.x509.chain) {
                             // first cert, need to build my x5t
-                            BOLT_SUB(make_cert_hash((*buf)->buf.data, (*buf)->buf.len, &conn->my_x5t));
+                            BOLT_SUB(base64url_hash((*buf)->buf.data, (*buf)->buf.len, &conn->my_x5t, &conn->my_x5t_bin));
                         }
                         BOLT_MTLS(mbedtls_x509_crt_parse(&i_conn->chain, (*buf)->buf.data, (*buf)->buf.len));
 
@@ -281,7 +281,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
                                 size_t pem_len = strlen(pem);
 
                                 BOLT_CJOSE(cjose_base64_decode(pem, pem_len, &der, &der_len, &c_err));
-                                BOLT_SUB(make_cert_hash(der, der_len, &conn->my_x5t));
+                                BOLT_SUB(base64url_hash(der, der_len, &conn->my_x5t, &conn->my_x5t_bin));
                             } while (0);
 
                             free(der);
@@ -337,10 +337,13 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
         BOLT_SUB(check_conn_io(conn));
 
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
-        shutdown_connection_ts(conn);
+        shutdown_connection_ts(conn, "initialization failed");
     }
 
     json_object_put(json_cert);
@@ -451,10 +454,10 @@ void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
 
 }
 
-void shutdown_connection_ts(xl4bus_connection_t * conn) {
+void shutdown_connection_ts(xl4bus_connection_t * conn, char const * reason) {
 
     if (conn->_init_magic != MAGIC_INIT) {
-        DBG("Attempting to shut down uninitialized connection %p", conn);
+        DBG("Attempting to shut down uninitialized connection %p (reason %s)", conn, reason);
         return;
     }
 
@@ -511,6 +514,8 @@ void shutdown_connection_ts(xl4bus_connection_t * conn) {
     if (conn->on_shutdown) {
         conn->on_shutdown(conn);
     }
+
+    DBG("Connection %p shutdown: %s", conn, reason);
 
 }
 
@@ -679,7 +684,10 @@ int get_numeric_content_type(char const * str, uint8_t * num) {
             BOLT_SAY(E_XL4BUS_ARG, "Unsupported content type %s", str);
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     return err;
 
@@ -791,7 +799,10 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
         BOLT_CJOSE(*jwk = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
 
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     if (pwd) {
         secure_bzero(pwd, pwd_len);
@@ -809,7 +820,7 @@ int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
 
     int err = E_XL4BUS_OK;
     char * base64 = 0;
-    size_t base64_len;
+    size_t base64_len = 0;
     cjose_err c_err;
 
     do {
@@ -880,7 +891,10 @@ int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
 
         BOLT_MEM(*to = json_object_new_string_len(base64, (int) base64_len));
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     cfg.free(base64);
 
@@ -917,6 +931,9 @@ int xl4bus_copy_address(xl4bus_address_t * src, int chain, xl4bus_address_t ** r
                 break;
             case XL4BAT_GROUP:
                 BOLT_MEM(new->group = f_strdup(src->group));
+                break;
+            case XL4BAT_X5T_S256:
+                BOLT_MEM(new->x5ts256 = f_strdup(src->x5ts256));
                 break;
             default:
                 BOLT_SAY(E_XL4BUS_ARG, "Unknown address type %d", src->type);
@@ -978,7 +995,10 @@ int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t * strea
             }
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     if (locked) {
         UNLOCK(i_conn->hash_lock);
@@ -1145,7 +1165,7 @@ json_object * xl4json_make_obj_v(json_object *obj, va_list ap2) {
 
 }
 
-void free_s(void * ptr, size_t s) {
+void zero_s(void * ptr, size_t s) {
 
     // $TODO: I don't understand why memset_s is not available,
     // <string.h> is included, and language is set to c11...
@@ -1153,6 +1173,12 @@ void free_s(void * ptr, size_t s) {
 
     volatile unsigned char *p = ptr;
     while (s--) { *p++ = 0; }
+
+}
+
+void free_s(void * ptr, size_t s) {
+
+    zero_s(ptr, s);
 
     cfg.free(ptr);
 

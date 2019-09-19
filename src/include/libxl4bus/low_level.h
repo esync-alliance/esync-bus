@@ -61,9 +61,11 @@ XL4_PUB
  * @param conn connection to set the keys for.
  * @param key session key to use. The outgoing messages are encrypted and signed using this key, and
  * the received messages are decrypted and verified using this key.
+ * @param use_now if `!0`, then the key will be used immediately, otherwise it will only be used
+ * if the remote sent a message encrypted with this key.
  * @return ::E_XL4BUS_OK for success, or an error code if there was a problem.
  */
-int xl4bus_set_session_key(xl4bus_connection_t * conn, xl4bus_key_t * key);
+int xl4bus_set_session_key(xl4bus_connection_t * conn, xl4bus_key_t * key, int use_now);
 
 XL4_PUB
 /**

@@ -73,6 +73,12 @@ void gather_destination(xl4bus_address_t * addr, str_t ** x5t, UT_array * conns)
         if (val) {
             send_list = &val->items;
         }
+    } else if (addr->type == XL4BAT_X5T_S256) {
+        conn_info_hash_list_t * val;
+        HASH_FIND(hh, ci_by_x5ts256, addr->x5ts256, strlen(addr->x5ts256)+1, val);
+        if (val) {
+            send_list = &val->items;
+        }
     } else if (addr->type == XL4BAT_SPECIAL && addr->special == XL4BAS_DM_CLIENT) {
         send_list = &dm_clients;
     }

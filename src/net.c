@@ -11,8 +11,9 @@ static void calculate_frame_crc(void * frame_body, uint32_t size_with_crc);
 static int post_frame(connection_internal_t * i_conn, void * frame_data, size_t len, int stream_id);
 static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg);
 static int process_normal_frame(xl4bus_connection_t * conn);
-static int process_ctest_frame(xl4bus_connection_t * conn);
-static int process_sabort_frame(xl4bus_connection_t * conn);
+static int process_test_frame(xl4bus_connection_t * conn);
+static int process_abort_frame(xl4bus_connection_t * conn);
+static void init_dav(xl4bus_connection_t * conn, decrypt_and_verify_data_t * dav);
 
 stream_t * ref_stream(stream_t * stream) {
     if (stream) {
@@ -147,7 +148,7 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
 
                 if (cfg.debug_f) {
                     int count = 0;
-                    chunk_t * aux;
+                    chunk_t * aux = 0;
                     DL_COUNT(top, aux, count);
                     DBG("sent %d bytes for stream %05x %d items in outgoing queue", top->len, top->stream_id, count);
                 }
@@ -258,11 +259,11 @@ do {} while(0)
                         break;
 
                     case FRAME_TYPE_CTEST:
-                        BOLT_SUB(process_ctest_frame(conn));
+                        BOLT_SUB(process_test_frame(conn));
                         break;
 
                     case FRAME_TYPE_SABORT:
-                        BOLT_SUB(process_sabort_frame(conn));
+                        BOLT_SUB(process_abort_frame(conn));
                         break;
 
                     default:
@@ -295,7 +296,7 @@ do {} while(0)
 #pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
-        shutdown_connection_ts(conn);
+        shutdown_connection_ts(conn, "failed to process incoming data");
     }
 
 #if XL4_SUPPORT_THREADS
@@ -401,7 +402,10 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         BOLT_SYS(pf_send(conn->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     if (is_mt && (err != E_XL4BUS_OK)) {
         if (conn->on_sent_message) {
@@ -460,10 +464,14 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 
         size_t signed_data_len;
 
+        cjose_jwk_t * key = pick_session_key(conn);
+        if (!key) {
+            key = i_conn->private_key;
+        }
+
         // $TODO: we should create the full frame memory block here, instead of copying
         // the data below.
-        DBG("Abort: x5c:%p", i_conn->x5c);
-        BOLT_SUB(sign_jws(i_conn->private_key, conn->my_x5t, i_conn->x5c, bus_object, "", 1,
+        BOLT_SUB(sign_jws(key, conn->my_x5t, i_conn->x5c, bus_object, "", 1,
                 FCT_TEXT_PLAIN, 0, 0, (char**)&signed_data, &signed_data_len));
 
         BOLT_MALLOC(frame, 4 + signed_data_len + 5);
@@ -480,7 +488,10 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
             frame = 0; // consumed
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     cfg.free(signed_data);
     json_object_put(bus_object);
@@ -537,9 +548,11 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
         }
 
+        cjose_jwk_t * session_key = 0;
+
         int use_session_key = msg->uses_session_key;
-        if (use_session_key && (!i_conn->session_key || (pf_ms_value() >= i_conn->session_key_expiration))) {
-            DBG("Session key use requested, but no session key or key is expired");
+
+        if (use_session_key && !(session_key = pick_session_key(conn))) {
             use_session_key = 0;
         }
 
@@ -557,8 +570,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
         char const * remote_x5t;
 
         if (use_session_key) {
-            encryption_key = i_conn->session_key;
-            signing_key = i_conn->session_key;
+            encryption_key = session_key;
+            signing_key = session_key;
             x5c = 0;
             x5t = 0;
             remote_x5t = 0;
@@ -644,7 +657,10 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
             release_stream(conn, stream, XL4SCR_LOCAL_CLOSED);
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     cfg.free(frame);
     cfg.free(base64);
@@ -781,17 +797,11 @@ int process_normal_frame(xl4bus_connection_t * conn) {
                 xl4bus_ll_message_t message;
                 memset(&message, 0, sizeof(xl4bus_ll_message_t));
 
+                init_dav(conn, &dav);
+
                 dav.in_data = stream->incoming_message_data.data;
                 dav.in_data_len = stream->incoming_message_data.len;
                 dav.in_ct = stream->incoming_message_ct;
-
-                dav.asymmetric_key = i_conn->private_key;
-                dav.symmetric_key = i_conn->session_key;
-
-                dav.remote_x5t = conn->remote_x5t;
-                dav.my_x5t = conn->my_x5t;
-                dav.trust = &i_conn->trust;
-                dav.crl = &i_conn->crl;
 
                 BOLT_SUB(decrypt_and_verify(&dav));
 
@@ -808,6 +818,11 @@ int process_normal_frame(xl4bus_connection_t * conn) {
                 message.is_final = stream->is_final;
 
                 message.remote_identity = dav.full_id;
+                message.bus_data = json_object_get_string(dav.bus_object);
+
+                if (dav.was_new_symmetric) {
+                    i_conn->session_key_use_ok = 1;
+                }
 
                 BOLT_SUB(conn->on_message(conn, &message));
 
@@ -831,7 +846,10 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     unref_stream(stream);
 
@@ -840,7 +858,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
 }
 
-int process_ctest_frame(xl4bus_connection_t * conn) {
+int process_test_frame(xl4bus_connection_t * conn) {
 
     int err = E_XL4BUS_OK;
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
@@ -862,12 +880,15 @@ int process_ctest_frame(xl4bus_connection_t * conn) {
             err = send_connectivity_test(conn, 1, frm.data.data);
         }
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     return err;
 }
 
-int process_sabort_frame(xl4bus_connection_t * conn) {
+int process_abort_frame(xl4bus_connection_t * conn) {
 
     // $TODO: this doesn't work well yet. Because the encryption is turned off,
     // the key discovery doesn't happen properly, we aren't always going to have
@@ -888,9 +909,7 @@ int process_sabort_frame(xl4bus_connection_t * conn) {
         dav.in_data_len = frm.data.len - 1;
         dav.in_ct = frm.data.data[0];
 
-        dav.trust = &i_conn->trust;
-        dav.crl = &i_conn->crl;
-        dav.my_x5t = conn->my_x5t;
+        init_dav(conn, &dav);
 
         BOLT_SUB(decrypt_and_verify(&dav));
         BOLT_IF(!dav.was_verified, E_XL4BUS_DATA, "abort payload could not be verified");
@@ -901,13 +920,16 @@ int process_sabort_frame(xl4bus_connection_t * conn) {
 
             stream_id = (uint16_t) in_stream_id;
 
-            stream_t *stream;
+            stream_t *stream = 0;
             HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
             release_stream(conn, stream, XL4SCR_REMOTE_ABORTED);
 
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     clean_decrypt_and_verify(&dav);
 
@@ -916,3 +938,22 @@ int process_sabort_frame(xl4bus_connection_t * conn) {
 }
 
 #undef frm
+
+void init_dav(xl4bus_connection_t * conn, decrypt_and_verify_data_t * dav) {
+
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    dav->asymmetric_key = i_conn->private_key;
+    if (i_conn->session_key && i_conn->session_key_expiration > pf_ms_value()) {
+        dav->new_symmetric_key = i_conn->session_key;
+    }
+    if (i_conn->old_session_key && i_conn->old_session_key_expiration > pf_ms_value()) {
+        dav->old_symmetric_key = i_conn->session_key;
+    }
+
+    dav->remote_x5t = conn->remote_x5t;
+    dav->my_x5t = conn->my_x5t;
+    dav->trust = &i_conn->trust;
+    dav->crl = &i_conn->crl;
+
+}

@@ -6,7 +6,11 @@
 #include "debug.h"
 #include "basics.h"
 
-int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object * bus_object, const void * data, size_t data_len, char const * ct,
+static int find_symmetric_key(struct json_t * headers, cjose_jwk_t * key1, cjose_jwk_t * key2,
+        cjose_jwk_t ** picked_key, int * is_key1);
+
+int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object * bus_object,
+        const void * data, size_t data_len, char const * ct,
         int pad, int offset, char ** jws_data, size_t * jws_len) {
 
     cjose_err c_err;
@@ -14,10 +18,6 @@ int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object
     cjose_header_t *j_hdr = 0;
     int err = E_XL4BUS_OK;
     char * base64 = 0;
-
-#if XL4_DISABLE_JWS
-    json_object * trust = 0;
-#endif
 
     do {
 
@@ -30,28 +30,45 @@ int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object
         BOLT_CJOSE(cjose_base64_encode(rand, 64, &base64, &base64_len, &c_err));
         json_object * val;
         BOLT_MEM(val = json_object_new_string_len(base64, (int)base64_len));
-        json_object_object_add(bus_object, "nonce", val);
+        json_object_object_add(bus_object, BUS_OBJ_NONCE, val);
         BOLT_MEM(val = json_object_new_int64((int64_t)pf_sec_time()));
-        json_object_object_add(bus_object, "timestamp", val);
+        json_object_object_add(bus_object, BUS_OBJ_TIMESTAMP, val);
 
         cfg.free(base64);
         base64 = 0;
 
         BOLT_CJOSE(j_hdr = cjose_header_new(&c_err));
 
-        BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, "RS256", &c_err));
 
         ct = deflate_content_type(ct);
 
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, ct, &c_err));
 
-        if (x5c) {
-            BOLT_CJOSE(cjose_header_set_raw(j_hdr, "x5c", json_object_get_string(x5c), &c_err));
-        } else if (x5t) {
-            BOLT_CJOSE(cjose_header_set(j_hdr, "x5t#S256", x5t, &c_err));
+        cjose_jwk_kty_t kty;
+        BOLT_CJOSE(kty = cjose_jwk_get_kty(key, &c_err));
+
+        if (kty == CJOSE_JWK_KTY_RSA) {
+            DBG("Signing with RSA key");
+            BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_RS256, &c_err));
+            if (x5c) {
+                DBG("Adding x5c header");
+                BOLT_CJOSE(cjose_header_set_raw(j_hdr, HDR_X5C, json_object_get_string(x5c), &c_err));
+            } else if (x5t) {
+                DBG("Adding x5t header");
+                BOLT_CJOSE(cjose_header_set(j_hdr, HDR_X5T256, x5t, &c_err));
+            }
+        } else if (kty == CJOSE_JWK_KTY_OCT) {
+            DBG("Signing with AES key");
+            BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_HS256, &c_err));
         }
 
-        BOLT_CJOSE(cjose_header_set(j_hdr, "x-xl4bus", json_object_get_string(bus_object), &c_err));
+        BOLT_CJOSE(cjose_header_set(j_hdr, HDR_XL4BUS, json_object_get_string(bus_object), &c_err));
+
+        char const * kid;
+        BOLT_CJOSE(kid = cjose_jwk_get_kid(key, &c_err));
+        if (kid) {
+            BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_KID, kid, &c_err));
+        }
 
         BOLT_CJOSE(jws = cjose_jws_sign(key, j_hdr, data, data_len, &c_err));
 
@@ -63,15 +80,13 @@ int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object
         BOLT_MALLOC(*jws_data, l + pad);
         memcpy((*jws_data) + offset, jws_export, *jws_len = l);
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     cjose_jws_release(jws);
     cjose_header_release(j_hdr);
-
-#if XL4_DISABLE_JWS
-    json_object_put(trust);
-    cfg.free(base64);
-#endif
 
     return err;
 
@@ -98,20 +113,25 @@ int encrypt_jwe(cjose_jwk_t * key, const char * x5t, json_object * bus_object, c
 
         if (kty == CJOSE_JWK_KTY_RSA) {
             BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_RSA_OAEP, &c_err));
+            if (x5t) {
+                BOLT_CJOSE(cjose_header_set(j_hdr, HDR_X5T256, x5t, &c_err));
+            }
         } else if (kty == CJOSE_JWK_KTY_OCT) {
             BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_A256KW, &c_err));
         }
 
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A128CBC_HS256, &c_err));
 
-        if (x5t) {
-            BOLT_CJOSE(cjose_header_set(j_hdr, "x5t#S256", x5t, &c_err));
-        }
-
         BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_CTY, deflate_content_type(ct), &c_err));
 
         if (bus_object) {
-            BOLT_CJOSE(cjose_header_set(j_hdr, "x-xl4bus", json_object_get_string(bus_object), &c_err));
+            BOLT_CJOSE(cjose_header_set(j_hdr, HDR_XL4BUS, json_object_get_string(bus_object), &c_err));
+        }
+
+        char const * kid;
+        BOLT_CJOSE(kid = cjose_jwk_get_kid(used_key, &c_err));
+        if (kid) {
+            BOLT_CJOSE(cjose_header_set(j_hdr, CJOSE_HDR_KID, kid, &c_err));
         }
 
         BOLT_CJOSE(jwe = cjose_jwe_encrypt(used_key, j_hdr, data, data_len, &c_err));
@@ -125,7 +145,10 @@ int encrypt_jwe(cjose_jwk_t * key, const char * x5t, json_object * bus_object, c
 
         memcpy((*jwe_data) + offset, jwe_export, *jwe_len = l);
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     cjose_jwe_release(jwe);
     cjose_header_release(j_hdr);
@@ -179,9 +202,11 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
 
                 if ((key_locator = dav->asymmetric_key_locator)) {
 
+                    DBG("Using asymmetric key locator");
                     key_locator_data = dav->asymmetric_locator_data;
 
                 } else {
+                    DBG("Using asymmetric key");
                     BOLT_IF(!dav->asymmetric_key, E_XL4BUS_ARG, "Incoming message uses asymmetric encryption, but no asymmetric key is available");
                     BOLT_CJOSE(used_key = cjose_jwk_retain(dav->asymmetric_key, &c_err));
 
@@ -204,12 +229,13 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
 
                 if ((key_locator = dav->symmetric_key_locator)) {
 
-                    key_locator_data = dav->asymmetric_locator_data;
+                    DBG("Using symmetric key locator");
+                    key_locator_data = dav->symmetric_locator_data;
 
                 } else {
 
-                    BOLT_IF(!dav->symmetric_key, E_XL4BUS_ARG, "Incoming message uses symmetric encryption, but no symmetric key is available");
-                    BOLT_CJOSE(used_key = cjose_jwk_retain(dav->symmetric_key, &c_err));
+                    DBG("Using asymmetric key");
+                    BOLT_SUB(find_symmetric_key(p_headers, dav->new_symmetric_key, dav->old_symmetric_key, &used_key, &dav->was_new_symmetric));
 
                 }
 
@@ -297,10 +323,8 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
             if (!z_strcmp(alg, CJOSE_HDR_ALG_HS256) || !z_strcmp(alg, CJOSE_HDR_ALG_HS384) ||
                     !z_strcmp(alg, CJOSE_HDR_ALG_HS512)) {
 
-                BOLT_IF(!dav->symmetric_key, E_XL4BUS_DATA,
-                        "Message signed with symmetric key, but no symmetric key is available");
-
-                used_key = cjose_jwk_retain(dav->symmetric_key, &c_err);
+                BOLT_SUB(find_symmetric_key(p_headers, dav->new_symmetric_key, dav->old_symmetric_key,
+                        &used_key, &dav->was_new_symmetric));
                 is_symmetric = 1;
 
             } else if (!z_strcmp(alg, CJOSE_HDR_ALG_RS256) || !z_strcmp(alg, CJOSE_HDR_ALG_RS384) ||
@@ -334,7 +358,7 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
                     }
 
                     BOLT_NEST();
-                    BOLT_SUB(accept_x5c(x5c_json, dav->my_x5t, dav->trust, dav->crl, &dav->ku_flags, &rmi));
+                    BOLT_SUB(accept_x5c(x5c_json, dav->trust, dav->crl, &dav->ku_flags, &rmi));
 
 
                 } else {
@@ -347,11 +371,13 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
                     if (!rmi) {
                         dav->missing_x5t = f_strdup(x5t);
                         BOLT_SAY(E_XL4BUS_DATA, "No remote info for tag %s", x5t);
+                    } else {
+                        dav->remote = rmi;
                     }
 
                 }
 
-                BOLT_CJOSE(used_key = cjose_jwk_retain(rmi->key, &c_err));
+                BOLT_CJOSE(used_key = cjose_jwk_retain(rmi->remote_public_key, &c_err));
 
             } else {
                 BOLT_SAY(E_XL4BUS_DATA, "Unsupported algorithm for verification : %s", alg);
@@ -494,7 +520,10 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * a_
 
         }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     cjose_jwe_release(jwe);
     cjose_jwk_release(used_key);
@@ -547,13 +576,13 @@ int xl4bus_set_remote_identity(xl4bus_connection_t * conn, xl4bus_identity_t * i
 
         BOLT_NEST();
 
-        BOLT_SUB(accept_x5c(x5c, conn->my_x5t, &i_conn->trust, &i_conn->crl, &i_conn->ku_flags, &remote_info));
+        BOLT_SUB(accept_x5c(x5c, &i_conn->trust, &i_conn->crl, &i_conn->ku_flags, &remote_info));
         BOLT_MEM(x5c_str = f_strdup(json_object_get_string(x5c)));
         BOLT_SUB(xl4bus_copy_address(remote_info->addresses, 1, &remote_address));
         BOLT_MEM(x5t = f_strdup(remote_info->x5t));
 
         cjose_jwk_t * key;
-        BOLT_CJOSE(key = cjose_jwk_retain(remote_info->key, &c_err));
+        BOLT_CJOSE(key = cjose_jwk_retain(remote_info->remote_public_key, &c_err));
 
         // OK, we found everything we needed to find, we can release existing remotes, and replace.
         // no errors should be possible to happen below this line
@@ -572,16 +601,37 @@ int xl4bus_set_remote_identity(xl4bus_connection_t * conn, xl4bus_identity_t * i
         x5t = 0;
         x5c_str = 0;
 
-    } while(0);
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     json_object_put(x5c_item);
     json_object_put(x5c);
     cfg.free(x5t);
-    release_remote_info(remote_info);
+    unref_remote_info(remote_info);
     cfg.free(x5c_str);
     xl4bus_free_address(remote_address, 1);
 
     return err;
+
+}
+
+cjose_jwk_t * pick_session_key(xl4bus_connection_t * conn) {
+
+    connection_internal_t * i_conn = conn->_private;
+    if (i_conn->session_key_use_ok) {
+        if (i_conn->session_key_expiration > pf_ms_value()) {
+            return i_conn->session_key;
+        }
+        return 0;
+    }
+
+    if (!i_conn->old_session_key || pf_ms_value() >= i_conn->old_session_key_expiration) {
+        return 0;
+    }
+
+    return i_conn->old_session_key;
 
 }
 
@@ -606,16 +656,20 @@ void clean_decrypt_and_verify(decrypt_and_verify_data_t * dav) {
 
 }
 
-int xl4bus_set_session_key(xl4bus_connection_t * conn, xl4bus_key_t * key) {
+int xl4bus_set_session_key(xl4bus_connection_t * conn, xl4bus_key_t * key, int use_now) {
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK*/;
     cjose_err c_err;
     cjose_jwk_t * jwk = 0;
+    char * kid = 0;
 
     do {
 
         BOLT_IF(key->type != XL4KT_AES_256, E_XL4BUS_ARG, "Unknown key type %d", key->type);
         BOLT_CJOSE(jwk = cjose_jwk_create_oct_spec(key->aes_256, 256/8, &c_err));
+
+        BOLT_SUB(base64url_hash(key->aes_256, 256/8, &kid, 0));
+        BOLT_CJOSE(cjose_jwk_set_kid(jwk, kid, strlen(kid), &c_err));
 
         connection_internal_t * i_conn = conn->_private;
 
@@ -636,17 +690,67 @@ int xl4bus_set_session_key(xl4bus_connection_t * conn, xl4bus_key_t * key) {
             BOLT_IF(old_data_len == new_data_len && !memcmp(old_key_data, new_key_data, old_data_len),
                     E_XL4BUS_ARG, "Repeated session key");
 
+            Z(cjose_jwk_release, i_conn->old_session_key);
+
+            i_conn->old_session_key = i_conn->session_key;
+            i_conn->old_session_key_expiration = i_conn->session_key_expiration;
+
         }
 
-        Z(cjose_jwk_release, i_conn->session_key);
         BOLT_CJOSE(i_conn->session_key = cjose_jwk_retain(jwk, &c_err));
         i_conn->session_key_expiration = pf_ms_value() + 24 * MILLIS_PER_DAY;
 
-        DBG("Session key set on connection %p", conn);
+        i_conn->session_key_use_ok = use_now;
 
+        DBG("Session key set on connection %p, usable: %d", conn, use_now);
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     cjose_jwk_release(jwk);
+    cfg.free(kid);
+
+    return err;
+
+}
+
+int find_symmetric_key(struct json_t * headers, cjose_jwk_t * key1, cjose_jwk_t * key2, cjose_jwk_t ** picked_key, int * is_key1) {
+
+    int err = E_XL4BUS_OK;
+    cjose_err c_err;
+
+    do {
+
+        char const * kid;
+        BOLT_CJOSE(kid = cjose_header_get(headers, CJOSE_HDR_KID, &c_err));
+        BOLT_IF(!kid, E_XL4BUS_DATA, "No KID found");
+
+        if (key1) {
+            char const * kid1;
+            BOLT_CJOSE(kid1 = cjose_jwk_get_kid(key1, &c_err));
+            if (!z_strcmp(kid, kid1)) {
+                BOLT_CJOSE(*picked_key = cjose_jwk_retain(key1, &c_err));
+                *is_key1 = 1;
+                break;
+            }
+        }
+        if (key2) {
+            char const * kid2;
+            BOLT_CJOSE(kid2 = cjose_jwk_get_kid(key1, &c_err));
+            if (!z_strcmp(kid, kid2)) {
+                BOLT_CJOSE(*picked_key = cjose_jwk_retain(key2, &c_err));
+                break;
+            }
+        }
+
+        BOLT_SAY(E_XL4BUS_DATA, "No key found for symmetric KID %s", kid);
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
 
     return err;
 

@@ -4,6 +4,7 @@
 #include "internal.h"
 #include "debug.h"
 #include "misc.h"
+#include "basics.h"
 
 int xl4bus_chain_address(xl4bus_address_t ** rec, xl4bus_address_type_t type, ...) {
 
@@ -109,20 +110,20 @@ int make_json_address(xl4bus_address_t * bus_addr, json_object ** json) {
 
         for (xl4bus_address_t * ma = bus_addr; ma; ma = ma->next) {
 
-            char * key = 0;
-            char * val = 0;
+            char const * key = 0;
+            char const * val = 0;
 
             switch (ma->type) {
 
                 case XL4BAT_SPECIAL:
                 {
-                    key = "special";
+                    key = JSON_ADDR_PROP_SPECIAL;
                     switch (ma->special) {
                         case XL4BAS_DM_CLIENT:
-                            val = "dmclient";
+                            val = JSON_ADDR_SPECIAL_DMCLIENT;
                             break;
                         case XL4BAS_DM_BROKER:
-                            val = "broker";
+                            val = JSON_ADDR_SPECIAL_BROKER;
                             break;
                         default:
                         BOLT_SAY(E_XL4BUS_ARG, "Unknown special type %d", ma->special);
@@ -130,12 +131,16 @@ int make_json_address(xl4bus_address_t * bus_addr, json_object ** json) {
                 }
                     break;
                 case XL4BAT_UPDATE_AGENT:
-                    key = "update-agent";
+                    key = JSON_ADDR_PROP_UPDATE_AGENT;
                     val = ma->update_agent;
                     break;
                 case XL4BAT_GROUP:
-                    key = "group";
+                    key = JSON_ADDR_PROP_GROUP;
                     val = ma->group;
+                    break;
+                case XL4BAT_X5T_S256:
+                    key = JSON_ADDR_PROP_X5T_S256;
+                    val = ma->x5ts256;
                     break;
                 default:
                 BOLT_SAY(E_XL4BUS_ARG, "Unknown addr type %d", ma->type);
@@ -223,25 +228,29 @@ int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
         json_object * el = json_object_array_get_idx(j_list, i);
 
         DBG("BAL: Processing el %s", json_object_get_string(el));
-        json_object * aux;
-        if (json_object_object_get_ex(el, "update-agent", &aux) && json_object_is_type(aux, json_type_string)) {
+        char const * aux;
+        if (xl4json_get_pointer(el, "/" JSON_ADDR_PROP_UPDATE_AGENT, json_type_string, &aux) == E_XL4BUS_OK) {
             next->type = XL4BAT_UPDATE_AGENT;
-            BOLT_MEM(next->update_agent = f_strdup(json_object_get_string(aux)));
-        } else if (json_object_object_get_ex(el, "group", &aux) && json_object_is_type(aux, json_type_string)) {
+            BOLT_MEM(next->update_agent = f_strdup(aux));
+        } else if (xl4json_get_pointer(el, "/" JSON_ADDR_PROP_GROUP, json_type_string, &aux) == E_XL4BUS_OK) {
             next->type = XL4BAT_GROUP;
-            BOLT_MEM(next->group = f_strdup(json_object_get_string(aux)));
-        } else if (json_object_object_get_ex(el, "special", &aux) && json_object_is_type(aux, json_type_string)) {
+            BOLT_MEM(next->group = f_strdup(aux));
+        } else if (xl4json_get_pointer(el, "/" JSON_ADDR_PROP_SPECIAL, json_type_string, &aux) == E_XL4BUS_OK) {
 
-            char const * bux = json_object_get_string(aux);
             next->type = XL4BAT_SPECIAL;
 
-            if (!strcmp("dmclient", bux)) {
+            if (!strcmp(JSON_ADDR_SPECIAL_DMCLIENT, aux)) {
                 next->special = XL4BAS_DM_CLIENT;
-            } else if (!strcmp("broker", bux)) {
+            } else if (!strcmp(JSON_ADDR_SPECIAL_BROKER, aux)) {
                 next->special = XL4BAS_DM_BROKER;
             } else {
                 continue;
             }
+
+        } else if (xl4json_get_pointer(el, "/" JSON_ADDR_PROP_X5T_S256, json_type_string, &aux) == E_XL4BUS_OK) {
+
+            next->type = XL4BAT_X5T_S256;
+            BOLT_MEM(next->x5ts256 = f_strdup(aux));
 
         } else {
             continue;

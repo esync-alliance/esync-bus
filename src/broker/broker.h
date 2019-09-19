@@ -61,7 +61,7 @@ typedef struct remote_info {
 
     UT_hash_handle hh;
     char * x5t;
-    cjose_jwk_t * key;
+    cjose_jwk_t * remote_public_key;
     // parsed xl4 bus addresses declared in the cert.
     xl4bus_address_t * addresses;
 
@@ -107,6 +107,7 @@ typedef struct conn_info_hash_list {
 extern int be_quiet;
 extern UT_array dm_clients;
 extern conn_info_hash_list_t * ci_by_group;
+extern conn_info_hash_list_t * ci_by_x5ts256;
 extern conn_info_t * connections;
 extern int poll_fd;
 extern xl4bus_identity_t broker_identity;

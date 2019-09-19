@@ -55,11 +55,9 @@
 
 #define MAGIC_INIT 0xb357b0cd
 
-typedef struct dbuf {
-    uint8_t * data;
-    size_t len;
-    size_t cap;
-} dbuf_t;
+// forward definitions
+
+struct remote_info;
 
 typedef struct chunk {
     uint8_t * data;
@@ -134,7 +132,10 @@ typedef struct connection_internal {
     cjose_jwk_t * private_key;
     cjose_jwk_t * remote_key;
     cjose_jwk_t * session_key;
+    int session_key_use_ok;
     uint64_t session_key_expiration;
+    cjose_jwk_t * old_session_key;
+    uint64_t old_session_key_expiration;
     json_object * x5c;
 
     int ku_flags;
@@ -194,10 +195,23 @@ typedef enum message_info_state {
     MIS_EXPECTING_KEY
 } message_info_state_t;
 
+typedef struct remote_key {
+
+    UT_hash_handle hh;
+
+    struct remote_info * remote_info;
+
+    char const * from_kid;
+    cjose_jwk_t * from_key;
+    uint64_t from_key_expiration;
+
+    int ref_count;
+
+} remote_key_t;
+
 typedef struct remote_info {
 
-    UT_hash_handle hh_x5t;
-    UT_hash_handle hh_kid;
+    UT_hash_handle hh;
 
     // $TODO: we don't use crt after we processed incoming x5c, may
     // be we should dump it?
@@ -206,22 +220,14 @@ typedef struct remote_info {
     char * x5t;
 
     // public key of the remote
-    cjose_jwk_t * key;
+    cjose_jwk_t * remote_public_key;
 
     // parsed xl4 bus addresses declared in the cert from the remote
     xl4bus_address_t * addresses;
 
-    char * to_kid;
+    char const * to_kid;
     cjose_jwk_t * to_key;
     uint64_t to_key_expiration;
-
-    char * from_kid;
-    cjose_jwk_t * from_key;
-    uint64_t from_key_expiration;
-
-    uint8_t from_kid_prefix[256 / 8 + 256 / 8];
-
-    int in_kid_hash;
 
     int ref_count;
 
@@ -309,7 +315,8 @@ typedef struct decrypt_and_verify_data {
     char const * out_ct;
 
     cjose_jwk_t * asymmetric_key;
-    cjose_jwk_t * symmetric_key;
+    cjose_jwk_t * old_symmetric_key;
+    cjose_jwk_t * new_symmetric_key;
 
     cjose_key_locator asymmetric_key_locator;
     cjose_key_locator symmetric_key_locator;
@@ -328,6 +335,7 @@ typedef struct decrypt_and_verify_data {
 
     int was_encrypted;
     int was_symmetric;
+    int was_new_symmetric;
     int was_verified;
 
     json_object * bus_object;
@@ -372,6 +380,8 @@ void release_stream(xl4bus_connection_t *, stream_t *, xl4bus_stream_close_reaso
 #define decrypt_jwe XI(decrypt_jwe)
 #define decrypt_and_verify XI(decrypt_and_verify)
 #define clean_decrypt_and_verify XI(clean_decrypt_and_verify)
+#define pick_session_key XI(pick_session_key)
+
 int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object * bus_object, const void * data,
         size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
 int encrypt_jwe(cjose_jwk_t *, const char * x5t, json_object * bus_object, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
@@ -379,6 +389,7 @@ int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * a_
         int * is_verified, void ** decrypted, size_t * decrypted_len, char ** cty);
 int decrypt_and_verify(decrypt_and_verify_data_t * dav);
 void clean_decrypt_and_verify(decrypt_and_verify_data_t * dav);
+cjose_jwk_t * pick_session_key(xl4bus_connection_t * conn);
 
 /* addr.c */
 
@@ -409,6 +420,7 @@ int build_address_list(json_object *, xl4bus_address_t **);
 #define asn1_to_json XI(asn1_to_json)
 #define str_content_type XI(str_content_type)
 #define free_s XI(free_s)
+#define zero_s XI(zero_s)
 
 int consume_dbuf(dbuf_t * , dbuf_t * , int);
 int add_to_dbuf(dbuf_t * , void * , size_t );
@@ -416,7 +428,7 @@ void free_dbuf(dbuf_t **);
 void clear_dbuf(dbuf_t *);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
-void shutdown_connection_ts(xl4bus_connection_t *);
+void shutdown_connection_ts(xl4bus_connection_t *, char const * reason);
 int mpi2jwk(mbedtls_mpi *, uint8_t **, size_t *);
 void clean_keyspec(cjose_jwk_rsa_keyspec *);
 int get_oid(unsigned char ** p, unsigned char *, mbedtls_asn1_buf * oid);
@@ -429,6 +441,7 @@ int get_numeric_content_type(char const *, uint8_t *);
 int asn1_to_json(xl4bus_asn1_t *, json_object **);
 char const * str_content_type(int ct);
 void free_s(void*, size_t);
+void zero_s(void*, size_t);
 
 /**
  * Helper method to create json object from a set of properties.
@@ -496,19 +509,39 @@ json_object * xl4json_make_obj_v(json_object *obj, va_list ap2);
 /* x509.c */
 
 #define find_by_x5t XI(find_by_x5t)
+#define find_by_kid XI(find_by_kid)
 #define accept_x5c XI(accept_x5c)
 #define accept_remote_x5c XI(accept_remote_x5c)
-#define make_cert_hash XI(make_cert_hash)
-#define release_remote_info XI(release_remote_info)
+#define unref_remote_info XI(unref_remote_info)
+#define unref_remote_key XI(unref_remote_key)
+#define ref_remote_info XI(ref_remote_info)
+#define ref_remote_key XI(ref_remote_key)
 #define process_remote_key XI(process_remote_key)
+#define base64url_hash XI(base64url_hash)
+#define update_remote_symmetric_key XI(update_remote_symmetric_key)
 
-int make_cert_hash(void *, size_t, char **);
 // finds the cjose key object for the specified tag.
 remote_info_t * find_by_x5t(const char * x5t);
-void release_remote_info(remote_info_t *);
-int accept_x5c(json_object * x5c, char const * my_x5t, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, int * ku_flags, remote_info_t **);
+remote_key_t * find_by_kid(const char * kid);
+void unref_remote_info(remote_info_t *);
+void unref_remote_key(remote_key_t *);
+remote_info_t * ref_remote_info(remote_info_t *);
+remote_key_t * ref_remote_key(remote_key_t *);
+int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, int * ku_flags, remote_info_t **);
 int accept_remote_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t **);
 int process_remote_key(json_object*, char const * local_x5t, remote_info_t * source);
+int update_remote_symmetric_key(char const * local_x5t, remote_info_t * remote);
+
+/**
+ * Hash the specified data (SHA-256), and convert the result into base64url value.
+ * Convenience method.
+ * @param data data to hash
+ * @param data_len length of data to hash
+ * @param hash if `!0`, then the raw hash is stored in the specified buffer.
+ * @param to where the result is stored
+ * @return E_XL4BUS_ error code.
+ */
+int base64url_hash(void * data, size_t data_len, char ** to, dbuf_t * hash);
 
 /* timeout.h */
 

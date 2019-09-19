@@ -437,6 +437,9 @@ char * addr_to_str(xl4bus_address_t * addr) {
             case XL4BAT_GROUP:
                 new = f_asprintf("<GRP: %s>", addr->group);
                 break;
+            case XL4BAT_X5T_S256:
+                new = f_asprintf("<X5T#S256: %s>", addr->x5ts256);
+                break;
             default:
                 new = f_asprintf("<UNKNOWN TYPE %d>", addr->type);
         }

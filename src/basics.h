@@ -27,6 +27,28 @@
 #define HOUR_PER_DAY 24ULL
 #define MILLIS_PER_DAY (HOUR_PER_DAY * MIN_PER_HOUR * SEC_PER_MIN * MILLIS_PER_SEC)
 
+#define HDR_XL4BUS "x-xl4bus"
+#define HDR_X5T256 "x5t#S256"
+#define HDR_X5C "x5c"
+#define BUS_OBJ_NONCE "nonce"
+#define BUS_OBJ_TIMESTAMP "nonce"
+
+#define MSG_TYPE_REG_REQUEST "xl4bus.registration-request"
+#define MSG_TYPE_REQ_DESTINATIONS "xl4bus.request-destinations"
+#define MSG_TYPE_REQ_CERT "xl4bus.request-cert"
+#define MSG_TYPE_CERT_DETAILS "xl4bus.cert-details"
+#define MSG_TYPE_MESSAGE_CONFIRM "xl4bus.message-confirm"
+#define MSG_TYPE_KEY_INFO "xl4bus.key-info"
+#define MSG_TYPE_REQ_KEY "xl4bus.request-key"
+
+#define JSON_ADDR_PROP_UPDATE_AGENT "update-agent"
+#define JSON_ADDR_PROP_SPECIAL "special"
+#define JSON_ADDR_PROP_GROUP "group"
+#define JSON_ADDR_PROP_X5T_S256 "x5t#S256"
+
+#define JSON_ADDR_SPECIAL_DMCLIENT "dmclient"
+#define JSON_ADDR_SPECIAL_BROKER "broker"
+
 #ifndef XI
 #define XI(a) a
 #endif

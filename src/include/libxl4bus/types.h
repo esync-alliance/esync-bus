@@ -15,6 +15,12 @@ struct xl4bus_identity;
 struct xl4bus_X509v3_Identity;
 struct xl4bus_connection;
 
+typedef struct dbuf {
+    uint8_t * data;
+    size_t len;
+    size_t cap;
+} dbuf_t;
+
 /**
  * Used as a general buffer, when variably sized
  * data needs to be exchanged.
@@ -132,7 +138,13 @@ typedef enum xl4bus_address_type {
      * Use ::xl4bus_address_t.group to specify the name of the
      * group.
      */
-    XL4BAT_GROUP
+    XL4BAT_GROUP,
+
+    /**
+     * Indicates that the address references specific X509 hash value,
+     * only used internally by the bus code itself.
+     */
+    XL4BAT_X5T_S256
 } xl4bus_address_type_t;
 
 /**
@@ -157,6 +169,11 @@ typedef struct xl4bus_address {
          * Used if type is ::XL4BAT_UPDATE_AGENT
          */
         char * group;
+
+        /**
+         * Used if type is ::XL4BAT_X5T_S256
+         */
+        char * x5ts256;
     };
     /**
      * Pointer to the next address.
@@ -573,6 +590,7 @@ typedef struct xl4bus_connection {
             char * remote_x5t;
             char * remote_x5c;
             char * my_x5t;
+            dbuf_t my_x5t_bin;
         };
     };
 

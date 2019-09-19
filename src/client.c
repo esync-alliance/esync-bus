@@ -15,7 +15,10 @@ typedef struct poll_info {
 
 typedef struct aes_search_data {
     char * missing_kid;
+    char * missing_x5t;
+    remote_info_t * remote;
     xl4bus_connection_t * conn;
+    cjose_jwk_t * key;
 } aes_search_data_t;
 
 typedef struct ll_message_container {
@@ -26,7 +29,6 @@ typedef struct ll_message_container {
     char * content_type;
     json_object * json;
     json_object * bus_object;
-    int no_cleanup;
 
 } ll_message_container_t;
 
@@ -53,11 +55,16 @@ static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *,
 static int create_ll_connection(xl4bus_client_t *);
 static void process_message_out(xl4bus_client_t *, message_internal_t *, int);
 static int get_xl4bus_message_msg(xl4bus_ll_message_t const *, json_object **, char const **);
+static int get_xl4bus_message_dav(decrypt_and_verify_data_t * dav, json_object **, char const **);
 static int get_xl4bus_message(char const * data, size_t data_len, char const * ct, json_object **, char const **);
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
 static int handle_presence(xl4bus_client_t * clt, json_object*);
 static int pick_timeout(int t1, int t2);
-static int send_json_message(xl4bus_client_t * clt, int use_session, int is_reply, int is_final, uint16_t stream_id, const char * type, json_object * j_type, int);
+static int send_json_message(xl4bus_client_t * clt, int use_session, int is_reply, int is_final, uint16_t stream_id,
+        const char * type, json_object * body, int thread_safe);
+static int send_main_message(xl4bus_client_t * clt, message_internal_t * mint);
+static int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
+        int is_reply, int is_final, uint16_t stream_id, const char * type, json_object * body);
 static const cjose_jwk_t * rsa_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *data);
 static const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *data);
 static void stop_client_ts(xl4bus_client_t * clt);
@@ -908,6 +915,85 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
 
 }
 
+int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
+        int is_reply, int is_final, uint16_t stream_id, const char * type, json_object * body) {
+
+    int err = E_XL4BUS_OK;
+    ll_message_container_t * msg = 0;
+    int no_cleanup = 0;
+    json_object * j_type = 0;
+    char * jws_data = 0;
+    size_t jws_data_len;
+    char * jwe_data = 0;
+    size_t jwe_data_len;
+
+    do {
+
+        DBG("XCHG %05x Sending client system message %s", stream_id, type);
+
+        client_internal_t * i_clt = clt->_private;
+        xl4bus_connection_t * conn = i_clt->ll;
+
+        BOLT_MALLOC(msg, sizeof(ll_message_container_t));
+
+        BOLT_MEM(msg->json = json_object_new_object());
+        if (body) {
+            BOLT_MEM(!json_object_object_add(msg->json, "body", body));
+            json_object_get(body);
+        }
+
+        BOLT_MEM(j_type = json_object_new_string(type));
+        BOLT_MEM(!json_object_object_add(msg->json, "type", j_type));
+        j_type = 0;
+
+        const char * bux = json_object_get_string(msg->json);
+        BOLT_MALLOC(msg, sizeof(ll_message_container_t));
+
+        msg->bus_object = json_object_new_object();
+
+        sign_jws(i_clt->private_key, conn->my_x5t, 0, msg->bus_object, bux, strlen(bux) + 1, FCT_BUS_MESSAGE, 0, 0, &jws_data, &jws_data_len);
+        // int encrypt_jwe(cjose_jwk_t *, const char * x5t, json_object * bus_object, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
+
+        encrypt_jwe(remote->remote_public_key, remote->x5t, 0, jws_data, jws_data_len, FCT_JOSE_COMPACT,
+                0, 0, &jwe_data, &jwe_data_len);
+
+        msg->msg.stream_id = stream_id;
+        msg->msg.is_reply = is_reply;
+        msg->msg.is_final = is_final;
+        msg->msg.data = jwe_data;
+        jwe_data = 0;
+        msg->msg.data_len = jwe_data_len;
+
+        msg->msg.content_type = FCT_JOSE_COMPACT;
+        msg->msg.uses_validation = 1;
+        msg->msg.uses_encryption = 1;
+        msg->msg.uses_session_key = 1;
+
+        xl4bus_address_t to_addr = {
+                .type = XL4BAT_X5T_S256,
+                .x5ts256 = remote->x5t
+        };
+
+        no_cleanup = 1;
+        BOLT_SUB(to_broker(clt, msg, &to_addr, 1, 1));
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
+
+    json_object_put(j_type);
+    free(jws_data);
+    free(jwe_data);
+
+    if (!no_cleanup) {
+        free_outgoing_message(msg);
+    }
+
+    return err;
+
+}
+
 int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
 
     int err = E_XL4BUS_OK;
@@ -917,32 +1003,35 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     cjose_jwe_recipient_t recipients[mint->key_idx];
     ll_message_container_t * msg = 0;
     cjose_jwk_t * key = 0;
+    int no_cleanup = 0;
 
     do {
+
+        client_internal_t * i_clt = clt->_private;
 
         BOLT_MALLOC(msg, sizeof(ll_message_container_t));
 
         msg->msg.stream_id = mint->stream_id;
         msg->msg.is_reply = 1;
 
-        DBG("Will encrypt with %d keys", mint->key_idx);
+        DBG("XCHG %05x Main message, will encrypt with %d keys", mint->stream_id, mint->key_idx);
 
         // encrypt the original message to all destinations
 
         // memset(recipients, 0, mint->key_idx * sizeof(cjose_jwe_recipient));
         for (int i=0; i<mint->key_idx; i++) {
+            BOLT_SUB(update_remote_symmetric_key(i_clt->ll->my_x5t, mint->remotes[i]));
             BOLT_CJOSE(recipients[i].unprotected_header = cjose_header_new(&c_err));
-            BOLT_CJOSE(cjose_header_set(recipients[i].unprotected_header, "x5t#S256", mint->remotes[i]->x5t, &c_err));
-            recipients[i].jwk = mint->remotes[i]->key;
+            BOLT_CJOSE(cjose_header_set(recipients[i].unprotected_header, CJOSE_HDR_KID, mint->remotes[i]->to_kid, &c_err));
+            recipients[i].jwk = mint->remotes[i]->to_key;
         }
 
         BOLT_NEST();
 
         BOLT_CJOSE(hdr = cjose_header_new(&c_err));
 
-        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_RSA_OAEP, &c_err));
+        BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_A256KW, &c_err));
         BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A256CBC_HS512, &c_err));
-        // BOLT_CJOSE(cjose_header_set(hdr, "x5t#S256", x5t, &c_err));
 
         BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_CTY, deflate_content_type(mint->msg->content_type), &c_err));
 
@@ -954,7 +1043,12 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
         msg->msg.data_len = strlen(msg->msg.data) + 1;
         msg->msg.content_type = FCT_JOSE_JSON;
 
+        msg->msg.uses_encryption = 1;
+        msg->msg.uses_session_key = 1;
+        msg->msg.uses_validation = 1;
+
         CHANGE_MIS(mint, MIS_WAIT_CONFIRM, "sending main message");
+        no_cleanup = 1;
         BOLT_SUB(to_broker(clt, msg, mint->msg->address, 1, 1));
 
 #pragma clang diagnostic push
@@ -969,7 +1063,7 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     }
     cjose_jwk_release(key);
 
-    if (msg && !msg->no_cleanup) {
+    if (!no_cleanup) {
         free_outgoing_message(msg);
     }
 
@@ -1003,8 +1097,6 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         if (i_clt->state == CS_RUNNING) {
 
-            DBG("XCHG: %05x Incoming stream", msg->stream_id);
-
 #if XL4_SUPPORT_THREADS
             BOLT_SYS(pf_lock(&i_clt->hash_lock), "");
 #endif
@@ -1015,6 +1107,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 #if XL4_SUPPORT_THREADS
             pf_unlock(&i_clt->hash_lock);
 #endif
+
+            DBG("XCHG: %05x Incoming stream, mint %p", msg->stream_id, mint);
 
             if (mint && !mint->in_restart && !mint->key_wait) {
 
@@ -1145,6 +1239,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
 
+                    DBG("System message from broker : %s", json_object_get_string(root));
+
                     if (!strcmp(type, "xl4bus.presence")) {
 
                         handle_presence(clt, root);
@@ -1157,12 +1253,16 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 } else {
 
+                    DBG("Incoming message, expecting client encryption");
+
                     // OK, the incoming message must have come from another client (and not from the broker).
                     // In this case, it must be W4, W5 or W6 type.
 
-                    aes_search_data_t asd = {0};
+                    aes_search_data_t asd = {.conn =  conn};
                     decrypt_and_verify_data_t dav = {0};
                     message_internal_t * mint2 = 0;
+                    int confirm_message = 1;
+                    json_object * body = 0;
 
                     do {
 
@@ -1175,11 +1275,16 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         dav.asymmetric_locator_data = clt;
 
                         dav.symmetric_key_locator = aes_key_locator;
-                        dav.asymmetric_locator_data = &asd;
+                        dav.symmetric_locator_data = &asd;
 
                         BOLT_SUB(decrypt_and_verify(&dav));
 
                         if (dav.missing_x5t || asd.missing_kid) {
+
+                            char const * missing_x5t = dav.missing_x5t;
+                            if (asd.missing_kid) {
+                                missing_x5t = asd.missing_x5t;
+                            }
 
                             BOLT_IF(dav.missing_x5t && msg->is_final, E_XL4BUS_DATA, "Can not follow up, and no remote");
                             BOLT_IF(mint, E_XL4BUS_DATA, "No remote after remote request");
@@ -1187,7 +1292,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                             BOLT_MALLOC(mint, sizeof(message_internal_t));
                             mint = ref_mint(mint);
 
-                            if (dav.missing_x5t) {
+                            if (dav.missing_x5t || asd.missing_x5t) {
                                 mint->mis = MIS_NEED_REMOTE;
                             } else {
                                 mint->mis = MIS_WAITING_KEY;
@@ -1203,12 +1308,12 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                             mint->ll_msg.is_final = 0;
                             mint->stream_id = msg->stream_id;
 
-                            if (dav.missing_x5t) {
+                            if (missing_x5t) {
 
                                 BOLT_MEM(root = json_object_new_object());
                                 json_object * aux;
                                 json_object * bux;
-                                BOLT_MEM(aux = json_object_new_string(dav.missing_x5t));
+                                BOLT_MEM(aux = json_object_new_string(missing_x5t));
                                 BOLT_MEM(bux = json_object_new_array());
                                 BOLT_MEM(!json_object_array_add(bux, aux));
                                 json_object_object_add(root, "x5t#S256", bux);
@@ -1221,7 +1326,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                                 mint2 = ref_mint(mint2);
                                 mint2->mis = MIS_EXPECTING_KEY;
 
-                                BOLT_SUB(xl4bus_get_next_outgoing_stream(i_clt->ll, &mint->stream_id));
+                                BOLT_SUB(xl4bus_get_next_outgoing_stream(i_clt->ll, &mint2->stream_id));
                                 BOLT_SUB(record_mint(clt, mint, 1, 0, 1));
 
                                 BOLT_MEM(root = xl4json_make_obj(0,
@@ -1229,10 +1334,12 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                                         NULL));
 
                                 mint2->key_wait = ref_mint(mint);
-                                send_json_message(clt, 1, 0, 0, mint->stream_id, "xl4bus.request-destinations", root, 1);
+                                send_client_json_message(clt, asd.remote, 0, 0, mint2->stream_id, "xl4bus.request-key", root);
                                 record_mint(clt, mint2, 1, 0, 1);
 
                             }
+
+                            confirm_message = 0;
 
                             record_mint(clt, mint, 1, 0, 1);
 
@@ -1242,17 +1349,50 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                         BOLT_IF(!dav.was_verified, E_XL4BUS_DATA, "Message could not be verified");
 
-                        if (!z_strcmp(msg->content_type, FCT_BUS_MESSAGE)) {
+                        if (!z_strcmp(dav.out_ct, FCT_BUS_MESSAGE)) {
 
-                            BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
+                            confirm_message = 0;
 
-                            if (!strcmp(type, "xl4bus.key-info")) {
+                            BOLT_SUB(get_xl4bus_message_dav(&dav, &root, &type));
+                            BOLT_IF(!mint, E_XL4BUS_CLIENT, "No message state for stream %05x", msg->stream_id);
+                            DBG("Received client system message of type %s", type);
 
+                            if (!z_strcmp(type, MSG_TYPE_KEY_INFO)) {
+
+                                BOLT_IF(!dav.was_encrypted, E_XL4BUS_DATA, "Key info message must have been encrypted");
                                 BOLT_IF(mint && mint->key_wait, E_XL4BUS_DATA,
                                         "Key info message does not correspond to an exchange that is waiting for a key");
                                 BOLT_SUB(process_remote_key(root, conn->my_x5t, dav.remote));
                                 mint->key_wait->in_restart = 1;
                                 reattempt_pending_message(conn, mint->key_wait);
+
+                            } else if (!z_strcmp(type, MSG_TYPE_REQ_KEY)) {
+
+                                char const * kid;
+                                BOLT_SUB(xl4json_get_pointer(root, "/body/kid", json_type_string, &kid));
+                                BOLT_IF(!dav.remote, E_XL4BUS_INTERNAL, "Remote not identified");
+                                if (!z_strcmp(kid, dav.remote->to_kid)) {
+
+                                    void const * key_data;
+                                    size_t key_data_len;
+
+                                    BOLT_CJOSE(key_data = cjose_jwk_get_keydata(dav.remote->to_key, &c_err));
+                                    BOLT_CJOSE(key_data_len = cjose_jwk_get_keysize(dav.remote->to_key, &c_err) / 8);
+
+                                    BOLT_CJOSE(cjose_base64url_encode(key_data, key_data_len,
+                                            &key_base64, &key_base64_len, &c_err));
+
+                                    body = xl4json_make_obj(0,
+                                                "S", "kty", "oct",
+                                                "S", "k", key_base64,
+                                            NULL);
+
+                                    BOLT_MEM(body);
+                                    send_client_json_message(clt, dav.remote, 1, 1, msg->stream_id, MSG_TYPE_KEY_INFO, body);
+
+                                } else {
+                                    DBG("Requested KID %s does not match used KID %s", kid, dav.remote->to_kid);
+                                }
 
                             } else {
 
@@ -1273,8 +1413,10 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             json_object * destinations;
                             if (json_object_object_get_ex(dav.bus_object, "destinations", &destinations)) {
-                                xl4bus_json_to_address(json_object_get_string(destinations), &to_addr);
+                                BOLT_SUB(xl4bus_json_to_address(json_object_get_string(destinations), &to_addr));
                             }
+
+                            BOLT_IF(!dav.remote, E_XL4BUS_INTERNAL, "No remote determined when doing DAV");
 
                             message.source_address = dav.remote->addresses;
                             message.address = to_addr;
@@ -1285,15 +1427,21 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     } while (0);
 
+                    json_object_put(body);
                     clean_decrypt_and_verify(&dav);
                     free(asd.missing_kid);
+                    cjose_jwk_release(asd.key);
+                    unref_remote_info(asd.remote);
+                    free(asd.missing_x5t);
                     unref_mint(mint2);
 
                     BOLT_NEST();
 
-                    // tell broker we are done
-                    send_json_message(clt, 1, 1, 1, msg->stream_id,
-                            "xl4bus.message-confirm", 0, 1);
+                    if (confirm_message) {
+                        // tell broker we are done
+                        send_json_message(clt, 1, 1, 1, msg->stream_id,
+                                "xl4bus.message-confirm", 0, 1);
+                    }
 
                 }
 
@@ -1321,11 +1469,19 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     .type = XL4KT_AES_256,
             };
 
-            pf_random(key.aes_256, sizeof(key.aes_256));
+            do {
 
-            BOLT_SUB(xl4bus_set_session_key(conn, &key));
+                pf_random(key.aes_256, sizeof(key.aes_256));
 
-            BOLT_CJOSE(cjose_base64url_encode(key.aes_256, sizeof(key.aes_256), &key_base64, &key_base64_len, &c_err));
+                BOLT_SUB(xl4bus_set_session_key(conn, &key, 0));
+
+                BOLT_CJOSE(cjose_base64url_encode(key.aes_256, sizeof(key.aes_256), &key_base64, &key_base64_len, &c_err));
+
+            } while (0);
+
+            zero_s(key.aes_256, sizeof(key.aes_256));
+
+            BOLT_NEST();
 
             json_object * body;
 
@@ -1588,6 +1744,12 @@ int get_xl4bus_message_msg(xl4bus_ll_message_t const * msg, json_object ** json,
 
 }
 
+int get_xl4bus_message_dav(decrypt_and_verify_data_t * dav, json_object ** json, char const ** type) {
+
+    return get_xl4bus_message(dav->out_data, dav->out_data_len, dav->out_ct, json, type);
+
+}
+
 int get_xl4bus_message(char const * data, size_t data_len, char const* ct, json_object ** json, char const ** type) {
 
     int err = E_XL4BUS_OK;
@@ -1768,19 +1930,22 @@ int pick_timeout(int t1, int t2) {
 }
 
 int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, int is_final,
-        uint16_t stream_id, const char * type, json_object * j_type, int thread_safe) {
+        uint16_t stream_id, const char * type, json_object * body, int thread_safe) {
 
     int err /* = E_XL4BUS_OK */;
 
     ll_message_container_t * msg = 0;
+    json_object * j_type = 0;
+    int no_cleanup = 0;
 
     do {
 
         BOLT_MALLOC(msg, sizeof(ll_message_container_t));
 
         BOLT_MEM(msg->json = json_object_new_object());
-        if (j_type) {
-            json_object_object_add(msg->json, "body", json_object_get(j_type));
+        if (body) {
+            BOLT_MEM(!json_object_object_add(msg->json, "body", body));
+            json_object_get(body);
         }
 
         BOLT_MEM(j_type = json_object_new_string(type));
@@ -1796,9 +1961,14 @@ int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, 
         msg->msg.is_reply = is_reply;
         msg->msg.is_final = is_final;
 
-        DBG("XCHG: %05x sending json on stream : %s",
-                msg->msg.stream_id, bux);
+        if (!z_strcmp(MSG_TYPE_REG_REQUEST, type)) {
+            DBG("XCHG: %05x sending json message type %s (secret) on stream", msg->msg.stream_id, type);
+        } else {
+            DBG("XCHG: %05x sending json on stream : %s",
+                    msg->msg.stream_id, bux);
+        }
 
+        no_cleanup = 1;
         BOLT_SUB(to_broker(clt, msg, 0, use_session_key, thread_safe));
 
 #pragma clang diagnostic push
@@ -1806,7 +1976,7 @@ int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, 
     } while (0);
 #pragma clang diagnostic pop
 
-    if (msg && !msg->no_cleanup) {
+    if (!no_cleanup) {
         free_outgoing_message(msg);
     }
 
@@ -1821,49 +1991,118 @@ int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, 
 const cjose_jwk_t * rsa_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void * data) {
 #pragma clang diagnostic pop
 
-    const char * x5t = cjose_header_get(hdr, "x5t#S256", 0);
-    if (!x5t) { return 0; }
+    const char * x5t = cjose_header_get(hdr, HDR_X5T256, 0);
+    if (!x5t) {
+
+        x5t = cjose_header_get(cjose_jwe_get_protected(jwe), HDR_X5T256, 0);
+
+        if (!x5t) {
+
+            DBG("No x5t hash");
+            return 0;
+
+        }
+
+    }
 
     xl4bus_client_t * clt = data;
     client_internal_t * i_clt = clt->_private;
     xl4bus_connection_t * conn = i_clt->ll;
 
     if (z_strcmp(x5t, conn->my_x5t)) {
+        DBG("Hash %s is not my hash", x5t);
         return 0;
     }
 
+    DBG("Returning my private key");
     return i_clt->private_key;
 
 }
 
 const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void * data) {
 
-    const char * x5t = cjose_header_get(hdr, "x5t#S256", 0);
-    if (!x5t) { return 0; }
-
-    xl4bus_client_t * clt = data;
-    client_internal_t * i_clt = clt->_private;
-    xl4bus_connection_t * conn = i_clt->ll;
-
-    if (z_strcmp(x5t, conn->my_x5t)) {
+    const char * kid = cjose_header_get(hdr, CJOSE_HDR_KID, 0);
+    if (!kid) {
+        DBG("No kid, returning 0");
         return 0;
     }
 
-    return i_clt->private_key;
+    aes_search_data_t * asd = data;
+
+    // let's see if I simply have this key in the hash
+    remote_key_t * rmi = find_by_kid(kid);
+    if (rmi) {
+        cjose_jwk_release(asd->key);
+        asd->key = cjose_jwk_retain(rmi->from_key, 0);
+        DBG("Found symmetric key %p for %s", rmi->from_key, kid);
+        unref_remote_key(rmi);
+        return asd->key;
+    }
+
+    // is this even my KID?
+    // unfortunately, to understand this, we need to extract my x5t piece from it
+
+    cjose_err c_err;
+    int err /*= E_XL4BUS_OK*/;
+    uint8_t * kid_raw = 0;
+    size_t kid_len;
+    char * remote_x5t = 0;
+    size_t remote_x5t_len = 0;
+
+    xl4bus_connection_t * conn = asd->conn;
+
+    size_t hash_len = conn->my_x5t_bin.len;
+    remote_info_t * remote = 0;
+
+    do {
+
+        BOLT_CJOSE(cjose_base64url_decode(kid, strlen(kid), &kid_raw, &kid_len, &c_err));
+        BOLT_IF(kid_len < hash_len * 2, E_XL4BUS_DATA, "KID len %zd too small", kid_len);
+        if (memcmp(conn->my_x5t_bin.data, kid_raw + hash_len, hash_len)) {
+            DBG("KID %s does not target my x5t", kid);
+        } else {
+            DBG("KID %s targets my x5t, populating missing KID", kid);
+            free(asd->missing_kid);
+            asd->missing_kid = f_strdup(kid);
+        }
+
+        // I also need to know who did this request come from, there is a chance I don't even know that guy.
+        BOLT_CJOSE(cjose_base64url_encode(kid_raw, hash_len, &remote_x5t, &remote_x5t_len, &c_err));
+        remote = find_by_x5t(remote_x5t);
+        if (!remote) {
+            DBG("X5T %s is unknown, requesting discovery", remote_x5t);
+            asd->missing_x5t = remote_x5t;
+            remote_x5t = 0;
+        } else {
+            DBG("X5T %s is recognized", remote_x5t);
+            asd->remote = remote;
+            remote = 0;
+        }
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
+
+    free(kid_raw);
+    free(remote_x5t);
+    unref_remote_info(remote);
+    return 0;
 
 }
 
 int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_address_t * addr,
         int use_session_key, int thread_safe) {
 
-    // we need to sign the message, and pass it to the lower level,
-    // where it will be encrypted and sent out.
+    // we must clean up msg, if it didn't make it to the lower level!
 
     json_object *array = 0;
 
     int err = 0;
 
     client_internal_t * i_clt = clt->_private;
+
+    int no_cleanup = 0;
 
     do {
 
@@ -1886,7 +2125,7 @@ int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_addres
             msg->msg.uses_session_key = 1;
         }
 
-        msg->no_cleanup = 1;
+        no_cleanup = 1;
         BOLT_SUB(SEND_LL(i_clt->ll, &msg->msg, 0, thread_safe));
 
 #pragma clang diagnostic push
@@ -1895,6 +2134,10 @@ int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_addres
 #pragma clang diagnostic pop
 
     json_object_put(array);
+
+    if (!no_cleanup) {
+        free_outgoing_message(msg);
+    }
 
     return err;
 
@@ -2007,12 +2250,14 @@ void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add
     if (is_add) {
 
         if (with_hash && !mint->in_hash) {
+            DBG("Adding mint %p to hash for stream %d", mint, mint->stream_id);
             HASH_ADD(hh, i_clt->stream_hash, stream_id, 2, mint);
             mint->in_hash = 1;
             ref_mint(mint);
         }
 
         if (with_list && !mint->in_list) {
+            DBG("Adding mint %p to message list", mint);
             DL_APPEND(i_clt->message_list, mint);
             mint->in_list = 1;
             ref_mint(mint);
@@ -2021,12 +2266,14 @@ void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add
     } else {
 
         if (with_hash && mint->in_hash) {
+            DBG("Adding mint %p from hash for stream %d", mint, mint->stream_id);
             HASH_DEL(i_clt->stream_hash, mint);
             mint->in_hash = 0;
             unref_mint(mint);
         }
 
         if (with_list && mint->in_list) {
+            DBG("Removing mint %p from message list", mint);
             DL_DELETE(i_clt->message_list, mint);
             mint->in_list = 0;
             unref_mint(mint);
@@ -2083,7 +2330,7 @@ void reattempt_pending_message(xl4bus_connection_t * conn, message_internal_t * 
 void release_remotes(message_internal_t * mint) {
 
     for (int i=0; i<mint->key_count; i++) {
-        release_remote_info(mint->remotes[i]);
+        unref_remote_info(mint->remotes[i]);
     }
     cfg.free(mint->remotes);
     mint->key_count = 0;

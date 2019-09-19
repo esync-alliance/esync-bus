@@ -6,8 +6,16 @@
       <w>beforehands</w>
       <w>calloc</w>
       <w>cjose</w>
+      <w>dbuf</w>
+      <w>dmclient</w>
+      <w>esync</w>
       <w>loopback</w>
+      <w>mbedtls</w>
+      <w>printf</w>
+      <w>reallocing</w>
+      <w>strerr</w>
       <w>unsecure</w>
+      <w>xchg</w>
     </words>
   </dictionary>
 </component>

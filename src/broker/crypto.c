@@ -121,7 +121,7 @@ int validate_jws(int trusted, void const * data, size_t data_len, validated_obje
             BOLT_SAY(E_XL4BUS_DATA, "No x-xl4bus property in the header");
         }
 
-        BOLT_IF(!cjose_jws_verify(jws, remote_info->key, &c_err), E_XL4BUS_DATA, "Failed JWS verify");
+        BOLT_IF(!cjose_jws_verify(jws, remote_info->remote_public_key, &c_err), E_XL4BUS_DATA, "Failed JWS verify");
 
         // $TODO: check nonce/timestamp!
 
@@ -225,7 +225,7 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
         BOLT_SUB(mpi2jwk(&prk_rsa->E, &rsa_ks.e, &rsa_ks.elen));
         BOLT_SUB(mpi2jwk(&prk_rsa->N, &rsa_ks.n, &rsa_ks.nlen));
 
-        BOLT_CJOSE(entry->key = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
+        BOLT_CJOSE(entry->remote_public_key = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
 
         const char * eku_oid = "1.3.6.1.4.1.45473.3.1";
         if (!mbedtls_x509_crt_check_key_usage(&crt, MBEDTLS_X509_KU_DIGITAL_SIGNATURE) &&
@@ -952,7 +952,7 @@ int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to) {
 
 int free_remote_info(remote_info_t *entry) {
     free(entry->x5t);
-    cjose_jwk_release(entry->key);
+    cjose_jwk_release(entry->remote_public_key);
     xl4bus_free_address(entry->addresses, 1);
     free(entry);
 }

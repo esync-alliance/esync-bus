@@ -112,7 +112,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             // DBG("LLP message type %s", type);
 
-            if (!strcmp(type, "xl4bus.registration-request")) {
+            if (!strcmp(type, MSG_TYPE_REG_REQUEST)) {
 
                 // update session key.
 
@@ -131,13 +131,15 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 memcpy(session_key.aes_256, kty_data, kty_data_len);
 
-                xl4bus_set_session_key(conn, &session_key);
+                xl4bus_set_session_key(conn, &session_key, 1);
 
                 if (!ci->reg_req) {
 
                     ci->reg_req = 1;
 
                     BOLT_MEM(connected = json_object_new_array());
+
+                    HASH_LIST_ADD(ci_by_x5ts256, ci, remote_x5t);
 
                     for (xl4bus_address_t *r_addr = conn->remote_address_list; r_addr; r_addr = r_addr->next) {
 
@@ -265,7 +267,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 break;
 
-            } else if (!strcmp("xl4bus.request-destinations", type)) {
+            } else if (!strcmp(MSG_TYPE_REQ_DESTINATIONS, type)) {
 
                 // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
 
@@ -295,7 +297,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 break;
 
-            } else if (!strcmp("xl4bus.request-cert", type)) {
+            } else if (!strcmp(MSG_TYPE_REQ_CERT, type)) {
 
                 json_object * x5c = json_object_new_array();
 
@@ -342,11 +344,11 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 json_object * body = json_object_new_object();
                 json_object_object_add(body, "x5c", x5c);
-                send_json_message(ci, "xl4bus.cert-details", body, msg->stream_id, 1, 0);
+                send_json_message(ci, MSG_TYPE_CERT_DETAILS, body, msg->stream_id, 1, 0);
 
                 break;
 
-            } else if (!strcmp("xl4bus.message-confirm", type)) {
+            } else if (!strcmp(MSG_TYPE_MESSAGE_CONFIRM, type)) {
                 // do nothing, it's the client telling us it's OK.
 
                 E900(f_asprintf("Confirmed receipt of %p-%04x", conn, msg->stream_id), conn->remote_address_list, 0);
@@ -397,6 +399,10 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 // the message is not final, the other side may return a certificate request.
                 msg->is_final = 0;
                 msg->is_reply = 0;
+
+                msg->uses_validation = 1;
+                msg->uses_session_key = 1;
+                msg->uses_encryption = 1;
 
                 count(0, 1);
 
@@ -520,6 +526,13 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
         }
 
         free(ci->group_names[i]);
+
+    }
+
+    {
+
+        int n_len;
+        REMOVE_FROM_HASH(ci_by_x5ts256, ci, remote_x5t, n_len, "Removing by x5t#s256");
 
     }
 
