@@ -219,6 +219,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/lib/rb_tree.c
     src/basics.h
     src/basics.c
+    src/lib/hash_list.h
 )
 
 set(DEPS_CFG ${PORT}/deps.cmk)
@@ -267,7 +268,7 @@ endif()
 
 if (BUILD_BINS)
 
-    set(LIB_SRC
+    set(BIN_LIB_SRC
         src/lib/common.h
         src/lib/common.c
         src/lib/debug.h
@@ -282,7 +283,7 @@ if (BUILD_BINS)
 
     add_executable(ll-client
             src/test_clients/ll-client.c
-            ${LIB_SRC}
+            ${BIN_LIB_SRC}
         )
 
     set(BROKER_SRC src/broker/broker.h
@@ -290,12 +291,12 @@ if (BUILD_BINS)
             src/broker/crypto.c
             src/broker/e900.c
             src/broker/gather.c
-            src/broker/hash_list.h
+            src/lib/hash_list.h
             src/broker/hash_tree.c
             src/broker/broker.c
             src/uthash.h
             src/utarray.h
-            ${LIB_SRC}
+            ${BIN_LIB_SRC}
             )
 
 
@@ -304,13 +305,13 @@ if (BUILD_BINS)
 
     add_executable(tree-test
         src/tests/tree.c
-        ${LIB_SRC}
+        ${BIN_LIB_SRC}
         )
 
     if (XL4_HAVE_EPOLL)
         add_executable(timeout-test
             src/tests/timeout.c
-            ${LIB_SRC}
+            ${BIN_LIB_SRC}
             )
         set(TEST_BINARIES "tree-test" "timeout-test")
     else()
@@ -323,11 +324,11 @@ if (BUILD_BINS)
 
         add_executable(ll-server
                 src/test_clients/ll-server.c
-                ${LIB_SRC}
+                ${BIN_LIB_SRC}
             )
         add_executable(hl-client
                 src/test_clients/hl-client.c
-                ${LIB_SRC}
+                ${BIN_LIB_SRC}
             )
         targets_link_libraries(ll-server hl-client LIBRARIES Threads::Threads)
         set(BINARIES ${BINARIES} ll-server hl-client)

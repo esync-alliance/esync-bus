@@ -652,6 +652,8 @@ void clean_decrypt_and_verify(decrypt_and_verify_data_t * dav) {
         cfg.free(dav->full_id);
     }
 
+    unref_remote_info(dav->remote);
+
     memset(dav, 0, sizeof(decrypt_and_verify_data_t));
 
 }

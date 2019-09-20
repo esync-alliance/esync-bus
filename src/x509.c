@@ -530,7 +530,7 @@ void unref_remote_key(remote_key_t * entry) {
 
 }
 
-int process_remote_key(json_object * body, char const * local_x5t, remote_info_t * source) {
+int process_remote_key(json_object * body, char const * local_x5t, remote_info_t * source, char const ** kid) {
 
     int err /*= E_XL4BUS_OK*/;
     cjose_err c_err;
@@ -538,7 +538,6 @@ int process_remote_key(json_object * body, char const * local_x5t, remote_info_t
     uint8_t * x5t_bin = 0;
     int locked = 0;
     cjose_jwk_t * key = 0;
-    char const * kid;
     remote_key_t * entry = 0;
 
     do {
@@ -554,12 +553,12 @@ int process_remote_key(json_object * body, char const * local_x5t, remote_info_t
         // check that the key size makes sense.
         BOLT_IF(bin_len != 128 / 8 && bin_len != 192 / 8 && bin_len != 256 / 8, E_XL4BUS_DATA, "Invalid key size %zu", bin_len);
 
-        BOLT_SUB(define_symmetric_key(bin, bin_len, source->x5t, local_x5t, &key, &kid));
+        BOLT_SUB(define_symmetric_key(bin, bin_len, source->x5t, local_x5t, &key, kid));
 
         LOCK(cert_cache_lock);
         locked = 1;
 
-        HASH_FIND_STR(kid_cache, kid, entry);
+        HASH_FIND_STR(kid_cache, *kid, entry);
 
         if (entry) {
             HASH_DEL(kid_cache, entry);
@@ -571,8 +570,8 @@ int process_remote_key(json_object * body, char const * local_x5t, remote_info_t
 
         entry->remote_info = ref_remote_info(source);
         BOLT_CJOSE(entry->from_key = cjose_jwk_retain(key, &c_err));
-        entry->from_kid = kid;
-        BOLT_HASH_ADD_KEYPTR(hh, kid_cache, kid, strlen(kid), entry);
+        entry->from_kid = *kid;
+        BOLT_HASH_ADD_KEYPTR(hh, kid_cache, *kid, strlen(*kid), entry);
         ref_remote_key(entry);
 
 #pragma clang diagnostic push

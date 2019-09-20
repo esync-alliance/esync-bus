@@ -3,7 +3,7 @@
 
 #include "broker.h"
 #include "lib/common.h"
-#include "hash_list.h"
+#include "lib/hash_list.h"
 #include "lib/debug.h"
 
 conn_info_hash_tree_t * ci_ua_tree = 0;

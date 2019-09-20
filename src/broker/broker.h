@@ -16,6 +16,8 @@
 #include "utarray.h"
 #include "uthash.h"
 
+#include "lib/hash_list.h"
+
 typedef enum poll_info_type {
     PIT_INCOMING, // socket for new incoming connections
     PIT_XL4 // existing low-level connection sockets
@@ -98,16 +100,10 @@ typedef struct conn_info_hash_tree {
 
 } conn_info_hash_tree_t;
 
-typedef struct conn_info_hash_list {
-    UT_hash_handle hh;
-    UT_array items;
-    char * key;
-} conn_info_hash_list_t;
-
 extern int be_quiet;
 extern UT_array dm_clients;
-extern conn_info_hash_list_t * ci_by_group;
-extern conn_info_hash_list_t * ci_by_x5ts256;
+extern hash_list_t * ci_by_group;
+extern hash_list_t * ci_by_x5t;
 extern conn_info_t * connections;
 extern int poll_fd;
 extern xl4bus_identity_t broker_identity;
@@ -161,20 +157,5 @@ int on_stream_close(struct xl4bus_connection *, uint16_t stream, xl4bus_stream_c
 void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except);
 int send_json_message(conn_info_t *, const char *, json_object * body, uint16_t stream_id, int is_reply, int is_final);
 void count(int in, int out);
-
-// inline
-
-static inline int void_cmp_fun(void const * a, void const * b) {
-
-    void * const * ls = a;
-    void * const * rs = b;
-
-    if ((uintptr_t)*ls > (uintptr_t)*rs) {
-        return 1;
-    } else if (*ls == *rs) {
-        return 0;
-    }
-    return -1;
-}
 
 #endif

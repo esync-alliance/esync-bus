@@ -5,7 +5,7 @@
 #include "utlist.h"
 #include "basics.h"
 
-#include "hash_list.h"
+#include "lib/hash_list.h"
 
 #include "broker.h"
 #include "lib/common.h"
@@ -34,8 +34,7 @@ typedef struct msg_context {
 
 static void free_message_context(msg_context_t *);
 
-static conn_info_hash_list_t * ci_by_name = 0;
-static conn_info_hash_list_t * ci_by_x5t = 0;
+static hash_list_t * ci_by_name = 0;
 
 int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
@@ -96,8 +95,6 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         BOLT_IF(!ci->remote_x5c || !ci->remote_x5t, E_XL4BUS_DATA, "Remote identity is not fully established");
 
-        // DBG("Incoming message content type %s", vot.content_type);
-
         if (!strcmp(FCT_BUS_MESSAGE, msg->content_type)) {
 
             // the incoming JSON must be ASCIIZ.
@@ -138,8 +135,6 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     ci->reg_req = 1;
 
                     BOLT_MEM(connected = json_object_new_array());
-
-                    HASH_LIST_ADD(ci_by_x5ts256, ci, remote_x5t);
 
                     for (xl4bus_address_t *r_addr = conn->remote_address_list; r_addr; r_addr = r_addr->next) {
 
@@ -220,8 +215,8 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         json_object_object_add(cux, "special", dux);
                     }
 
-                    conn_info_hash_list_t *tmp;
-                    conn_info_hash_list_t *cti;
+                    hash_list_t *tmp;
+                    hash_list_t *cti;
 
                     HASH_ITER(hh, ci_by_name, cti, tmp) {
                         UTCOUNT_WITHOUT(&cti->items, ci, lc);
@@ -314,7 +309,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                         UT_array * items = 0;
 
-                        conn_info_hash_list_t * val;
+                        hash_list_t * val;
                         HASH_FIND(hh, ci_by_x5t, x5t, strlen(x5t)+1, val);
                         if (val) {
                             items = &val->items;
@@ -415,7 +410,6 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 do {
 
-
                     BOLT_SUB(xl4bus_get_next_outgoing_stream(ci2->conn, &msg->stream_id));
 
                     ctx->magic = MAGIC_CLIENT_MESSAGE;
@@ -449,7 +443,9 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         conn->remote_address_list, forward_to);
             }
 
-            send_json_message(ci, "xl4bus.message-confirm", 0, stream_id, 1, 1);
+            if (!msg->is_final) {
+                send_json_message(ci, "xl4bus.message-confirm", 0, stream_id, 1, 1);
+            }
 
         }
 
@@ -526,13 +522,6 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
         }
 
         free(ci->group_names[i]);
-
-    }
-
-    {
-
-        int n_len;
-        REMOVE_FROM_HASH(ci_by_x5ts256, ci, remote_x5t, n_len, "Removing by x5t#s256");
 
     }
 

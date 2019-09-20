@@ -1,8 +1,27 @@
-#ifndef _XL4BUS_BROKER_HASH_LIST_H_
-#define _XL4BUS_BROKER_HASH_LIST_H_
+#ifndef _XL4BUS_LIB_HASH_LIST_H_
+#define _XL4BUS_LIB_HASH_LIST_H_
 
 #include "uthash.h"
 #include "utarray.h"
+
+typedef struct hash_list_t {
+    UT_hash_handle hh;
+    UT_array items;
+    char * key;
+} hash_list_t;
+
+static inline int void_cmp_fun(void const * a, void const * b) {
+
+    void * const * ls = a;
+    void * const * rs = b;
+
+    if ((uintptr_t)*ls > (uintptr_t)*rs) {
+        return 1;
+    } else if (*ls == *rs) {
+        return 0;
+    }
+    return -1;
+}
 
 #define REMOVE_FROM_ARRAY(array, item, msg, x...) do { \
     void * __addr = utarray_find(array, &item, void_cmp_fun); \
@@ -36,7 +55,7 @@
 } while(0)
 
 #define REMOVE_FROM_HASH(root, obj, key_fld, n_len, msg, x...) do { \
-    conn_info_hash_list_t * __list; \
+    hash_list_t * __list; \
     const char * __keyval = (obj)->key_fld; \
     size_t __keylen = strlen(__keyval) + 1; \
     HASH_FIND(hh, root, __keyval, __keylen, __list); \
@@ -55,12 +74,12 @@
 } while(0)
 
 #define HASH_LIST_ADD(root, obj, key_fld) do { \
-    conn_info_hash_list_t * __list; \
+    hash_list_t * __list; \
     const char * __keyval = (obj)->key_fld; \
     size_t __keylen = strlen(__keyval) + 1; \
     HASH_FIND(hh, root, __keyval, __keylen, __list); \
     if (!__list) { \
-        __list = f_malloc(sizeof(conn_info_hash_list_t)); \
+        __list = f_malloc(sizeof(hash_list_t)); \
         __list->key = f_strdup(__keyval); \
         HASH_ADD_KEYPTR(hh, root, __list->key, __keylen, __list); \
         /* utarray_new(__list->items, &ut_ptr_icd); */ \

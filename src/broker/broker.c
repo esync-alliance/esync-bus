@@ -25,8 +25,8 @@ static void signal_f(int);
 
 int debug = 0;
 UT_array dm_clients;
-conn_info_hash_list_t * ci_by_group = 0;
-conn_info_hash_list_t * ci_by_x5ts256 = 0;
+hash_list_t * ci_by_group = 0;
+hash_list_t * ci_by_x5t = 0;
 conn_info_t * connections;
 int poll_fd;
 xl4bus_identity_t broker_identity;

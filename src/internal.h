@@ -191,8 +191,6 @@ typedef enum message_info_state {
     /* for incoming messages */
     MIS_NEED_REMOTE,
     MIS_WAITING_KEY,
-    /* for key requests */
-    MIS_EXPECTING_KEY
 } message_info_state_t;
 
 typedef struct remote_key {
@@ -251,9 +249,9 @@ typedef struct message_internal {
     size_t key_idx;
     int in_hash;
     int in_list;
+    int in_kid_list;
     int expired_count;
-
-    struct message_internal * key_wait;
+    char * needs_kid;
 
     void * custom;
 
@@ -529,7 +527,7 @@ remote_info_t * ref_remote_info(remote_info_t *);
 remote_key_t * ref_remote_key(remote_key_t *);
 int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, int * ku_flags, remote_info_t **);
 int accept_remote_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t **);
-int process_remote_key(json_object*, char const * local_x5t, remote_info_t * source);
+int process_remote_key(json_object*, char const * local_x5t, remote_info_t * source, char const ** kid);
 int update_remote_symmetric_key(char const * local_x5t, remote_info_t * remote);
 
 /**
