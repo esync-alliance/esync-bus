@@ -205,6 +205,8 @@ typedef struct remote_key {
 
     int ref_count;
 
+    rb_node_t rb_expiration;
+
 } remote_key_t;
 
 typedef struct remote_info {
@@ -223,9 +225,17 @@ typedef struct remote_info {
     // parsed xl4 bus addresses declared in the cert from the remote
     xl4bus_address_t * addresses;
 
-    char const * to_kid;
     cjose_jwk_t * to_key;
+    char const * to_kid;
+    // if that time is reached, make a new key
     uint64_t to_key_expiration;
+    // key can be returned unless time reaches this value
+    uint64_t to_key_use_expiration;
+
+    cjose_jwk_t * old_to_key;
+    char const * old_to_kid;
+    // key can be returned unless time reaches this value
+    uint64_t old_to_key_use_expiration;
 
     int ref_count;
 
@@ -354,10 +364,16 @@ typedef struct decrypt_and_verify_data {
 
 typedef int (*x509_lookup_t)(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
 
+#define cfg XI(cfg)
+#define hash_sha256 XI(hash_sha256)
+#define remote_key_expiration XI(remote_key_expiration)
+
 extern xl4bus_ll_cfg_t cfg;
 extern const mbedtls_md_info_t * hash_sha256;
+extern rb_node_t * remote_key_expiration;
 
 #if XL4_SUPPORT_THREADS
+#define cert_cache_lock XI(cert_cache_lock)
 extern void * cert_cache_lock;
 #endif
 
@@ -512,6 +528,7 @@ json_object * xl4json_make_obj_v(json_object *obj, va_list ap2);
 #define accept_remote_x5c XI(accept_remote_x5c)
 #define unref_remote_info XI(unref_remote_info)
 #define unref_remote_key XI(unref_remote_key)
+#define release_remote_key_nl XI(release_remote_key)
 #define ref_remote_info XI(ref_remote_info)
 #define ref_remote_key XI(ref_remote_key)
 #define process_remote_key XI(process_remote_key)
@@ -523,6 +540,7 @@ remote_info_t * find_by_x5t(const char * x5t);
 remote_key_t * find_by_kid(const char * kid);
 void unref_remote_info(remote_info_t *);
 void unref_remote_key(remote_key_t *);
+void release_remote_key_nl(remote_key_t *);
 remote_info_t * ref_remote_info(remote_info_t *);
 remote_key_t * ref_remote_key(remote_key_t *);
 int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, int * ku_flags, remote_info_t **);

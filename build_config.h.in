@@ -90,13 +90,25 @@
 /**
  * Limit the amount of path element that the user agent may have.
  */
-#cmakedefine XL4_MAX_UA_PATHS
+#cmakedefine XL4_MAX_UA_PATHS @XL4_MAX_UA_PATHS@
 
 /**
  * Set to `1` if epoll_create1(2) is not available, and must
  * be implemented internally instead.
  */
 #cmakedefine01 XL4_PROVIDE_EPOLL_CREATE1
+
+/**
+ * Specify time, in millisecond, of how long the key is considered valid
+ * for high-level (client-to-client) communications. Default is 24 hours
+ */
+#cmakedefine XL4_HL_KEY_EXPIRATION_MS @XL4_HL_KEY_EXPIRATION_MS@
+
+/**
+ * Specify time, in milliseconds, of how long a key can be queried after
+ * its expiration time, by a remote. Default is 1 hour
+ */
+#cmakedefine XL4_HL_KEY_USE_EXPIRATION_MS @XL4_HL_KEY_USE_EXPIRATION_MS@
 
 #ifndef XL4_MAX_UA_PATHS
 #define XL4_MAX_UA_PATHS 10

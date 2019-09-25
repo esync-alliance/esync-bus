@@ -2,9 +2,12 @@
 #include "internal.h"
 #include "misc.h"
 #include "basics.h"
+#include "lib/hash_list.h"
 
 static int define_symmetric_key(void const * key_data, size_t key_data_len, char const * sender_x5t,
         char const * receiver_x5t, cjose_jwk_t ** jwk, char const ** kid);
+
+static int expiration_cmp(rb_node_t * node, void * val_ptr);
 
 // I thought about this for a while - whether certificate cache should be
 // global or not. The key into this cache is sha-256 of the certificate.
@@ -40,6 +43,8 @@ static remote_info_t * x5t_cache = 0;
 // to clean up. Since using multiple identities is not a use case for us right now,
 // I'm making this a global. The work to refactor this can be not so trivial.
 static remote_key_t * kid_cache = 0;
+
+rb_node_t * remote_key_expiration = 0;
 
 #if XL4_SUPPORT_THREADS
 void * cert_cache_lock;
@@ -513,6 +518,7 @@ void unref_remote_info(remote_info_t * entry) {
     cfg.free(entry->x5t);
     cjose_jwk_release(entry->remote_public_key);
     cjose_jwk_release(entry->to_key);
+    cjose_jwk_release(entry->old_to_key);
     xl4bus_free_address(entry->addresses, 1);
     cfg.free(entry);
 
@@ -555,6 +561,9 @@ int process_remote_key(json_object * body, char const * local_x5t, remote_info_t
 
         BOLT_SUB(define_symmetric_key(bin, bin_len, source->x5t, local_x5t, &key, kid));
 
+        // $TODO: may be limit the amount of keys a remote can register, otherwise we let us being DDoSed, by
+        // exhausting our memory with different keys.
+
         LOCK(cert_cache_lock);
         locked = 1;
 
@@ -571,8 +580,16 @@ int process_remote_key(json_object * body, char const * local_x5t, remote_info_t
         entry->remote_info = ref_remote_info(source);
         BOLT_CJOSE(entry->from_key = cjose_jwk_retain(key, &c_err));
         entry->from_kid = *kid;
+        entry->from_key_expiration = pf_ms_value() + XL4_HL_KEY_EXPIRATION_MS;
         BOLT_HASH_ADD_KEYPTR(hh, kid_cache, *kid, strlen(*kid), entry);
-        ref_remote_key(entry);
+
+        rb_tree_search_t search;
+        if (rb_find(&remote_key_expiration, &entry->from_key_expiration, expiration_cmp, &search)) {
+            pf_abort("Found the impossible to find");
+        }
+
+        rb_insert(&entry->rb_expiration, &search, &remote_key_expiration);
+        ref_remote_key(entry); // added to hash and RB tree
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -640,13 +657,21 @@ int update_remote_symmetric_key(char const * local_x5t, remote_info_t * remote) 
 
     do {
 
-        if (!remote->to_kid || remote->to_key_expiration >= pf_ms_value()) {
+        if (!remote->to_kid || remote->to_key_expiration < pf_ms_value()) {
 
-            cjose_jwk_release(remote->to_key);
+            cjose_jwk_release(remote->old_to_key);
+            remote->old_to_key = remote->to_key;
+            remote->old_to_kid = remote->to_kid;
+            remote->old_to_key_use_expiration = remote->to_key_use_expiration;
+            remote->to_key = 0;
+            remote->to_kid = 0;
 
             pf_random(key, sizeof(key_size));
 
             BOLT_SUB(define_symmetric_key(key, key_size, local_x5t, remote->x5t, &remote->to_key, &remote->to_kid));
+            uint64_t now = pf_ms_value();
+            remote->to_key_expiration = now + XL4_HL_KEY_EXPIRATION_MS;
+            remote->old_to_key_use_expiration = remote->to_key_expiration + XL4_HL_KEY_USE_EXPIRATION_MS;
 
         }
 
@@ -733,5 +758,23 @@ int define_symmetric_key(void const * key_data, size_t key_data_len, char const 
     }
 
     return err;
+
+}
+
+int expiration_cmp(rb_node_t * node, void * val_ptr) {
+
+    // we never return 0, because there is no equality.
+    if (TO_RB_NODE2(remote_key_t, node, rb_expiration)->from_key_expiration < *(uint64_t*)val_ptr) {
+        return -1;
+    }
+    return 1;
+
+}
+
+void release_remote_key_nl(remote_key_t * key) {
+
+    HASH_DEL(kid_cache, key);
+    rb_delete(&remote_key_expiration, &key->rb_expiration);
+    unref_remote_key(key);
 
 }

@@ -9,28 +9,28 @@
 
 #if !XL4_HAVE_GETTIMEOFDAY
 #define _ltime_ \
-    char now[1]; \
-    now[0] = 0
+    char __now[1]; \
+    __now[0] = 0
 #else
 #define _ltime_ \
-    char now[27]; \
+    char __now[27]; \
     if (!cfg.debug_no_time) { \
-        struct tm tmnow; \
-        struct timeval tv; \
-        memset(now, 0, 27); \
-        gettimeofday(&tv, 0); \
-        usec_to_msec(&tv); \
-        localtime_r(&tv.tv_sec, &tmnow); \
-        strftime(now, 20, "[%m-%d:%H:%M:%S.", &tmnow); \
-        sprintf(now+15, "%03d] ", (int)(tv.tv_usec)); \
+        struct tm __tmnow; \
+        struct timeval __tv; \
+        memset(__now, 0, 27); \
+        gettimeofday(&__tv, 0); \
+        usec_to_msec(&__tv); \
+        localtime_r(&__tv.tv_sec, &__tmnow); \
+        strftime(__now, 20, "[%m-%d:%H:%M:%S.", &__tmnow); \
+        sprintf(__now+15, "%03d] ", (int)(__tv.tv_usec)); \
     } else { \
-        now[0] = 0; \
+        __now[0] = 0; \
     }
 #endif
 
 #define DBG(a,b...) do { if (cfg.debug_f) { \
     _ltime_; \
-    char * _str = f_asprintf("%sxl4bus:%s:%d " a, now, chop_path(__FILE__), __LINE__, ## b); \
+    char * _str = f_asprintf("%sxl4bus:%s:%d " a, __now, chop_path(__FILE__), __LINE__, ## b); \
     if (_str) { \
         cfg.debug_f(_str); \
         cfg.free(_str); \
@@ -40,7 +40,7 @@
 #define DBG_SYS(a,b...) do { if (cfg.debug_f) { \
     int _errno = pf_get_errno(); \
     _ltime_; \
-    char * _str = f_asprintf("%sxl4bus:%s:%d error %s(%d): " a, now, chop_path(__FILE__), __LINE__, strerror(_errno), _errno, ## b); \
+    char * _str = f_asprintf("%sxl4bus:%s:%d error %s(%d): " a, __now, chop_path(__FILE__), __LINE__, strerror(_errno), _errno, ## b); \
     if (_str) { \
         cfg.debug_f(_str); \
         cfg.free(_str); \

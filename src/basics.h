@@ -25,7 +25,8 @@
 #define SEC_PER_MIN 60ULL
 #define MIN_PER_HOUR 60ULL
 #define HOUR_PER_DAY 24ULL
-#define MILLIS_PER_DAY (HOUR_PER_DAY * MIN_PER_HOUR * SEC_PER_MIN * MILLIS_PER_SEC)
+#define MILLIS_PER_HOUR (MIN_PER_HOUR * SEC_PER_MIN * MILLIS_PER_SEC)
+#define MILLIS_PER_DAY (HOUR_PER_DAY * MILLIS_PER_HOUR)
 
 #define HDR_XL4BUS "x-xl4bus"
 #define HDR_X5T256 "x5t#S256"
@@ -48,6 +49,15 @@
 
 #define JSON_ADDR_SPECIAL_DMCLIENT "dmclient"
 #define JSON_ADDR_SPECIAL_BROKER "broker"
+
+// high level key expires in 24 hours
+#ifndef XL4_HL_KEY_EXPIRATION_MS
+#define XL4_HL_KEY_EXPIRATION_MS (24 * MILLIS_PER_HOUR)
+#endif
+// the remote can request the key for one additional hour
+#ifndef XL4_HL_KEY_USE_EXPIRATION_MS
+#define XL4_HL_KEY_USE_EXPIRATION_MS MILLIS_PER_HOUR
+#endif
 
 #ifndef XI
 #define XI(a) a

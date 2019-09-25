@@ -35,6 +35,8 @@ typedef struct ll_message_container {
 
 static void client_thread(void *);
 static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
+static int apply_timeouts(xl4bus_client_t *, int need_timeout);
+static void clean_expired_things(xl4bus_client_t *);
 
 #endif
 
@@ -469,7 +471,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             // because we timed out; this means we should reset the timeout
             i_clt->ll_timeout = -1;
             BOLT_SUB(xl4bus_process_connection(i_clt->ll, -1, 0));
-            *timeout = pick_timeout(i_clt->ll_timeout, *timeout);
+            *timeout = apply_timeouts(clt, *timeout);
         }
 
         // if there is no change, let's get out.
@@ -879,9 +881,11 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
 
+        clean_expired_things(clt);
+
         if (fd == XL4BUS_POLL_TIMEOUT_MS) {
 
-            i_clt->ll_timeout = pick_timeout(i_clt->ll_timeout, modes);
+            apply_timeouts(clt, modes);
 
         } else {
 
@@ -1082,6 +1086,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     size_t key_base64_len = 0;
     xl4bus_address_t * to_addr = 0;
 
+
     do {
 
         // $TODO: a lot of errors here will lead to client dropping the connection
@@ -1090,6 +1095,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
         char const * type;
+
+        clean_expired_things(clt);
 
         BOLT_IF(!msg->uses_validation, E_XL4BUS_DATA, "Incoming message is not validated, refusing to process");
 
@@ -1394,7 +1401,22 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                                 char const * kid;
                                 BOLT_SUB(xl4json_get_pointer(root, "/body/kid", json_type_string, &kid));
                                 BOLT_IF(!dav.remote, E_XL4BUS_INTERNAL, "Remote not identified");
-                                if (!z_strcmp(kid, dav.remote->to_kid)) {
+                                BOLT_IF(dav.was_symmetric, E_XL4BUS_INTERNAL, "Asymmetric encryption must be used");
+
+                                cjose_jwk_t * used_key = 0;
+                                uint64_t now = pf_ms_value();
+
+                                if (!z_strcmp(kid, dav.remote->to_kid) && now < dav.remote->to_key_use_expiration) {
+
+                                    used_key = dav.remote->to_key;
+
+                                } else if (!z_strcmp(kid, dav.remote->old_to_kid) && now < dav.remote->old_to_key_use_expiration) {
+
+                                    used_key = dav.remote->old_to_key;
+
+                                }
+
+                                if (!used_key) {
 
                                     void const * key_data;
                                     size_t key_data_len;
@@ -1406,15 +1428,18 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                                             &key_base64, &key_base64_len, &c_err));
 
                                     body = xl4json_make_obj(0,
-                                                "S", "kty", "oct",
-                                                "S", "k", key_base64,
+                                            "S", "kty", "oct",
+                                            "S", "k", key_base64,
                                             NULL);
 
                                     BOLT_MEM(body);
-                                    send_client_json_message(clt, dav.remote, 1, 1, msg->stream_id, MSG_TYPE_KEY_INFO, body);
+                                    // $TODO: body must be disposed of securely somehow.
+                                    send_client_json_message(clt, dav.remote, 1, 1,
+                                            msg->stream_id, MSG_TYPE_KEY_INFO, body);
 
                                 } else {
-                                    DBG("Requested KID %s does not match used KID %s", kid, dav.remote->to_kid);
+                                    DBG("Requested KID %s does not match neither recent KID %s nor old KID %s",
+                                            kid, dav.remote->to_kid, dav.remote->old_to_kid);
                                 }
 
                             } else {
@@ -2379,5 +2404,66 @@ void release_remotes(message_internal_t * mint) {
     mint->key_count = 0;
     mint->remotes = 0;
     mint->key_idx = 0;
+
+}
+
+int apply_timeouts(xl4bus_client_t * clt, int need_timeout) {
+
+    client_internal_t * i_clt = clt->_private;
+    int ret = i_clt->ll_timeout = pick_timeout(i_clt->ll_timeout, need_timeout);
+
+    if (!LOCK(cert_cache_lock)) {
+
+        if (remote_key_expiration) {
+
+            uint64_t exp_timeout;
+
+            rb_tree_nav_t nav = {0};
+            rb_tree_start(&nav, remote_key_expiration);
+            uint64_t now = pf_ms_value();
+            uint64_t expires_at = TO_RB_NODE2(remote_key_t, nav.node, rb_expiration)->from_key_expiration;
+            if (now >= expires_at) {
+                exp_timeout = 1;
+            } else {
+                exp_timeout = expires_at - now;
+            }
+
+            ret = i_clt->ll_timeout = pick_timeout(i_clt->ll_timeout, exp_timeout);
+
+        }
+
+        UNLOCK(cert_cache_lock);
+
+    }
+
+    return ret;
+
+}
+
+void clean_expired_things(xl4bus_client_t * clt) {
+
+    client_internal_t * i_clt = clt->_private;
+    uint64_t now = pf_ms_value();
+
+    if (!LOCK(cert_cache_lock)) {
+
+        rb_tree_nav_t nav = {0};
+
+        for (rb_tree_start(&nav, remote_key_expiration); nav.node; rb_tree_next(&nav)) {
+
+            remote_key_t * key = TO_RB_NODE2(remote_key_t, nav.node, rb_expiration);
+            if (key->from_key_expiration <= now) {
+                DBG("Key %s expired, releasing", key->from_kid);
+                release_remote_key_nl(key);
+            } else {
+                break;
+            }
+
+        }
+
+        UNLOCK(cert_cache_lock);
+
+    }
+
 
 }
