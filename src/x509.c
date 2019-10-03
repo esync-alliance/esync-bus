@@ -666,7 +666,7 @@ int update_remote_symmetric_key(char const * local_x5t, remote_info_t * remote) 
             remote->to_key = 0;
             remote->to_kid = 0;
 
-            pf_random(key, sizeof(key_size));
+            pf_random(key, key_size);
 
             BOLT_SUB(define_symmetric_key(key, key_size, local_x5t, remote->x5t, &remote->to_key, &remote->to_kid));
             uint64_t now = pf_ms_value();
@@ -707,11 +707,9 @@ int define_symmetric_key(void const * key_data, size_t key_data_len, char const 
 
         int hash_len = mbedtls_md_get_size(hash_sha256);
 
-        void * bin;
-        size_t bin_len;
+        uint8_t bin[max_size_t(key_data_len + hash_len * 2, hash_len * 3)];
 
         // let's get A⌢B⌢K first
-        BOLT_MALLOC(bin, bin_len = key_data_len + hash_len * 2);
         memcpy(bin + hash_len * 2, key_data, key_data_len);
 
         size_t ck_len = 0;
@@ -728,17 +726,16 @@ int define_symmetric_key(void const * key_data, size_t key_data_len, char const 
 
         BOLT_MTLS(mbedtls_md_setup(&mdc, hash_sha256, 0));
         BOLT_MTLS(mbedtls_md_starts(&mdc));
-        BOLT_MTLS(mbedtls_md_update(&mdc, bin, bin_len));
+        BOLT_MTLS(mbedtls_md_update(&mdc, bin, hash_len * 3));
         BOLT_MTLS(mbedtls_md_finish(&mdc, hash_val));
 
         // we have hash of A⌢B⌢K, let's replace A⌢B⌢K with A⌢B⌢SHA-256(A⌢B⌢K)
 
-        BOLT_REALLOC(bin, uint8_t, hash_len * 3, bin_len);
         memcpy(bin + hash_len * 2, hash_val, hash_len);
 
         // if we base64 bin, we got our KID
         size_t alloc_kid_len;
-        BOLT_CJOSE(cjose_base64url_encode(bin, bin_len, &alloc_kid, &alloc_kid_len, &c_err));
+        BOLT_CJOSE(cjose_base64url_encode(bin, hash_len * 3, &alloc_kid, &alloc_kid_len, &c_err));
         BOLT_CJOSE(cjose_jwk_set_kid(*jwk, alloc_kid, alloc_kid_len, &c_err));
 
         BOLT_CJOSE(*kid = cjose_jwk_get_kid(*jwk, &c_err));

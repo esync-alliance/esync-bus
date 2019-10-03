@@ -794,8 +794,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
             do {
 
                 // the message is completed! Let's purge it.
-                xl4bus_ll_message_t message;
-                memset(&message, 0, sizeof(xl4bus_ll_message_t));
+                xl4bus_ll_message_t message = {0};
 
                 init_dav(conn, &dav);
 

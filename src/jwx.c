@@ -429,7 +429,7 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
     cjose_jwe_release(jwe);
     cjose_jwk_release(used_key);
     free(x5c);
-    free(x5c_json);
+    json_object_put(x5c_json);
 
     if (err) {
         clean_decrypt_and_verify(dav);
@@ -700,7 +700,7 @@ int xl4bus_set_session_key(xl4bus_connection_t * conn, xl4bus_key_t * key, int u
         }
 
         BOLT_CJOSE(i_conn->session_key = cjose_jwk_retain(jwk, &c_err));
-        i_conn->session_key_expiration = pf_ms_value() + 24 * MILLIS_PER_DAY;
+        i_conn->session_key_expiration = pf_ms_value() + XL4_LL_KEY_EXPIRATION_MS;
 
         i_conn->session_key_use_ok = use_now;
 

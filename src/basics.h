@@ -54,9 +54,15 @@
 #ifndef XL4_HL_KEY_EXPIRATION_MS
 #define XL4_HL_KEY_EXPIRATION_MS (24 * MILLIS_PER_HOUR)
 #endif
+
 // the remote can request the key for one additional hour
 #ifndef XL4_HL_KEY_USE_EXPIRATION_MS
 #define XL4_HL_KEY_USE_EXPIRATION_MS MILLIS_PER_HOUR
+#endif
+
+// low level symmetric key expires in 24 hours
+#ifndef XL4_LL_KEY_EXPIRATION_MS
+#define XL4_LL_KEY_EXPIRATION_MS (24 * MILLIS_PER_HOUR)
 #endif
 
 #ifndef XI

@@ -64,10 +64,10 @@ static void release_message(xl4bus_client_t *, message_internal_t *, int);
 static int handle_presence(xl4bus_client_t * clt, json_object*);
 static int pick_timeout(int t1, int t2);
 static int send_json_message(xl4bus_client_t * clt, int use_session, int is_reply, int is_final, uint16_t stream_id,
-        const char * type, json_object * body, int thread_safe);
+        const char * type, /* copies */ json_object * body, int thread_safe);
 static int send_main_message(xl4bus_client_t * clt, message_internal_t * mint);
 static int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
-        int is_reply, int is_final, uint16_t stream_id, const char * type, json_object * body);
+        int is_reply, int is_final, uint16_t stream_id, const char * type, /* copies */ json_object * body);
 static const cjose_jwk_t * rsa_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *data);
 static const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *data);
 static void stop_client_ts(xl4bus_client_t * clt);
@@ -85,6 +85,7 @@ static message_internal_t * ref_mint(message_internal_t *);
 static void unref_mint(message_internal_t *);
 static int is_expired(message_internal_t *);
 static void reattempt_pending_message(xl4bus_connection_t *, message_internal_t *);
+static int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, message_internal_t * mint);
 
 #if XL4_SUPPORT_THREADS
 static int handle_mt_message(struct xl4bus_connection *, void *, size_t);
@@ -1077,7 +1078,6 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
     int err/* = E_XL4BUS_OK*/;
     json_object * root = 0;
-    json_object * req_destinations = 0;
     cjose_err c_err;
 
     xl4bus_identity_t id = {};
@@ -1117,130 +1117,14 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
             if (mint && !mint->in_restart) {
 
-                BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
-
-                DBG("mint %p state %d, received %s", mint, mint->mis, json_object_get_string(root));
-
-                if (mint->mis == MIS_NEED_REMOTE && !strcmp("xl4bus.cert-details", type)) {
-
-                    record_mint(clt, mint, 0, 1, 1, 0);
-
-                    // we think we got the certificate for a message pending delivery.
-                    receive_cert_details(clt, mint, msg, root);
-                    reattempt_pending_message(conn, mint);
-
-                    BOLT_NEST();
-
-                } else if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", type)) {
-
-                    if (msg->is_final) {
-
-                        // the broker saying it's not deliverable.
-                        DBG("XCHG: %05x no destinations", mint->stream_id);
-                        release_message(clt, mint, E_XL4BUS_UNDELIVERABLE);
-                        break;
-
-                    }
-
-                    DBG("XCHG: %05x got destination info", mint->stream_id);
-
-                    json_object *body;
-                    json_object *tags;
-                    size_t l;
-
-                    if (!json_object_object_get_ex(root, "body", &body) ||
-                        !json_object_is_type(body, json_type_object) ||
-                        !json_object_object_get_ex(body, "x5t#S256", &tags) ||
-                        !json_object_is_type(tags, json_type_array) ||
-                        (l = (size_t) json_object_array_length(tags)) <= 0) {
-
-                        DBG("XCHG: %05x can't find any destinations in %s", mint->stream_id,
-                                json_object_get_string(root));
-                        xl4bus_abort_stream(conn, msg->stream_id);
-                        release_message(clt, mint, E_XL4BUS_UNDELIVERABLE);
-                        break;
-
-                    }
-
-                    release_remotes(mint);
-                    BOLT_MALLOC(mint->remotes, sizeof(void *) * (mint->key_count = l));
-
-                    for (int i = 0; i < l; i++) {
-
-                        json_object *item = json_object_array_get_idx(tags, i);
-                        const char * x5t = json_object_get_string(item);
-                        remote_info_t *rmi = find_by_x5t(x5t);
-                        if (rmi) {
-                            mint->remotes[mint->key_idx++] = rmi;
-                        } else {
-                            if (!req_destinations) {
-                                BOLT_MEM(req_destinations = json_object_new_array());
-                            }
-                            json_object_array_add(req_destinations, json_object_get(item));
-                        }
-
-                    }
-
-                    if (req_destinations) {
-
-                        // request destinations
-                        // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
-
-                        body = 0;
-
-                        do {
-
-                            BOLT_MEM(body = json_object_new_object());
-                            json_object_object_add(body, "x5t#S256", json_object_get(req_destinations));
-
-                            CHANGE_MIS(mint, MIS_WAIT_DETAILS, "requested certificates");
-
-                            BOLT_SUB(send_json_message(clt, 1, 1, 0, mint->stream_id,
-                                    "xl4bus.request-cert", body, 1));
-
-                        } while (0);
-
-                        json_object_put(body);
-                        BOLT_NEST();
-
-                    } else {
-
-                        BOLT_SUB(send_main_message(clt, mint));
-
-                    }
-
-                } else if (mint->mis == MIS_WAIT_DETAILS && !strcmp("xl4bus.cert-details", type)) {
-
-                    DBG("XCHG: %05x got certificate details", mint->stream_id);
-
-                    BOLT_SUB(receive_cert_details(clt, mint, msg, root));
-
-                } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", type)) {
-
-                    DBG("XCHG: %05x got confirmation", mint->stream_id);
-
-                    if (!msg->is_final) {
-                        DBG("Message confirmation was not a final stream message!");
-                        xl4bus_abort_stream(conn, mint->stream_id);
-                    }
-                    release_message(clt, mint, E_XL4BUS_OK);
-
-                } else {
-
-                    DBG("XCHG: %05x state not applicable to incoming message", mint->stream_id);
-                    if (!msg->is_final) {
-                        xl4bus_abort_stream(conn, mint->stream_id);
-                    }
-                    release_message(clt, mint, E_XL4BUS_INTERNAL);
-                    break;
-
-                }
+                BOLT_SUB(handle_state_message(conn, msg, mint));
 
             } else {
 
                 if (!z_strcmp(msg->content_type, FCT_BUS_MESSAGE)) {
 
-                    BOLT_IF(!msg->uses_validation || !msg->uses_encryption, E_XL4BUS_DATA, "System messages must be signed and encrypted");
+                    BOLT_IF(!msg->uses_validation || !msg->uses_encryption, E_XL4BUS_DATA,
+                            "System messages must be signed and encrypted");
 
                     BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
 
@@ -1475,12 +1359,12 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     } while (0);
 
-                    json_object_put(body);
                     clean_decrypt_and_verify(&dav);
                     free(asd.missing_kid);
                     cjose_jwk_release(asd.key);
                     unref_remote_info(asd.remote);
                     free(asd.missing_x5t);
+                    json_object_put(body);
 
                     BOLT_NEST();
 
@@ -1516,6 +1400,8 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     .type = XL4KT_AES_256,
             };
 
+            json_object * body = 0;
+
             do {
 
                 pf_random(key.aes_256, sizeof(key.aes_256));
@@ -1524,25 +1410,24 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 BOLT_CJOSE(cjose_base64url_encode(key.aes_256, sizeof(key.aes_256), &key_base64, &key_base64_len, &c_err));
 
+                BOLT_MEM(body = xl4json_make_obj(0,
+                        "M", "session-key", xl4json_make_obj(0,
+                                "S", "kty", "oct",
+                                "S", "k", key_base64,
+                                NULL),
+                        NULL));
+
+                // send registration request.
+                // https://gitlab.excelfore.com/schema/json/xl4bus/registration-request.json
+                BOLT_SUB(send_json_message(clt, 0, 1, 0, msg->stream_id,
+                        "xl4bus.registration-request", body, 1));
+
             } while (0);
 
             zero_s(key.aes_256, sizeof(key.aes_256));
+            json_object_put(body);
 
             BOLT_NEST();
-
-            json_object * body;
-
-            BOLT_MEM(body = xl4json_make_obj(0,
-                    "M", "session-key", xl4json_make_obj(0,
-                            "S", "kty", "oct",
-                            "S", "k", key_base64,
-                            NULL),
-                    NULL));
-
-            // send registration request.
-            // https://gitlab.excelfore.com/schema/json/xl4bus/registration-request.json
-            BOLT_SUB(send_json_message(clt, 0, 1, 0, msg->stream_id,
-                    "xl4bus.registration-request", body, 1));
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
                 !strcmp(type, "xl4bus.presence") && msg->is_final) {
@@ -1608,7 +1493,6 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     xl4bus_free_address(to_addr, 1);
 
     json_object_put(root);
-    json_object_put(req_destinations);
 
     free_s(key_base64, key_base64_len);
 
@@ -2442,7 +2326,6 @@ int apply_timeouts(xl4bus_client_t * clt, int need_timeout) {
 
 void clean_expired_things(xl4bus_client_t * clt) {
 
-    client_internal_t * i_clt = clt->_private;
     uint64_t now = pf_ms_value();
 
     if (!LOCK(cert_cache_lock)) {
@@ -2464,6 +2347,147 @@ void clean_expired_things(xl4bus_client_t * clt) {
         UNLOCK(cert_cache_lock);
 
     }
+
+
+}
+
+int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, message_internal_t * mint) {
+
+    int err = E_XL4BUS_OK;
+    json_object * in_root = 0;
+    json_object * req_destinations = 0;
+
+    do {
+
+        char const * in_type;
+
+        xl4bus_client_t * clt = conn->custom;
+        client_internal_t * i_clt = clt->_private;
+
+        BOLT_SUB(get_xl4bus_message_msg(msg, &in_root, &in_type));
+
+        DBG("mint %p state %d, received %s", mint, mint->mis, json_object_get_string(in_root));
+
+        if (mint->mis == MIS_NEED_REMOTE && !strcmp("xl4bus.cert-details", in_type)) {
+
+            record_mint(clt, mint, 0, 1, 1, 0);
+
+            // we think we got the certificate for a message pending delivery.
+            receive_cert_details(clt, mint, msg, in_root);
+            reattempt_pending_message(conn, mint);
+
+            BOLT_NEST();
+
+        } else if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", in_type)) {
+
+            if (msg->is_final) {
+
+                // the broker saying it's not deliverable.
+                DBG("XCHG: %05x no destinations", mint->stream_id);
+                release_message(clt, mint, E_XL4BUS_UNDELIVERABLE);
+                break;
+
+            }
+
+            DBG("XCHG: %05x got destination info", mint->stream_id);
+
+            json_object *tags;
+            size_t l;
+
+            if (xl4json_get_pointer(in_root, "/body/x5t#S256", json_type_array, &tags) != E_XL4BUS_OK ||
+                    (l = (size_t) json_object_array_length(tags)) <= 0) {
+
+                DBG("XCHG: %05x can't find any destinations in %s", mint->stream_id,
+                        json_object_get_string(in_root));
+                xl4bus_abort_stream(conn, msg->stream_id);
+                release_message(clt, mint, E_XL4BUS_UNDELIVERABLE);
+                break;
+
+            }
+
+            release_remotes(mint);
+            BOLT_MALLOC(mint->remotes, sizeof(void *) * (mint->key_count = l));
+
+            for (int i = 0; i < l; i++) {
+
+                json_object *item = json_object_array_get_idx(tags, i);
+                const char * x5t = json_object_get_string(item);
+                remote_info_t *rmi = find_by_x5t(x5t);
+                if (rmi) {
+                    mint->remotes[mint->key_idx++] = rmi;
+                } else {
+                    if (!req_destinations) {
+                        BOLT_MEM(req_destinations = json_object_new_array());
+                    }
+                    json_object_array_add(req_destinations, json_object_get(item));
+                }
+
+            }
+
+
+            if (req_destinations) {
+
+                // request destinations
+                // https://gitlab.excelfore.com/schema/json/xl4bus/request-destinations.json
+
+                json_object * body = 0;
+
+                do {
+
+                    BOLT_MEM(body = json_object_new_object());
+                    json_object_object_add(body, "x5t#S256", json_object_get(req_destinations));
+
+                    CHANGE_MIS(mint, MIS_WAIT_DETAILS, "requested certificates");
+
+                    BOLT_SUB(send_json_message(clt, 1, 1, 0, mint->stream_id,
+                            "xl4bus.request-cert", body, 1));
+
+                } while (0);
+
+                json_object_put(body);
+
+                BOLT_NEST();
+
+            } else {
+
+                BOLT_SUB(send_main_message(clt, mint));
+
+            }
+
+        } else if (mint->mis == MIS_WAIT_DETAILS && !strcmp("xl4bus.cert-details", in_type)) {
+
+            DBG("XCHG: %05x got certificate details", mint->stream_id);
+
+            BOLT_SUB(receive_cert_details(clt, mint, msg, in_root));
+
+        } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", in_type)) {
+
+            DBG("XCHG: %05x got confirmation", mint->stream_id);
+
+            if (!msg->is_final) {
+                DBG("Message confirmation was not a final stream message!");
+                xl4bus_abort_stream(conn, mint->stream_id);
+            }
+            release_message(clt, mint, E_XL4BUS_OK);
+
+        } else {
+
+            DBG("XCHG: %05x state not applicable to incoming message", mint->stream_id);
+            if (!msg->is_final) {
+                xl4bus_abort_stream(conn, mint->stream_id);
+            }
+            release_message(clt, mint, E_XL4BUS_INTERNAL);
+            break;
+
+        }
+
+
+    } while (0);
+
+    json_object_put(in_root);
+    json_object_put(req_destinations);
+
+    return err;
 
 
 }

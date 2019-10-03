@@ -94,9 +94,16 @@ static inline int timeval_to_millis(struct timeval * tv) {
     return  (int) (tv->tv_sec * 1000 + tv->tv_usec / 1000);
 }
 
-static inline int max_int(int a1, int a2) {
-    return a1 > a2 ? a1 : a2;
-}
+#define MAX_FUN(type) \
+    static inline type max_ ##type (type a1, type a2) { \
+        return a1 > a2 ? a1 : a2; \
+    } \
+    static inline type min_ ##type (type a1, type a2) { \
+        return a1 < a2 ? a1 : a2; \
+    }
+
+MAX_FUN(int)
+MAX_FUN(size_t)
 
 static inline void secure_bzero(void * addr, size_t len) {
     for (size_t i = 0; i<len; i++) {
