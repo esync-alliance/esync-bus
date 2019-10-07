@@ -5,7 +5,6 @@ project(libxl4bus)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_VERBOSE_MAKEFILE on)
 set(CMAKE_C_VISIBILITY_PRESET hidden)
-#set(CMAKE_BUILD_TYPE Debug)
 
 set(PORT $ENV{LIBXL4BUS_PORT})
 

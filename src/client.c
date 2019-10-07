@@ -923,12 +923,12 @@ int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
 
     int err /*= E_XL4BUS_OK*/;
     ll_message_container_t * msg = 0;
-    int no_cleanup = 0;
     json_object * j_type = 0;
     char * jws_data = 0;
     size_t jws_data_len;
     char * jwe_data = 0;
     size_t jwe_data_len;
+    json_object * bus_object = 0;
 
     do {
 
@@ -938,6 +938,7 @@ int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
         xl4bus_connection_t * conn = i_clt->ll;
 
         BOLT_MALLOC(msg, sizeof(ll_message_container_t));
+        DBG("--> alloc %p", msg);
 
         BOLT_MEM(msg->json = json_object_new_object());
         if (body) {
@@ -950,20 +951,18 @@ int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
         j_type = 0;
 
         const char * bux = json_object_get_string(msg->json);
-        BOLT_MALLOC(msg, sizeof(ll_message_container_t));
+        BOLT_MEM(bus_object = json_object_new_object());
 
-        msg->bus_object = json_object_new_object();
+        BOLT_SUB(sign_jws(i_clt->private_key, conn->my_x5t, 0, bus_object, bux, strlen(bux) + 1, FCT_BUS_MESSAGE,
+                0, 0, &jws_data, &jws_data_len));
 
-        sign_jws(i_clt->private_key, conn->my_x5t, 0, msg->bus_object, bux, strlen(bux) + 1, FCT_BUS_MESSAGE, 0, 0, &jws_data, &jws_data_len);
-        // int encrypt_jwe(cjose_jwk_t *, const char * x5t, json_object * bus_object, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
-
-        encrypt_jwe(remote->remote_public_key, remote->x5t, 0, jws_data, jws_data_len, FCT_JOSE_COMPACT,
-                0, 0, &jwe_data, &jwe_data_len);
+        BOLT_SUB(encrypt_jwe(remote->remote_public_key, remote->x5t, 0, jws_data, jws_data_len, FCT_JOSE_COMPACT
+                , 0, 0, &jwe_data, &jwe_data_len));
 
         msg->msg.stream_id = stream_id;
         msg->msg.is_reply = is_reply;
         msg->msg.is_final = is_final;
-        msg->msg.data = jwe_data;
+        msg->msg.data = msg->data = jwe_data;
         jwe_data = 0;
         msg->msg.data_len = jwe_data_len;
 
@@ -977,8 +976,8 @@ int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
                 .x5ts256 = remote->x5t
         };
 
-        no_cleanup = 1;
         BOLT_SUB(to_broker(clt, msg, &to_addr, 1, 1));
+        msg = 0;
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -986,12 +985,12 @@ int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
 #pragma clang diagnostic pop
 
     json_object_put(j_type);
+    json_object_put(bus_object);
     free(jws_data);
     free(jwe_data);
 
-    if (!no_cleanup) {
-        free_outgoing_message(msg);
-    }
+    DBG("--> clean up %p", msg);
+    free_outgoing_message(msg);
 
     return err;
 
@@ -1006,7 +1005,6 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     cjose_jwe_recipient_t recipients[mint->key_idx];
     ll_message_container_t * msg = 0;
     cjose_jwk_t * key = 0;
-    int no_cleanup = 0;
 
     do {
 
@@ -1051,8 +1049,8 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
         msg->msg.uses_validation = 1;
 
         CHANGE_MIS(mint, MIS_WAIT_CONFIRM, "sending main message");
-        no_cleanup = 1;
         BOLT_SUB(to_broker(clt, msg, mint->msg->address, 1, 1));
+        msg = 0;
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -1066,9 +1064,8 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     }
     cjose_jwk_release(key);
 
-    if (!no_cleanup) {
-        free_outgoing_message(msg);
-    }
+    DBG("--> clean up %p", msg);
+    free_outgoing_message(msg);
 
     return err;
 
@@ -1870,7 +1867,6 @@ int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, 
 
     ll_message_container_t * msg = 0;
     json_object * j_type = 0;
-    int no_cleanup = 0;
 
     do {
 
@@ -1902,17 +1898,16 @@ int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, 
                     msg->msg.stream_id, bux);
         }
 
-        no_cleanup = 1;
         BOLT_SUB(to_broker(clt, msg, 0, use_session_key, thread_safe));
+        msg = 0;
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
 #pragma clang diagnostic pop
 
-    if (!no_cleanup) {
-        free_outgoing_message(msg);
-    }
+    DBG("--> clean up %p", msg);
+    free_outgoing_message(msg);
 
     json_object_put(j_type);
 
@@ -2037,8 +2032,6 @@ int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_addres
 
     client_internal_t * i_clt = clt->_private;
 
-    int no_cleanup = 0;
-
     do {
 
         // $TODO: for messages bound to the broker, the address is always 0,
@@ -2060,8 +2053,8 @@ int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_addres
             msg->msg.uses_session_key = 1;
         }
 
-        no_cleanup = 1;
         BOLT_SUB(SEND_LL(i_clt->ll, &msg->msg, 0, thread_safe));
+        msg = 0;
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -2070,9 +2063,8 @@ int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_addres
 
     json_object_put(array);
 
-    if (!no_cleanup) {
-        free_outgoing_message(msg);
-    }
+    DBG("--> clean up %p", msg);
+    free_outgoing_message(msg);
 
     return err;
 
@@ -2081,6 +2073,8 @@ int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_addres
 void free_outgoing_message(ll_message_container_t * msg) {
 
     if (!msg) { return; }
+
+    DBG("--> Cleaning up %p", msg);
 
     cfg.free(msg->data);
     cfg.free(msg->content_type);

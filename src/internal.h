@@ -21,6 +21,45 @@
 #include <mbedtls/asn1write.h>
 #include <mbedtls/version.h>
 
+#define STRINGIFY(s) #s
+#define TO_STRING(s) STRINGIFY(s)
+
+#if XL4_DEBUG_REFS
+#define MAKE_REF_FUNCTION(name) \
+    name ## _t * real_ref_ ## name(char const * file, int line, name ## _t * obj)
+#define MAKE_UNREF_FUNCTION(name) \
+    void real_unref_ ## name(char const * file, int line, name ## _t * obj)
+#define STD_REF_FUNCTION(name) \
+    if (!obj) { DBG("ref:" STRINGIFY(name) "[0]=0 %s:%d", chop_path(file), line); return 0; } \
+    int new = pf_add_and_get(&obj->ref_count, 1); \
+    DBG("ref:" STRINGIFY(name) "[%p]=%d %s:%d", obj, new, chop_path(file), line); \
+    return obj
+#define STD_UNREF_FUNCTION(name) \
+    if (!obj) { DBG("unref:" STRINGIFY(name) "[0]=0 %s:%d", chop_path(file), line); return; } \
+    int new_ref = pf_add_and_get(&obj->ref_count, -1); \
+    DBG("unref:" STRINGIFY(name) "[%p]=%d %s:%d", obj, new_ref, chop_path(file), line); \
+    if (new_ref) { return; } \
+    do{}while(0)
+
+#else
+#define MAKE_REF_FUNCTION(name) \
+    name ## _t * XI(ref_ ## name)(name ## _t * obj)
+#define MAKE_UNREF_FUNCTION(name) \
+    void XI(unref_ ## name)(name ## _t * obj)
+#define STD_REF_FUNCTION(nothing) \
+    if (!obj) { return 0; } \
+    pf_add_and_get(&obj->ref_count, 1); \
+    return obj
+#define STD_UNREF_FUNCTION(nothing) \
+    if (!obj) { return; } \
+    if (pf_add_and_get(&obj->ref_count, -1)) { return; } \
+    do{}while(0)
+#endif
+
+#define MAKE_REF_UNREF(name) \
+    MAKE_REF_FUNCTION(name); \
+    MAKE_UNREF_FUNCTION(name);
+
 // Ensure correct version of mbedtls is used.
 #if MBEDTLS_VERSION_NUMBER != 0x020c0000
 #error MbedTLS must be of version 2.9.0, I see MBEDTLS_VERSION_NUMBER
@@ -379,13 +418,19 @@ extern void * cert_cache_lock;
 
 /* net.c */
 #define check_conn_io XI(check_conn_io)
+#if XL4_DEBUG_REFS
+#define ref_stream(a) real_ref_stream(__FILE__, __LINE__, a)
+#define unref_stream(a) real_unref_stream(__FILE__, __LINE__, a)
+#else
 #define ref_stream XI(ref_stream)
 #define unref_stream XI(unref_stream)
+#endif
 #define release_stream XI(release_stream)
 
 int check_conn_io(xl4bus_connection_t*);
-stream_t * ref_stream(stream_t *);
-void unref_stream(stream_t *);
+
+MAKE_REF_UNREF(stream);
+
 void release_stream(xl4bus_connection_t *, stream_t *, xl4bus_stream_close_reason_t);
 
 /* jwx.c */
@@ -526,11 +571,20 @@ json_object * xl4json_make_obj_v(json_object *obj, va_list ap2);
 #define find_by_kid XI(find_by_kid)
 #define accept_x5c XI(accept_x5c)
 #define accept_remote_x5c XI(accept_remote_x5c)
+
+#if !XL4_DEBUG_REFS
 #define unref_remote_info XI(unref_remote_info)
 #define unref_remote_key XI(unref_remote_key)
-#define release_remote_key_nl XI(release_remote_key)
 #define ref_remote_info XI(ref_remote_info)
 #define ref_remote_key XI(ref_remote_key)
+#else
+#define unref_remote_info(a) real_unref_remote_info(__FILE__, __LINE__, a)
+#define unref_remote_key(a) real_unref_remote_key(__FILE__, __LINE__, a)
+#define ref_remote_info(a) real_ref_remote_info(__FILE__, __LINE__, a)
+#define ref_remote_key(a) real_ref_remote_key(__FILE__, __LINE__, a)
+#endif
+
+#define release_remote_key_nl XI(release_remote_key)
 #define process_remote_key XI(process_remote_key)
 #define base64url_hash XI(base64url_hash)
 #define update_remote_symmetric_key XI(update_remote_symmetric_key)
@@ -538,11 +592,11 @@ json_object * xl4json_make_obj_v(json_object *obj, va_list ap2);
 // finds the cjose key object for the specified tag.
 remote_info_t * find_by_x5t(const char * x5t);
 remote_key_t * find_by_kid(const char * kid);
-void unref_remote_info(remote_info_t *);
-void unref_remote_key(remote_key_t *);
 void release_remote_key_nl(remote_key_t *);
-remote_info_t * ref_remote_info(remote_info_t *);
-remote_key_t * ref_remote_key(remote_key_t *);
+
+MAKE_REF_UNREF(remote_key)
+MAKE_REF_UNREF(remote_info)
+
 int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, int * ku_flags, remote_info_t **);
 int accept_remote_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t **);
 int process_remote_key(json_object*, char const * local_x5t, remote_info_t * source, char const ** kid);

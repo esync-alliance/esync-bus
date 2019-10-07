@@ -496,43 +496,35 @@ remote_key_t * find_by_kid(const char * kid) {
 
 }
 
-remote_info_t * ref_remote_info(remote_info_t * entry) {
-    if (!entry) { return 0; }
-    pf_add_and_get(&entry->ref_count, 1);
-    return entry;
+MAKE_REF_FUNCTION(remote_info) {
+    STD_REF_FUNCTION(remote_info);
 }
 
-remote_key_t * ref_remote_key(remote_key_t * entry) {
-    if (!entry) { return 0; }
-    pf_add_and_get(&entry->ref_count, 1);
-    return entry;
+MAKE_REF_FUNCTION(remote_key) {
+    STD_REF_FUNCTION(remote_info);
 }
 
-void unref_remote_info(remote_info_t * entry) {
+MAKE_UNREF_FUNCTION(remote_info) {
 
-    if (!entry) { return; }
+    STD_UNREF_FUNCTION(remote_info);
 
-    if (pf_add_and_get(&entry->ref_count, -1)) { return; }
-
-    mbedtls_x509_crt_free(&entry->crt);
-    cfg.free(entry->x5t);
-    cjose_jwk_release(entry->remote_public_key);
-    cjose_jwk_release(entry->to_key);
-    cjose_jwk_release(entry->old_to_key);
-    xl4bus_free_address(entry->addresses, 1);
-    cfg.free(entry);
+    mbedtls_x509_crt_free(&obj->crt);
+    cfg.free(obj->x5t);
+    cjose_jwk_release(obj->remote_public_key);
+    cjose_jwk_release(obj->to_key);
+    cjose_jwk_release(obj->old_to_key);
+    xl4bus_free_address(obj->addresses, 1);
+    cfg.free(obj);
 
 }
 
-void unref_remote_key(remote_key_t * entry) {
+MAKE_UNREF_FUNCTION(remote_key) {
 
-    if (!entry) { return; }
+    STD_UNREF_FUNCTION(remote_info) ;
 
-    if (pf_add_and_get(&entry->ref_count, -1)) { return; }
-
-    cjose_jwk_release(entry->from_key);
-    unref_remote_info(entry->remote_info);
-    cfg.free(entry);
+    cjose_jwk_release(obj->from_key);
+    unref_remote_info(obj->remote_info);
+    cfg.free(obj);
 
 }
 

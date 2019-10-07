@@ -110,6 +110,8 @@
  */
 #cmakedefine XL4_HL_KEY_USE_EXPIRATION_MS @XL4_HL_KEY_USE_EXPIRATION_MS@
 
+#cmakedefine01 XL4_DEBUG_REFS
+
 #ifndef XL4_MAX_UA_PATHS
 #define XL4_MAX_UA_PATHS 10
 #endif

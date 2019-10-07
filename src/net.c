@@ -15,19 +15,14 @@ static int process_test_frame(xl4bus_connection_t * conn);
 static int process_abort_frame(xl4bus_connection_t * conn);
 static void init_dav(xl4bus_connection_t * conn, decrypt_and_verify_data_t * dav);
 
-stream_t * ref_stream(stream_t * stream) {
-    if (stream) {
-        pf_add_and_get(&stream->ref_count, 1);
-    }
-    return stream;
+MAKE_REF_FUNCTION(stream) {
+    STD_REF_FUNCTION(stream);
 }
 
-void unref_stream(stream_t * stream) {
-    if (stream) {
-        if (pf_add_and_get(&stream->ref_count, -1)) { return; }
-        clear_dbuf(&stream->incoming_message_data);
-        free(stream);
-    }
+MAKE_UNREF_FUNCTION(stream) {
+    STD_UNREF_FUNCTION(stream);
+    clear_dbuf(&obj->incoming_message_data);
+    free(obj);
 }
 
 void release_stream(xl4bus_connection_t * conn, stream_t * stream, xl4bus_stream_close_reason_t scr) {
@@ -680,7 +675,6 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
     if (err == E_XL4BUS_OK) {
 
-
         err = check_conn_io(conn);
 
         if (err != E_XL4BUS_OK) {
@@ -690,7 +684,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
         }
     }
 
-    return err;
+    // always return OK from here, because error is delivered through on_sent_message()
+    return E_XL4BUS_OK;
 
 }
 

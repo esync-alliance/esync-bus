@@ -499,7 +499,10 @@ void shutdown_connection_ts(xl4bus_connection_t * conn, char const * reason) {
 
     cjose_jwk_release(i_conn->private_key);
     cjose_jwk_release(i_conn->remote_key);
+    cjose_jwk_release(i_conn->session_key);
+    cjose_jwk_release(i_conn->old_session_key);
     cfg.free(conn->my_x5t);
+    clear_dbuf(&conn->my_x5t_bin);
     cfg.free(conn->remote_x5t);
     cfg.free(conn->remote_x5c);
     json_object_put(i_conn->x5c);

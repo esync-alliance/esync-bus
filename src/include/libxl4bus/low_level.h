@@ -79,7 +79,21 @@ XL4_PUB int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t
 
 XL4_PUB int xl4bus_process_connection(xl4bus_connection_t *, int fd, int flags);
 XL4_PUB void xl4bus_shutdown_connection(xl4bus_connection_t *);
-XL4_PUB int xl4bus_send_ll_message(xl4bus_connection_t *, xl4bus_ll_message_t *msg, void *ref
+
+/**
+ * Sends a message to connected xl4bus peer. Important note about message object ownership. If this function
+ * returned an error, the message was not accepted, and no callbacks will be invoked. It's the responsibility of
+ * the caller to clean up the message in this case. If success was returned, then it's guaranteed that
+ * xl4bus_connection::on_sent_message will be invoked, so any resources provided along with the message must not
+ * be released until that point.
+ * @param conn connection to send the message through
+ * @param msg message to send
+ * @param ref reference pointer, used for callbacks involving the message being sent.
+ * @param is_mt (only if multi-threading is supported), if `!0`, then calling thread
+ * is not xl4bus thread. Note that multi-threading must be enabled for the connection.
+ * @return ::E_XL4BUS_OK if the message was accepted for delivery, an error code otherwise.
+ */
+XL4_PUB int xl4bus_send_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t *msg, void *ref
 #if XL4_SUPPORT_THREADS
         , int is_mt
 #endif

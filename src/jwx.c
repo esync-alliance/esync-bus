@@ -169,6 +169,7 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
     int is_symmetric = 0;
     char * x5c = 0;
     json_object * x5c_json = 0;
+    remote_info_t * rmi = 0;
 
     do {
 
@@ -333,8 +334,6 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
                 // is there an x5c entry?
                 BOLT_CJOSE(x5c = cjose_header_get_raw(p_headers, "x5c", &c_err));
 
-                remote_info_t * rmi;
-
                 if (x5c) {
 
                     BOLT_MALLOC(dav->full_id, sizeof(xl4bus_identity_t));
@@ -360,7 +359,6 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
                     BOLT_NEST();
                     BOLT_SUB(accept_x5c(x5c_json, dav->trust, dav->crl, &dav->ku_flags, &rmi));
 
-
                 } else {
 
                     const char * x5t;
@@ -372,7 +370,7 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
                         dav->missing_x5t = f_strdup(x5t);
                         BOLT_SAY(E_XL4BUS_DATA, "No remote info for tag %s", x5t);
                     } else {
-                        dav->remote = rmi;
+                        dav->remote = ref_remote_info(rmi);
                     }
 
                 }
@@ -430,6 +428,7 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
     cjose_jwk_release(used_key);
     free(x5c);
     json_object_put(x5c_json);
+    unref_remote_info(rmi);
 
     if (err) {
         clean_decrypt_and_verify(dav);
