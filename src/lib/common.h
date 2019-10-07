@@ -41,7 +41,7 @@ char * addr_to_str(xl4bus_address_t *);
 char * simple_password_input(struct xl4bus_X509v3_Identity *);
 char * console_password_input(struct xl4bus_X509v3_Identity *);
 
-int load_test_x509_creds(xl4bus_identity_t * identity, char * key, char * argv0);
+int load_test_x509_creds(xl4bus_identity_t * identity, char * key, const char * argv0);
 int load_test_data_x509_creds(xl4bus_identity_t * identity, char * key);
 
 xl4bus_asn1_t * load_pem(char *path);

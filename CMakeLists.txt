@@ -98,6 +98,11 @@ if((NOT IS_DIRECTORY "${PORT}") OR ("${PORT}" STREQUAL "${ROOT_DIR}"))
    message(FATAL_ERROR "LIBXL4BUS_PORT environment variable (${PORT}) must be set and point to a valid port directory!")
 endif()
 
+set(RUN_TESTS TRUE)
+if (CMAKE_CROSSCOMPILING)
+    set(RUN_TESTS FALSE)
+endif()
+
 set(LOAD_CFG ${PORT}/config.cmk)
 if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
     set(LOAD_CFG ${PORT}/config.cmk.default)
@@ -285,7 +290,8 @@ if (BUILD_BINS)
             ${BIN_LIB_SRC}
         )
 
-    set(BROKER_SRC src/broker/broker.h
+    set(BROKER_SRC
+            src/broker/broker.h
             src/broker/bus.c
             src/broker/crypto.c
             src/broker/e900.c
@@ -298,9 +304,15 @@ if (BUILD_BINS)
             ${BIN_LIB_SRC}
             )
 
+    set(BROKER_BIN_SRC
+            ${BROKER_SRC}
+            src/broker/broker_main.c )
 
-    add_executable(xl4bus-broker ${BROKER_SRC})
-    add_executable(xl4bus-broker-untested ${BROKER_SRC})
+    add_executable(xl4bus-broker ${BROKER_BIN_SRC})
+
+    if (RUN_TESTS)
+        add_executable(xl4bus-broker-untested ${BROKER_BIN_SRC})
+    endif()
 
     add_executable(tree-test
         src/tests/tree.c
@@ -329,8 +341,14 @@ if (BUILD_BINS)
                 src/test_clients/hl-client.c
                 ${BIN_LIB_SRC}
             )
-        targets_link_libraries(ll-server hl-client LIBRARIES Threads::Threads)
+
+        add_executable(full-test
+                src/tests/full_test.c
+                )
+
+        targets_link_libraries(ll-server hl-client full-test LIBRARIES Threads::Threads)
         set(BINARIES ${BINARIES} ll-server hl-client)
+        set(TEST_BINARIES ${TEST_BINARIES} "full-test")
     else()
         message(WARNING "Some binaries require threading support, those binaries have not been built")
     endif()
@@ -379,14 +397,12 @@ else ()
 
 endif ()
 
-if (CMAKE_CROSSCOMPILING)
-    message(WARNING "Please remember to run tests on the target platform!")
-else()
-
+if (RUN_TESTS)
     if (BUILD_BINS)
         enable_testing()
         add_test(NAME unit-tree COMMAND tree-test)
         add_test(NAME unit-timeout COMMAND timeout-test)
+        add_test(NAME unit-full-test COMMAND full-test)
         add_custom_command(
             TARGET xl4bus-broker
             DEPENDS ${TEST_BINARIES}
@@ -399,7 +415,8 @@ else()
         add_dependencies(xl4bus-broker ${TEST_BINARIES})
 
     endif()
-
+else()
+    message(WARNING "Please remember to run tests on the target platform!")
 endif()
 
 include(${LOAD_CFG})

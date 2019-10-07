@@ -22,7 +22,6 @@
 #include <mbedtls/version.h>
 
 #define STRINGIFY(s) #s
-#define TO_STRING(s) STRINGIFY(s)
 
 #if XL4_DEBUG_REFS
 #define MAKE_REF_FUNCTION(name) \

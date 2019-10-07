@@ -161,7 +161,7 @@ int get_socket_error(int fd) {
 
 }
 
-int load_test_x509_creds(xl4bus_identity_t * identity, char * key, char * argv0) {
+int load_test_x509_creds(xl4bus_identity_t * identity, char * key, const char * argv0) {
 
     char * dir = strrchr(argv0, '/');
     if (!dir) {

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <sys/types.h>
+#include <netinet/in.h>
 
 #include <libxl4bus/types.h>
 #include <cjose/cjose.h>
@@ -100,7 +101,27 @@ typedef struct conn_info_hash_tree {
 
 } conn_info_hash_tree_t;
 
-extern int be_quiet;
+typedef struct broker_context {
+
+    int be_quiet;
+    unsigned stream_timeout_ms;
+    int perf_enabled;
+
+    char * key_path;
+    char ** cert_path;
+    char ** ca_list;
+    char * demo_pki;
+    char * key_password;
+
+    char const * argv0;
+    struct sockaddr_in b_addr;
+    int fd;
+
+    int max_ev;
+    int timeout;
+
+} broker_context_t;
+
 extern UT_array dm_clients;
 extern hash_list_t * ci_by_group;
 extern hash_list_t * ci_by_x5t;
@@ -108,9 +129,10 @@ extern conn_info_t * connections;
 extern int poll_fd;
 extern xl4bus_identity_t broker_identity;
 extern conn_info_hash_tree_t * ci_ua_tree;
+extern broker_context_t broker_context;
 
 // e900
-#define E900(a,b,c) do { if (!be_quiet) { e900(a, b, c); }} while(0)
+#define E900(a,b,c) do { if (!broker_context.be_quiet) { e900(a, b, c); }} while(0)
 void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to);
 
 // hash_tree
@@ -152,10 +174,14 @@ int set_poll(xl4bus_connection_t *, int, int);
 void on_connection_shutdown(xl4bus_connection_t * conn);
 int on_stream_close(struct xl4bus_connection *, uint16_t stream, xl4bus_stream_close_reason_t);
 
-// main
+// broker
 
 void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except);
 int send_json_message(conn_info_t *, const char *, json_object * body, uint16_t stream_id, int is_reply, int is_final);
 void count(int in, int out);
+int start_broker(void);
+int cycle_broker(int);
+void add_to_str_array(char *** array, char * str);
+
 
 #endif
