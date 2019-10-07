@@ -54,6 +54,42 @@ int xl4bus_set_remote_identity(xl4bus_connection_t * conn, xl4bus_identity_t * i
 
 XL4_PUB
 /**
+ * Extracts addresses that this identity represents.
+ * @param conn connection to extract addresses from.
+ * @param addresses pointer to the tip of the address chain where the addresses will be stored.
+ * @return ::E_XL4BUS_OK for success, or an error code if there was a problem extracting or
+ * allocating address information.
+ */
+int xl4bus_get_identity_addresses(xl4bus_identity_t * identity, xl4bus_address_t ** addresses);
+
+XL4_PUB
+/**
+ * Converts specified address, or list of addresses to corresponding
+ * JSON format, according to array of xl4bus JSON addresses as
+ * referenced in https://gitlab.excelfore.com/schema/json/xl4bus/xl4bus-address.json
+ * The caller must free the memory if this function completed successfully.
+ * @param addr address, or beginning of chain of addresses, to serialize
+ * @param json pointer to the variable to take in pointer to the serialized JSON value.
+ * @return ::E_XL4BUS_OK if serialization succeeded, or an error code otherwise.
+ */
+int xl4bus_address_to_json(xl4bus_address_t *addr, char **json);
+
+XL4_PUB
+/**
+ * Converts XL4 JSON address specification into internal address values, and
+ * chains them to an existing address, or creates a new address chain.
+ * @param json Serialized JSON containing one or multiple addresses. In case
+ * of multiple addresses, the top-level object must be an array.
+ * @param addr pointer to an address that will have the new address list chained to.
+ * If there was an error, no addresses will be chained. *addr can be NULL to
+ * create a new address chain.
+ * @return ::E_XL4BUS_OK if operation succeeded, or an error code otherwise. Note
+ * that unrecognized address entries in the JSON are quietly ignored.
+ */
+int xl4bus_json_to_address(char const *json, xl4bus_address_t **addr);
+
+XL4_PUB
+/**
  * Sets fast (typically symmetric) keys for encrypting/decrypting data on the specified
  * connection. The key data must contain expiration value expressed in milliseconds from current time.
  * The key object can be disposed of (securely) after this function returns, as data will be copied.
@@ -79,6 +115,85 @@ XL4_PUB int xl4bus_get_next_outgoing_stream(xl4bus_connection_t * conn, uint16_t
 
 XL4_PUB int xl4bus_process_connection(xl4bus_connection_t *, int fd, int flags);
 XL4_PUB void xl4bus_shutdown_connection(xl4bus_connection_t *);
+
+XL4_PUB
+/**
+ * Allocates address structure and copies or assigns relevant address information.
+ * @param receiver pointer to memory where the full address chain will be referenced at.
+ * If *receiver is 0, then a new address chain is created; if it is !0, then the current
+ * address is appended to the new address. In any case, the value at *receiver may or may not
+ * be modified. The value is never modified if the function fails.
+ * @param type address type
+ * @param ...
+ * For type ::XL4BAT_SPECIAL, the argument is of type xl4bus_address_special_t
+ * For type ::XL4BAT_UPDATE_AGENT and XL4BAT_GROUP, the address value is a char*, followed by an int.
+ * The int is either 0 or 1, specifying whether the char* should be duplicated (1), or assigned (0).
+ * @return ::E_XL4BUS_OK if there are no errors, or an error code otherwise.
+ */
+int xl4bus_chain_address(xl4bus_address_t ** receiver, xl4bus_address_type_t type, ...);
+
+XL4_PUB
+/**
+ * Copies all addresses from the specified address or chain.
+ * @param src address, or address chain to copy from
+ * @param chain if !0, then all chain is copied
+ * @param receiver address to copy the chain to. If points to existing chain, the addresses
+ * are prepended to the specified chain.
+ * @return ::E_XL4BUS_OK if there are no errors, or an error code otherwise. In case of an error,
+ * the existing chain at the destination, if any, is not modified.
+ */
+int xl4bus_copy_address(xl4bus_address_t * src, int chain, xl4bus_address_t ** receiver);
+
+XL4_PUB
+/**
+ * Frees previously allocated address. Note that for addresses that contain
+ * string values, such values are always freed, even if they were assigned and the
+ * address was created using ::xl4bus_chain_address. Note that memory that
+ * ::xl4bus_address_t structure pointers reference is also always freed.
+ * @param addr address to free
+ * @param chain !0 to indicate that all addresses accessible through ::xl4bus_address_t.next
+ * should be freed as well.
+ */
+void xl4bus_free_address(xl4bus_address_t * addr, int chain);
+
+XL4_PUB
+/**
+ * Checks whether all specified addresses are present in the specified address list.
+ * @param needle All of these addresses must be found in haystack.
+ * @param haystack List of addresses to check against.
+ * @param failed, optional, if !0, then the function will place the pointer to the first address that failed
+ * to have been found in the haystack. If needle was 0, it will set to 0 as well.
+ * @return ::E_XL4BUS_OK if address is found, error otherwise.
+ */
+int xl4bus_require_address(xl4bus_address_t * needle, xl4bus_address_t * haystack, xl4bus_address_t ** failed);
+
+XL4_PUB
+/**
+ * Checks whether the specified special address is present in the specified address list.
+ * @param special Special address value that must be found in the haystack
+ * @param haystack List of addresses to check against.
+ * @return ::E_XL4BUS_OK if address is found, error otherwise.
+ */
+int xl4bus_require_special(xl4bus_address_special_t special, xl4bus_address_t * haystack);
+
+XL4_PUB
+/**
+ * Checks whether the specified group address is present in the specified address list.
+ * @param name Group address value that must be found in the haystack
+ * @param haystack List of addresses to check against.
+ * @return ::E_XL4BUS_OK if address is found, error otherwise.
+ */
+int xl4bus_require_group(const char * name, xl4bus_address_t * haystack);
+
+XL4_PUB
+/**
+ * Checks whether the specified update agent address is present in the specified address list.
+ * Note that update agent address name matching will be used.
+ * @param name Update agent address value that must be found in the haystack
+ * @param haystack List of addresses to check against.
+ * @return ::E_XL4BUS_OK if address is found, error otherwise.
+ */
+int xl4bus_require_update_agent(const char * name, xl4bus_address_t * haystack);
 
 /**
  * Sends a message to connected xl4bus peer. Important note about message object ownership. If this function

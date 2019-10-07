@@ -137,6 +137,14 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
             clt->set_poll = internal_set_poll;
             clt->mt_support = 1;
             BOLT_SYS(pf_start_thread(client_thread, clt), "starting client thread");
+        } else {
+            if (clt->on_status) {
+                clt->on_status(clt, XL4BCC_CLIENT_START);
+            }
+        }
+#else
+        if (clt->on_status) {
+            clt->on_status(clt, XL4BCC_CLIENT_START);
         }
 #endif
 
@@ -527,6 +535,10 @@ void client_thread(void * arg) {
     xl4bus_client_t * clt = arg;
     client_internal_t * i_clt = clt->_private;
     i_clt->xl4_thread_space = &poll_info;
+
+    if (clt->on_status) {
+        clt->on_status(clt, XL4BCC_CLIENT_START);
+    }
 
     int timeout;
     xl4bus_run_client(clt, &timeout);
@@ -1906,7 +1918,7 @@ int send_json_message(xl4bus_client_t * clt, int use_session_key, int is_reply, 
     } while (0);
 #pragma clang diagnostic pop
 
-    DBG("--> clean up %p", msg);
+    // DBG("--> clean up %p", msg);
     free_outgoing_message(msg);
 
     json_object_put(j_type);
@@ -2063,7 +2075,7 @@ int to_broker(xl4bus_client_t * clt, ll_message_container_t * msg, xl4bus_addres
 
     json_object_put(array);
 
-    DBG("--> clean up %p", msg);
+    // DBG("--> clean up %p", msg);
     free_outgoing_message(msg);
 
     return err;
@@ -2074,7 +2086,7 @@ void free_outgoing_message(ll_message_container_t * msg) {
 
     if (!msg) { return; }
 
-    DBG("--> Cleaning up %p", msg);
+    // DBG("--> Cleaning up %p", msg);
 
     cfg.free(msg->data);
     cfg.free(msg->content_type);

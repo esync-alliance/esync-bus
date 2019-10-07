@@ -161,7 +161,7 @@ int get_socket_error(int fd) {
 
 }
 
-int load_test_x509_creds(xl4bus_identity_t * identity, char * key, char * argv0) {
+int load_test_x509_creds(xl4bus_identity_t * identity, char * key, const char * argv0) {
 
     char * dir = strrchr(argv0, '/');
     if (!dir) {
@@ -423,7 +423,7 @@ char * addr_to_str(xl4bus_address_t * addr) {
                     case XL4BAS_DM_CLIENT:
                         new = f_strdup("<DM-CLIENT>");
                         break;
-                    case XL4BAS_DM_BROKER:
+                    case XL4BAS_BROKER:
                         new = f_strdup("<BROKER>");
                         break;
                     default:

@@ -74,6 +74,8 @@ function(influence_pkg_spec TGT PREFIX)
 
         target_link_libraries(${TGT} ${${PREFIX}_LDFLAGS})
         target_link_libraries(${TGT} ${${PREFIX}_LDFLAGS_OTHER})
+    else()
+        MESSAGE("${TGT}" " is not a target!")
     endif()
 
 endfunction(influence_pkg_spec)
@@ -82,8 +84,9 @@ function(influence_pkg PREFIX)
     if (${PREFIX}_FOUND)
         influence_pkg_spec(xl4bus-shared ${PREFIX})
         influence_pkg_spec(xl4bus-static ${PREFIX}_STATIC)
-        influence_pkg_spec(ll-server ${PREFIX})
-        influence_pkg_spec(ll-client ${PREFIX})
+        foreach(arg ${BINARIES})
+            influence_pkg_spec("${arg}" ${PREFIX})
+        endforeach()
     endif()
 endfunction(influence_pkg)
 
@@ -96,6 +99,11 @@ get_filename_component(ROOT_DIR "" REALPATH BASE_DIR "${CMAKE_SOURCE_DIR}")
 
 if((NOT IS_DIRECTORY "${PORT}") OR ("${PORT}" STREQUAL "${ROOT_DIR}"))
    message(FATAL_ERROR "LIBXL4BUS_PORT environment variable (${PORT}) must be set and point to a valid port directory!")
+endif()
+
+set(RUN_TESTS TRUE)
+if (CMAKE_CROSSCOMPILING)
+    set(RUN_TESTS FALSE)
 endif()
 
 set(LOAD_CFG ${PORT}/config.cmk)
@@ -285,7 +293,8 @@ if (BUILD_BINS)
             ${BIN_LIB_SRC}
         )
 
-    set(BROKER_SRC src/broker/broker.h
+    set(BROKER_SRC
+            src/broker/broker.h
             src/broker/bus.c
             src/broker/crypto.c
             src/broker/e900.c
@@ -298,28 +307,36 @@ if (BUILD_BINS)
             ${BIN_LIB_SRC}
             )
 
+    set(BROKER_BIN_SRC
+            ${BROKER_SRC}
+            src/broker/broker_main.c )
 
-    add_executable(xl4bus-broker ${BROKER_SRC})
-    add_executable(xl4bus-broker-untested ${BROKER_SRC})
+    add_executable(xl4bus-broker ${BROKER_BIN_SRC})
+
+    if (RUN_TESTS)
+        add_executable(xl4bus-broker-untested ${BROKER_BIN_SRC})
+    endif()
 
     add_executable(tree-test
         src/tests/tree.c
         ${BIN_LIB_SRC}
         )
 
+    set(TEST_BINARIES "tree-test")
+
     if (XL4_HAVE_EPOLL)
         add_executable(timeout-test
             src/tests/timeout.c
             ${BIN_LIB_SRC}
             )
-        set(TEST_BINARIES "tree-test" "timeout-test")
-    else()
-        set(TEST_BINARIES "tree-test")
+        set(TEST_BINARIES ${TEST_BINARIES} "timeout-test")
     endif()
 
     set(BINARIES "ll-client" "xl4bus-broker" "xl4bus-broker-untested" ${TEST_BINARIES})
 
     if (XL4_PROVIDE_THREADS)
+
+        set(THREADED_BINARIES ll-server hl-client)
 
         add_executable(ll-server
                 src/test_clients/ll-server.c
@@ -329,8 +346,27 @@ if (BUILD_BINS)
                 src/test_clients/hl-client.c
                 ${BIN_LIB_SRC}
             )
-        targets_link_libraries(ll-server hl-client LIBRARIES Threads::Threads)
-        set(BINARIES ${BINARIES} ll-server hl-client)
+
+        if (XL4_FULL_TEST AND BUILD_SHARED)
+            aux_source_directory(src/tests/cases TEST_CASES)
+            add_executable(full-test
+                src/tests/full-test.c
+                src/tests/full-test.h
+                ${BROKER_SRC}
+                ${TEST_CASES}
+                ${BIN_LIB_SRC}
+            )
+
+            target_link_libraries(full-test ${USE_LIB})
+            target_link_libraries(full-test ${JSON_C_LIB})
+
+            set(TEST_BINARIES ${TEST_BINARIES} "full-test")
+            set(THEADED_BINARIES ${THREADED_BINARIES} "full-test")
+            target_compile_definitions(full-test PRIVATE WITH_UNIT_TEST)
+        endif()
+
+        targets_link_libraries(${THREADED_BINARIES} LIBRARIES Threads::Threads)
+        set(BINARIES ${BINARIES} ${THREADED_BINARIES})
     else()
         message(WARNING "Some binaries require threading support, those binaries have not been built")
     endif()
@@ -379,14 +415,16 @@ else ()
 
 endif ()
 
-if (CMAKE_CROSSCOMPILING)
-    message(WARNING "Please remember to run tests on the target platform!")
-else()
-
+if (RUN_TESTS)
     if (BUILD_BINS)
         enable_testing()
         add_test(NAME unit-tree COMMAND tree-test)
         add_test(NAME unit-timeout COMMAND timeout-test)
+        if (XL4_FULL_TEST)
+            add_test(NAME unit-full-prepare WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/src/tests/prepare-full-test.sh ${CMAKE_CURRENT_BINARY_DIR})
+            add_test(NAME unit-full-test COMMAND full-test)
+            SET_TESTS_PROPERTIES(unit-full-test PROPERTIES DEPENDS "unit-full-prepare")
+        endif()
         add_custom_command(
             TARGET xl4bus-broker
             DEPENDS ${TEST_BINARIES}
@@ -399,7 +437,8 @@ else()
         add_dependencies(xl4bus-broker ${TEST_BINARIES})
 
     endif()
-
+else()
+    message(WARNING "Please remember to run tests on the target platform!")
 endif()
 
 include(${LOAD_CFG})

@@ -115,7 +115,7 @@ typedef enum xl4bus_address_special {
      * The destination is the XL4-Bus broker.
      * It's unusual to need to send a message to the broker.
      */
-    XL4BAS_DM_BROKER,
+    XL4BAS_BROKER,
 } xl4bus_address_special_t;
 
 typedef enum xl4bus_address_type {
@@ -678,7 +678,12 @@ typedef enum xl4bus_client_condition {
      * Note that this condition will be used if the client is managed
      * by an internal library thread, and the thread ran into I/O issue.
      */
-    XL4BCC_CLIENT_STOPPED
+    XL4BCC_CLIENT_STOPPED,
+
+    /**
+     * Issued only once when the client starts up.
+     */
+    XL4BCC_CLIENT_START
 } xl4bus_client_condition_t;
 
 typedef int (*xl4bus_set_poll) (struct xl4bus_client *, int fd, int modes);

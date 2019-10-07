@@ -41,7 +41,7 @@ char * addr_to_str(xl4bus_address_t *);
 char * simple_password_input(struct xl4bus_X509v3_Identity *);
 char * console_password_input(struct xl4bus_X509v3_Identity *);
 
-int load_test_x509_creds(xl4bus_identity_t * identity, char * key, char * argv0);
+int load_test_x509_creds(xl4bus_identity_t * identity, char * key, const char * argv0);
 int load_test_data_x509_creds(xl4bus_identity_t * identity, char * key);
 
 xl4bus_asn1_t * load_pem(char *path);
@@ -63,6 +63,19 @@ static inline int z_strcmp(const char * s1, const char * s2) {
     if (!s2) { return 1; }
 
     return strcmp(s1, s2);
+
+}
+
+static inline int z_strncmp(const char * s1, const char * s2, size_t n) {
+
+    if (!s1) {
+        if (!s2) { return 0; }
+        return -1;
+    }
+
+    if (!s2) { return 1; }
+
+    return strncmp(s1, s2, n);
 
 }
 
