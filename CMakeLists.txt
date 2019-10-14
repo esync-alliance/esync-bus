@@ -273,6 +273,7 @@ if (BUILD_BINS)
         src/lib/rb_tree.h
         src/lib/rb_tree.c
         src/lib/poll_help.h
+        ${PORT_SOURCE}
     )
 
     add_executable(ll-client
@@ -298,12 +299,15 @@ if (BUILD_BINS)
         ${LIB_SRC}
         )
 
-    add_executable(timeout-test
-        src/tests/timeout.c
-        ${LIB_SRC}
-        )
-
-    set(TEST_BINARIES "tree-test" "timeout-test")
+    if (XL4_HAVE_EPOLL)
+        add_executable(timeout-test
+            src/tests/timeout.c
+            ${LIB_SRC}
+            )
+        set(TEST_BINARIES "tree-test" "timeout-test")
+    else()
+        set(TEST_BINARIES "tree-test")
+    endif()
 
     set(BINARIES "ll-client" "xl4bus-broker" ${TEST_BINARIES})
 

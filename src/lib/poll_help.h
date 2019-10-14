@@ -1,8 +1,8 @@
 
-#if XL4_HAVE_EPOLL
-#include <sys/epoll.h>
-#else
+#if !XL4_HAVE_EPOLL
 #include <sys/resource.h>
+#else
+#include "config.h"
 #endif
 
 #include <poll.h>

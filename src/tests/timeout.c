@@ -3,17 +3,12 @@
 #include <string.h>
 #include "tests.h"
 #include <sys/socket.h>
-#if XL4_HAVE_EPOLL
-#include <sys/epoll.h>
-#endif
 #include <stddef.h>
 #include <signal.h>
 #include "uthash.h"
 #include "lib/poll_help.h" // for epoll_create
 
 int debug = 1;
-
-#ifndef __QNX__
 
 typedef struct {
 
@@ -280,9 +275,3 @@ void die_in(uint64_t millis, const char * reason) {
     alarm_reason = reason;
 
 }
-#else
-int main(int argc, char **argv) {
-	// Port for QNX will be coming soon
-	return 0;
-}
-#endif

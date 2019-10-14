@@ -1,0 +1,25 @@
+diff --git a/src/Makefile.am b/src/Makefile.am
+index a855d3b..dc49562 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -1,4 +1,4 @@
+-AM_CFLAGS =-std=gnu99 --pedantic -Wall -Werror -g -O2 -I$(top_builddir)/include
++AM_CFLAGS =-std=gnu99 --pedantic -Wall -g -O2 -I$(top_builddir)/include
+ 
+ lib_LTLIBRARIES=libcjose.la
+ libcjose_la_CPPFLAGS= -I$(topdir)/include
+diff --git a/src/include/util_int.h b/src/include/util_int.h
+index c8d059c..12a10c3 100644
+--- a/src/include/util_int.h
++++ b/src/include/util_int.h
+@@ -8,6 +8,10 @@
+ #ifndef SRC_UTIL_INT_H
+ #define SRC_UTIL_INT_H
+ 
++#ifdef __QNX__
++#include <sys/types.h> // For error "unknown type name 'ssize_t'"
++#endif
++
+ #include <cjose/error.h>
+ 
+ #include <jansson.h>

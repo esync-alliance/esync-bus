@@ -4,5 +4,13 @@ set(XL4_PROVIDE_PERF 1)
 
 set(EXTRA_LIBS -lsocket -lcrypto -lm)
 
-set(LIB_SOURCE ${LIB_SOURCE} qnx_port/config.h qnx_port/port.c)
+set(LIB_SOURCE ${LIB_SOURCE}
+    qnx_port/config.h
+    qnx_port/port.c)
+
+set(PORT_SOURCE
+    qnx_port/epoll/qepoll.h
+    qnx_port/epoll/qepoll.c
+    qnx_port/epoll/qtablefd.h
+    qnx_port/epoll/qtablefd.c)
 
