@@ -19,9 +19,23 @@
 
 #include "lib/hash_list.h"
 
+#define BCC_QUIT    1
+#define BCC_MAGIC   0x8f64925e
+
+typedef struct __attribute__((__packed__)) broker_control_command_mandatory {
+    uint32_t magic;
+    uint32_t cmd;
+    uint32_t seq;
+} broker_control_command_mandatory_t;
+
+typedef struct __attribute__((__packed__)) broker_control_command {
+    broker_control_command_mandatory_t hdr;
+} broker_control_command_t;
+
 typedef enum poll_info_type {
     PIT_INCOMING, // socket for new incoming connections
-    PIT_XL4 // existing low-level connection sockets
+    PIT_XL4, // existing low-level connection sockets
+    PIT_BCC, // socket for BCC messages
 } poll_info_type_t;
 
 typedef struct poll_info {
@@ -119,6 +133,15 @@ typedef struct broker_context {
 
     int max_ev;
     int timeout;
+
+    int use_bcc;
+    char * bcc_path;
+    int bcc_fd;
+
+    poll_info_t main_pit;
+    poll_info_t bcc_pit;
+
+    int quit;
 
 } broker_context_t;
 

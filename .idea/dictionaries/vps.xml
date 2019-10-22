@@ -11,6 +11,7 @@
       <w>esync</w>
       <w>loopback</w>
       <w>mbedtls</w>
+      <w>nanos</w>
       <w>printf</w>
       <w>reallocing</w>
       <w>strerr</w>

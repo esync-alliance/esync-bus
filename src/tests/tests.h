@@ -2,6 +2,7 @@
 #ifndef _TEST_TESTS_H_
 #define _TEST_TESTS_H_
 
+#include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
 #include "lib/common.h"

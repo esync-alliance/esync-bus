@@ -18,6 +18,7 @@ extern int debug;
 #define HOW_MSG 3
 
 void debug_out(char const * func, char const * file, int line, int how, char const * str, ...);
+void str_output_time(char *);
 
 #define LINE_OUT(how, str, args...) debug_out(__func__, chop_path(__FILE__), __LINE__, how, str, ## args)
 
@@ -25,9 +26,10 @@ void debug_out(char const * func, char const * file, int line, int how, char con
 
 #define ERR(a,b...) LINE_OUT(HOW_ERR, a, ##b)
 #define ERR_SYS(a,b...) LINE_OUT_SYS(HOW_ERR, a, ##b)
+#define DBG_SYS(a,b...) LINE_OUT_SYS(HOW_MSG, a, ##b)
 #define DBG(a,b...) do { if (debug) { LINE_OUT(HOW_MSG, a, ##b); } } while(0)
 #define MSG(a,b...) do { LINE_OUT(HOW_MSG, a, ##b); } while(0)
-#define FATAL(a,b...) do { if (debug) { LINE_OUT(HOW_FATAL, a, ##b); } } while(0)
+#define FATAL(a,b...) do { LINE_OUT(HOW_FATAL, a, ##b); } while(0)
 #define FATAL_SYS(a,b...) do { LINE_OUT_SYS(HOW_FATAL, a, ##b); } while(0)
 
 #define BOLT_MEM(a) if (!(a)) { \

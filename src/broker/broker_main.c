@@ -16,7 +16,7 @@ int main(int argc, char ** argv) {
 
     broker_context.argv0 = argv[0];
 
-    while ((c = getopt(argc, argv, "hk:K:c:t:D:dpqT:")) != -1) {
+    while ((c = getopt(argc, argv, "hk:K:c:t:D:dpqT:iI:")) != -1) {
 
         switch (c) {
 
@@ -65,7 +65,20 @@ int main(int argc, char ** argv) {
             }
             break;
 
-            default: help(); break;
+            case 'i':
+                broker_context.use_bcc = 1;
+                break;
+
+            case 'I':
+                if (broker_context.bcc_path) {
+                    FATAL("multiple BCC paths are not supported");
+                }
+                broker_context.bcc_path = f_strdup(optarg);
+                break;
+
+            default:
+                help();
+                break;
 
         }
 
@@ -76,6 +89,9 @@ int main(int argc, char ** argv) {
     while (1) {
         res = cycle_broker(-1);
         if (res) { return res; }
+        if (broker_context.quit) {
+            return 0;
+        }
     }
 
 }

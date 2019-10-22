@@ -8,6 +8,7 @@
 
 #include <sys/socket.h>
 #include <netinet/tcp.h>
+#include <sys/un.h>
 #include <errno.h>
 #include <signal.h>
 
@@ -17,9 +18,8 @@
 #include "utlist.h"
 
 static void * run_conn(void *);
-
 static void signal_f(int);
-
+static void process_bcc(int);
 
 int debug = 0;
 UT_array dm_clients;
@@ -28,6 +28,10 @@ hash_list_t * ci_by_x5t = 0;
 conn_info_t * connections;
 int poll_fd;
 xl4bus_identity_t broker_identity;
+
+#ifndef MSG_TRUNC
+#define MSG_TRUNC 0
+#endif
 
 broker_context_t broker_context = {
         .stream_timeout_ms = 10000,
@@ -55,7 +59,6 @@ typedef struct poll_list {
     int polls_len;
 } poll_list_t;
 
-static poll_info_t main_pit;
 static poll_list_t polist = { .polls = 0, .polls_len = 0};
 
 static int pf_poll(pf_poll_t * polls, int polls_len, int timeout);
@@ -281,33 +284,78 @@ int start_broker() {
         FATAL_SYS("Can't set non-blocking socket mode");
     }
 
+    broker_context.main_pit.type = PIT_INCOMING;
+    broker_context.main_pit.fd = broker_context.fd;
+
 #if XL4_HAVE_EPOLL
     poll_fd = epoll_create1(0);
     if (poll_fd < 0) {
         FATAL_SYS("Can't create epoll socket");
     }
 
-    poll_info_t main_pit = {
-            .type = PIT_INCOMING,
-            .fd = broker_context.fd
-    };
-
     struct epoll_event ev;
     ev.events = POLLIN;
-    ev.data.ptr = &main_pit;
+    ev.data.ptr = &broker_context.main_pit;
 
     if (epoll_ctl(poll_fd, EPOLL_CTL_ADD, broker_context.fd, &ev)) {
         FATAL_SYS("epoll_ctl() failed");
     }
-#else
-    main_pit.type = PIT_INCOMING;
-    main_pit.fd = fd;
 
-    if (set_poll(NULL, fd, XL4BUS_POLL_READ)) {
+#else
+    if (set_poll(&broker_context.main_pit, fd, XL4BUS_POLL_READ)) {
         perror("set_poll");
         return 1;
     }
 #endif
+
+    if (broker_context.use_bcc) {
+
+        if (!broker_context.bcc_path) {
+            broker_context.bcc_path = f_strdup("/var/run/xl4broker");
+        }
+
+        struct sockaddr_un bcc_addr = {AF_UNIX};
+        strncpy(bcc_addr.sun_path, broker_context.bcc_path, sizeof(bcc_addr.sun_path)-1);
+        broker_context.bcc_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+
+        if (broker_context.bcc_fd < 0) {
+            FATAL_SYS("Can not create BCC socket");
+        }
+
+        if (setsockopt(broker_context.bcc_fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse)) < 0) {
+            ERR_SYS("setsockopt(SO_REUSEADDR)");
+        }
+
+        if (bind(broker_context.bcc_fd, (struct sockaddr*)&bcc_addr, sizeof(bcc_addr))) {
+            FATAL_SYS("Can't bind BCC socket");
+        }
+
+        if (set_nonblocking(broker_context.bcc_fd)) {
+            FATAL_SYS("Can't set non-blocking socket mode");
+        }
+
+        broker_context.bcc_pit.type = PIT_BCC;
+        broker_context.bcc_pit.fd = broker_context.bcc_fd;
+
+#if XL4_HAVE_EPOLL
+
+        memset(&ev, 0, sizeof(struct epoll_event));
+        ev.events = POLLIN;
+        ev.data.ptr = &broker_context.bcc_pit;
+
+        if (epoll_ctl(poll_fd, EPOLL_CTL_ADD, broker_context.bcc_fd, &ev)) {
+            FATAL_SYS("epoll_ctl() failed");
+        }
+
+#else
+        if (set_poll(&broker_context.bcc_pit, fd, XL4BUS_POLL_READ)) {
+        perror("set_poll");
+        return 1;
+    }
+#endif
+
+
+    }
 
 }
 
@@ -422,7 +470,7 @@ int cycle_broker(int in_timeout) {
 
         } else if (pit->type == PIT_XL4) {
 
-            conn_info_t * ci = pit->ci;
+            conn_info_t *ci = pit->ci;
             int flags = 0;
             if (rev[i].events & POLLIN) {
                 flags |= XL4BUS_POLL_READ;
@@ -430,7 +478,7 @@ int cycle_broker(int in_timeout) {
             if (rev[i].events & POLLOUT) {
                 flags |= XL4BUS_POLL_WRITE;
             }
-            if (rev[i].events & (POLLERR|POLLNVAL|POLLHUP)) {
+            if (rev[i].events & (POLLERR | POLLNVAL | POLLHUP)) {
                 flags |= XL4BUS_POLL_ERR;
             }
 
@@ -442,12 +490,28 @@ int cycle_broker(int in_timeout) {
                 DBG("xl4bus process (fd up route) returned %d", s_err);
             }
 
+        } else if (pit->type == PIT_BCC) {
+
+            if (rev[i].events & POLLIN) {
+
+                process_bcc(pit->fd);
+
+            } else if (rev[i].events & POLLOUT) {
+                // this is not possible...
+                FATAL("Write even on BCC socket?");
+            } else {
+                // this must be an error event, let's just clear it...
+                get_socket_error(pit->fd);
+                ERR_SYS("BCC socket %d error", pit->fd);
+            }
+
         } else {
             DBG("PIT type %d?", pit->type);
             return 1;
         }
 
     }
+
 #else
 
     uint64_t before = 0;
@@ -581,6 +645,10 @@ int cycle_broker(int in_timeout) {
     }
 #endif
 
+    if (broker_context.quit) {
+        return 0;
+    }
+
     if (!broker_context.timeout) {
 
         broker_context.timeout = -1;
@@ -601,6 +669,8 @@ int cycle_broker(int in_timeout) {
 
     }
 
+    return 0;
+
 }
 
 #if !XL4_HAVE_EPOLL
@@ -608,7 +678,7 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
     conn_info_t * ci = NULL;
 
-    if(conn) {
+    if (conn) {
         ci = conn->custom;
     }
 
@@ -747,3 +817,41 @@ int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
     return ec;
 }
 #endif
+
+void process_bcc(int sock) {
+
+    broker_control_command_t cmd = {0};
+
+    do {
+
+        ssize_t rc = recv(sock, &cmd, sizeof(cmd), MSG_TRUNC);
+        if (rc == -1) {
+            if (errno != EAGAIN || errno != EWOULDBLOCK) {
+                ERR_SYS("Reading from BCC socket %d", sock);
+            }
+            break;
+        }
+
+        if (rc > sizeof(cmd) || rc < sizeof(broker_control_command_mandatory_t)) {
+            ERR("BCC message size %zd invalid", rc);
+            break;
+        }
+
+        if (cmd.hdr.magic != BCC_MAGIC) {
+            ERR("BCC magic %" PRIx32 "invalid", cmd.hdr.magic);
+            break;
+        }
+
+        switch (cmd.hdr.cmd) {
+            case BCC_QUIT:
+                MSG("Received QUIT command over BCC");
+                broker_context.quit = 1;
+                break;
+            default:
+                ERR("Unknown BCC command %" PRId32, cmd.hdr.cmd);
+                break;
+        }
+
+    } while (0);
+
+}

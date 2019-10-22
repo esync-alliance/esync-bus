@@ -74,6 +74,8 @@ function(influence_pkg_spec TGT PREFIX)
 
         target_link_libraries(${TGT} ${${PREFIX}_LDFLAGS})
         target_link_libraries(${TGT} ${${PREFIX}_LDFLAGS_OTHER})
+    else()
+        MESSAGE("${TGT}" " is not a target!")
     endif()
 
 endfunction(influence_pkg_spec)
@@ -82,8 +84,9 @@ function(influence_pkg PREFIX)
     if (${PREFIX}_FOUND)
         influence_pkg_spec(xl4bus-shared ${PREFIX})
         influence_pkg_spec(xl4bus-static ${PREFIX}_STATIC)
-        influence_pkg_spec(ll-server ${PREFIX})
-        influence_pkg_spec(ll-client ${PREFIX})
+        foreach(arg ${BINARIES})
+            influence_pkg_spec("${arg}" ${PREFIX})
+        endforeach()
     endif()
 endfunction(influence_pkg)
 
@@ -319,19 +322,21 @@ if (BUILD_BINS)
         ${BIN_LIB_SRC}
         )
 
+    set(TEST_BINARIES "tree-test")
+
     if (XL4_HAVE_EPOLL)
         add_executable(timeout-test
             src/tests/timeout.c
             ${BIN_LIB_SRC}
             )
-        set(TEST_BINARIES "tree-test" "timeout-test")
-    else()
-        set(TEST_BINARIES "tree-test")
+        set(TEST_BINARIES ${TEST_BINARIES} "timeout-test")
     endif()
 
     set(BINARIES "ll-client" "xl4bus-broker" "xl4bus-broker-untested" ${TEST_BINARIES})
 
     if (XL4_PROVIDE_THREADS)
+
+        set(THREADED_BINARIES ll-server hl-client)
 
         add_executable(ll-server
                 src/test_clients/ll-server.c
@@ -342,13 +347,26 @@ if (BUILD_BINS)
                 ${BIN_LIB_SRC}
             )
 
-        add_executable(full-test
-                src/tests/full_test.c
-                )
+        if (XL4_FULL_TEST AND BUILD_SHARED)
+            aux_source_directory(src/tests/cases TEST_CASES)
+            add_executable(full-test
+                src/tests/full-test.c
+                src/tests/full-test.h
+                ${BROKER_SRC}
+                ${TEST_CASES}
+                ${BIN_LIB_SRC}
+            )
 
-        targets_link_libraries(ll-server hl-client full-test LIBRARIES Threads::Threads)
-        set(BINARIES ${BINARIES} ll-server hl-client)
-        set(TEST_BINARIES ${TEST_BINARIES} "full-test")
+            target_link_libraries(full-test ${USE_LIB})
+            target_link_libraries(full-test ${JSON_C_LIB})
+
+            set(TEST_BINARIES ${TEST_BINARIES} "full-test")
+            set(THEADED_BINARIES ${THREADED_BINARIES} "full-test")
+            target_compile_definitions(full-test PRIVATE WITH_UNIT_TEST)
+        endif()
+
+        targets_link_libraries(${THREADED_BINARIES} LIBRARIES Threads::Threads)
+        set(BINARIES ${BINARIES} ${THREADED_BINARIES})
     else()
         message(WARNING "Some binaries require threading support, those binaries have not been built")
     endif()
@@ -402,7 +420,11 @@ if (RUN_TESTS)
         enable_testing()
         add_test(NAME unit-tree COMMAND tree-test)
         add_test(NAME unit-timeout COMMAND timeout-test)
-        add_test(NAME unit-full-test COMMAND full-test)
+        if (XL4_FULL_TEST)
+            add_test(NAME unit-full-prepare WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/src/tests/prepare-full-test.sh ${CMAKE_CURRENT_BINARY_DIR})
+            add_test(NAME unit-full-test COMMAND full-test)
+            SET_TESTS_PROPERTIES(unit-full-test PROPERTIES DEPENDS "unit-full-prepare")
+        endif()
         add_custom_command(
             TARGET xl4bus-broker
             DEPENDS ${TEST_BINARIES}
