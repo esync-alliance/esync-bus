@@ -9,8 +9,8 @@ int hello_world() {
 
     int err = E_XL4BUS_OK;
 
-    test_client_t client1 = {0};
-    test_client_t client2 = {0};
+    test_client_t client1 = {0, .label = f_strdup("client-grp1")};
+    test_client_t client2 = {0, .label = f_strdup("client-grp1")};
     test_broker_t broker = { 0};
 
     do {
@@ -18,6 +18,13 @@ int hello_world() {
         BOLT_SUB(full_test_broker_start(&broker));
         BOLT_SUB(full_test_client_start(&client1, &broker));
         BOLT_SUB(full_test_client_start(&client2, &broker));
+        BOLT_SUB(full_test_send_message(&client1, &client2, f_strdup("boo")));
+        test_event_t * event;
+        BOLT_SUB(full_test_client_expect_single(0, &client2, &event, TET_CLT_MSG_RECEIVE));
+        TEST_CHR_EQUAL(event->msg->data, "boo");
+        full_test_free_event(event);
+        BOLT_SUB(full_test_client_expect_single(0, &client1, &event, TET_MSG_ACK_OK));
+        full_test_free_event(event);
 
     } while (0);
 

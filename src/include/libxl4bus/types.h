@@ -115,7 +115,7 @@ typedef enum xl4bus_address_special {
      * The destination is the XL4-Bus broker.
      * It's unusual to need to send a message to the broker.
      */
-    XL4BAS_DM_BROKER,
+    XL4BAS_BROKER,
 } xl4bus_address_special_t;
 
 typedef enum xl4bus_address_type {

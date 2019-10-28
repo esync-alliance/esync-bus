@@ -10,7 +10,7 @@ function make_ca() {
     mkdir -p "pki/$1"
     mkdir -p pki/issued_certs
 
-    openssl genpkey -out pki/$1/ca_private.pem -algorithm RSA -pkeyopt rsa_keygen_bits:1024
+    openssl genpkey -out pki/$1/ca_private.pem -algorithm RSA -pkeyopt rsa_keygen_bits:2048
 
     openssl req -key pki/$1/ca_private.pem -passin pass:"$ppwd" -new -x509 -days 36500 -out pki/$1/ca.pem -sha256 -subj "/C=DE/ST=CA/L=Saratoga/O=Excelfore/OU=OMA/CN=CA/emailAddress=pawel@excelfore.com"
 
@@ -37,7 +37,7 @@ function make_cert() {
 
     cnf="$src_dir"/test_data/"$cert".conf
 
-    openssl genpkey -out private.pem -algorithm RSA -pkeyopt rsa_keygen_bits:1024
+    openssl genpkey -out private.pem -algorithm RSA -pkeyopt rsa_keygen_bits:2048
     start=$(date -d '2 days ago' +'%y%m%d000000Z')
     openssl req -new -utf8 -nameopt multiline,utf8 -config "$cnf" -key private.pem -out cert.req
     openssl ca -batch -config "$cnf" -startdate $start -days 365 -out cert.pem -in cert.req

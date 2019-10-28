@@ -204,7 +204,7 @@ int send_json_message(conn_info_t *, const char *, json_object * body, uint16_t 
 void count(int in, int out);
 int start_broker(void);
 int cycle_broker(int);
-void add_to_str_array(char *** array, char * str);
+void add_to_str_array(char *** array, char const * str);
 
 
 #endif

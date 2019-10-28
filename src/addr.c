@@ -122,7 +122,7 @@ int make_json_address(xl4bus_address_t * bus_addr, json_object ** json) {
                         case XL4BAS_DM_CLIENT:
                             val = JSON_ADDR_SPECIAL_DMCLIENT;
                             break;
-                        case XL4BAS_DM_BROKER:
+                        case XL4BAS_BROKER:
                             val = JSON_ADDR_SPECIAL_BROKER;
                             break;
                         default:
@@ -242,7 +242,7 @@ int build_address_list(json_object * j_list, xl4bus_address_t ** new_list) {
             if (!strcmp(JSON_ADDR_SPECIAL_DMCLIENT, aux)) {
                 next->special = XL4BAS_DM_CLIENT;
             } else if (!strcmp(JSON_ADDR_SPECIAL_BROKER, aux)) {
-                next->special = XL4BAS_DM_BROKER;
+                next->special = XL4BAS_BROKER;
             } else {
                 continue;
             }
@@ -354,6 +354,7 @@ int xl4bus_require_special(xl4bus_address_special_t special, xl4bus_address_t * 
     return xl4bus_require_address(&addr, haystack, 0);
 
 }
+
 int xl4bus_require_group(const char * name, xl4bus_address_t * haystack) {
 
     xl4bus_address_t addr = {
@@ -376,3 +377,39 @@ int xl4bus_require_update_agent(const char * name, xl4bus_address_t * haystack) 
 
 }
 
+int xl4bus_get_identity_addresses(xl4bus_identity_t * identity, xl4bus_address_t ** addresses) {
+
+    int err = E_XL4BUS_OK;
+
+    mbedtls_x509_crt crt;
+    mbedtls_x509_crt_init(&crt);
+
+    do {
+
+        BOLT_IF(!identity, E_XL4BUS_ARG, "");
+        switch (identity->type) {
+            case XL4BIT_X509:
+            {
+                xl4bus_asn1_t * top = identity->x509.chain[0];
+                BOLT_IF(!top, E_XL4BUS_ARG, "No certificates found");
+                if (top->enc == XL4BUS_ASN1ENC_DER) {
+                    BOLT_MTLS(mbedtls_x509_crt_parse_der(&crt, top->buf.data, top->buf.len));
+                } else if (top->enc == XL4BUS_ASN1ENC_PEM) {
+                    BOLT_MTLS(mbedtls_x509_crt_parse(&crt, top->buf.data, top->buf.len));
+                } else {
+                    BOLT_SAY(E_XL4BUS_ARG, "Unknown encoding %d", top->enc);
+                }
+                BOLT_SUB(address_from_cert(&crt, addresses));
+            }
+                break;
+            default:
+                err = E_XL4BUS_ARG;
+        }
+
+    } while (0);
+
+    mbedtls_x509_crt_free(&crt);
+
+    return err;
+
+}

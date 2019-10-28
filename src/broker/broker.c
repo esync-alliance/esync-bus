@@ -66,7 +66,7 @@ static int pf_poll(pf_poll_t * polls, int polls_len, int timeout);
 #endif
 
 
-void add_to_str_array(char *** array, char * str) {
+void add_to_str_array(char *** array, char const * str) {
 
     if (!*array) {
         *array = f_malloc(sizeof(void*) * 2);
@@ -356,6 +356,8 @@ int start_broker() {
 
 
     }
+
+    return 0;
 
 }
 

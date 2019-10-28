@@ -31,7 +31,9 @@ typedef enum test_event_type {
     TET_CLT_MSG_RECEIVE,
     TET_BRK_QUIT,
     TET_BRK_FAILED,
-    TET_CLIENT_QUIT
+    TET_CLIENT_QUIT,
+    TET_MSG_ACK_OK,
+    TET_MSG_ACK_FAIL
 } test_event_type_t;
 
 typedef struct test_event {
@@ -39,6 +41,7 @@ typedef struct test_event {
     struct test_event * next;
     struct test_event * prev;
     test_event_type_t type;
+    xl4bus_message_t * msg;
 
 } test_event_t;
 
@@ -47,6 +50,7 @@ typedef struct test_client {
     xl4bus_client_t bus_client; // must be first!
     test_event_t * events;
     int started;
+    char * label;
 
 } test_client_t;
 
@@ -63,10 +67,15 @@ int full_test_client_start(test_client_t *, test_broker_t *);
 void full_test_client_stop(test_client_t *);
 int full_test_broker_start(test_broker_t *);
 void full_test_broker_stop(test_broker_t *);
-void free_test_event(test_event_t *);
+void full_test_free_event(test_event_t *);
 
 int full_test_client_expect(int timeout_ms, test_client_t *, test_event_t ** event, test_event_type_t first, ...);
+int full_test_client_expect_single(int timeout_ms, test_client_t *, test_event_t ** event, test_event_type_t first);
 int full_test_broker_expect(int timeout_ms, test_broker_t *, test_event_t ** event, test_event_type_t first, ...);
+
+int full_test_send_message(test_client_t * from, test_client_t * to, char * str);
+
+#define TEST_CHR_EQUAL(chr1, chr2) BOLT_IF(z_strcmp(chr1, chr2), E_XL4BUS_INTERNAL, "String %s was expected to be equal to %s", chr2, chr1)
 
 extern FILE * output_log;
 

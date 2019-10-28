@@ -2,6 +2,7 @@
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/oid.h>
 #include <libxl4bus/high_level.h>
+#include <libxl4bus/low_level.h>
 #include "lib/common.h"
 #include "lib/debug.h"
 #include "broker.h"
@@ -371,7 +372,7 @@ int accept_x5c(json_object * x5c, remote_info_t ** rmi) {
 
                                 if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.1")) {
                                     bus_address->type = XL4BAT_SPECIAL;
-                                    bus_address->special = XL4BAS_DM_BROKER;
+                                    bus_address->special = XL4BAS_BROKER;
                                     bus_address_ok = 1;
 
                                     DBG("Identity is BROKER");

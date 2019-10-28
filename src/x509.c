@@ -207,12 +207,12 @@ int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * c
         BOLT_MTLS(mbedtls_x509_crt_verify(&entry->crt, trust, crl, 0, &flags, 0, 0));
 
         BOLT_IF(!mbedtls_pk_can_do(&entry->crt.pk, MBEDTLS_PK_RSA), E_XL4BUS_ARG, "Only RSA certs are supported");
+
         mbedtls_rsa_context * prk_rsa = mbedtls_pk_rsa(entry->crt.pk);
 
         // for public key, we only have N and E
         BOLT_SUB(mpi2jwk(&prk_rsa->E, &rsa_ks.e, &rsa_ks.elen));
         BOLT_SUB(mpi2jwk(&prk_rsa->N, &rsa_ks.n, &rsa_ks.nlen));
-
         BOLT_CJOSE(entry->remote_public_key = cjose_jwk_create_RSA_spec(&rsa_ks, &c_err));
 
         const char * eku_oid = "1.3.6.1.4.1.45473.3.1";
@@ -227,202 +227,7 @@ int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * c
             *ku_flags |= KU_FLAG_ENCRYPT;
         }
 
-        {
-
-            mbedtls_asn1_sequence seq;
-            seq.next = 0;
-
-            unsigned char * start = entry->crt.v3_ext.p;
-            unsigned char * end = start + entry->crt.v3_ext.len;
-            xl4bus_address_t * bus_address = 0;
-            char * x_oid = 0;
-
-            if (!mbedtls_asn1_get_sequence_of(&start, end, &seq, MBEDTLS_ASN1_SEQUENCE|MBEDTLS_ASN1_CONSTRUCTED)) {
-
-                // each sequence element is sequence of:
-                //    Extension  ::=  SEQUENCE  {
-                //      extnID      OBJECT IDENTIFIER,
-                //      critical    BOOLEAN DEFAULT FALSE,
-                //      extnValue   OCTET STRING
-                //      -- contains the DER encoding of an ASN.1 value
-                //      -- corresponding to the extension type identified
-                //      -- by extnID
-                //    }
-
-                for (mbedtls_asn1_sequence * cur_seq = &seq; cur_seq; cur_seq = cur_seq->next) {
-
-                    start = cur_seq->buf.p;
-                    end = start + cur_seq->buf.len;
-
-                    // because we asked to unwrap sequence of sequences,
-                    // the inner sequence is already unpacked into the corresponding
-                    // mbedtls_asn1_buf, so we can start plucking sub-sequence items.
-
-                    // next must be OID
-                    mbedtls_asn1_buf oid;
-                    if (get_oid(&start, end, &oid)) {
-                        continue;
-                    }
-
-                    cfg.free(x_oid);
-                    x_oid = make_chr_oid(&oid);
-                    // DBG("extension oid %s", NULL_STR(x_oid));
-
-                    int is_xl4bus_addr =  !z_strcmp(x_oid, "1.3.6.1.4.1.45473.1.6");
-                    int is_xl4bus_group = !z_strcmp(x_oid, "1.3.6.1.4.1.45473.1.7");
-
-                    // NOTE: we don't expect critical value because we always issue our certs
-                    // marking out extensions as not critical, which is default, and therefore
-                    // not included in DER. We can't mark is as critical, because any other verification
-                    // will have to reject it.
-
-                    if (is_xl4bus_group) {
-
-                        size_t inner_len;
-
-                        if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
-                            DBG("xl4group attr : not octet string");
-                            continue;
-                        }
-                        end = start + inner_len;
-
-                        // the extracted octet string should contain SET of UTF8String
-                        if (mbedtls_asn1_get_tag(&start, end, &inner_len,
-                                MBEDTLS_ASN1_SET|MBEDTLS_ASN1_CONSTRUCTED)) {
-                            DBG("Group list is not a constructed set");
-                            continue;
-                        }
-
-                        end = start + inner_len;
-
-                        while (start < end) {
-
-                            if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_UTF8_STRING)) {
-                                DBG("Group element is not utf-8 string");
-                                break;
-                            }
-
-                            cfg.free(bus_address);
-                            BOLT_MALLOC(bus_address, sizeof(xl4bus_address_t));
-                            bus_address->type = XL4BAT_GROUP;
-                            BOLT_MEM(bus_address->group = f_strndup(start, inner_len));
-                            bus_address->next = entry->addresses;
-                            entry->addresses = bus_address;
-
-                            DBG("Identity has group %s", bus_address->group);
-
-                            bus_address = 0;
-
-                            start += inner_len;
-
-                        }
-
-                    }
-
-                    if (is_xl4bus_addr) {
-
-                        size_t inner_len;
-
-                        if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
-                            DBG("Addr attribute is not octet string");
-                            continue;
-                        }
-                        end = start + inner_len;
-
-                        // the extracted octet string should contain Xl4-Bus-Addresses
-
-                        mbedtls_asn1_sequence addr;
-                        addr.next = 0;
-
-                        if (!mbedtls_asn1_get_sequence_of(&start, end, &addr,
-                                MBEDTLS_ASN1_SEQUENCE | MBEDTLS_ASN1_CONSTRUCTED)) {
-
-                            for (mbedtls_asn1_sequence *p_addr = &addr; p_addr; p_addr = p_addr->next) {
-
-                                // ok, address contains of an OID, followed by a parameter.
-
-                                start = p_addr->buf.p;
-                                end = start + p_addr->buf.len;
-
-                                if (get_oid(&start, end, &oid)) {
-                                    DBG("Address doesn't start with an OID");
-                                    continue;
-                                }
-
-                                cfg.free(x_oid);
-                                x_oid = make_chr_oid(&oid);
-                                // DBG("extension oid %s", NULL_STR(x_oid));
-
-                                cfg.free(bus_address);
-                                BOLT_MALLOC(bus_address, sizeof(xl4bus_address_t));
-                                int bus_address_ok = 0;
-
-                                if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.1")) {
-                                    bus_address->type = XL4BAT_SPECIAL;
-                                    bus_address->special = XL4BAS_DM_BROKER;
-                                    bus_address_ok = 1;
-
-                                    DBG("Identity is BROKER");
-
-                                } else if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.2")) {
-                                    bus_address->type = XL4BAT_SPECIAL;
-                                    bus_address->special = XL4BAS_DM_CLIENT;
-                                    bus_address_ok = 1;
-
-                                    DBG("Identity is DM_CLIENT");
-
-                                } else if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.3")) {
-                                    bus_address->type = XL4BAT_UPDATE_AGENT;
-                                    if (!mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_UTF8_STRING)) {
-                                        // $TODO: validate utf-8
-                                        BOLT_MEM(bus_address->update_agent = f_strndup(start, inner_len));
-                                        bus_address_ok = 1;
-
-                                        DBG("Identity is UA %s", bus_address->update_agent);
-
-                                    } else {
-                                        DBG("Address value part is not utf8 string");
-                                    }
-                                } else {
-                                    DBG("Unknown address OID %s", x_oid);
-                                }
-
-                                if (bus_address_ok) {
-                                    bus_address->next = entry->addresses;
-                                    entry->addresses = bus_address;
-                                    bus_address = 0;
-                                }
-
-                            }
-
-                        } else {
-                            DBG("address is not a sequence of constructed sequences");
-                        }
-
-                        for (mbedtls_asn1_sequence *f_seq = addr.next; f_seq;) {
-                            void *ptr = f_seq;
-                            f_seq = f_seq->next;
-                            cfg.free(ptr);
-                        }
-
-                        BOLT_NEST();
-
-                    }
-
-                }
-
-            }
-
-            for (mbedtls_asn1_sequence * f_seq = seq.next; f_seq; ) {
-                void * ptr = f_seq;
-                f_seq = f_seq->next;
-                cfg.free(ptr);
-            }
-
-            cfg.free(x_oid);
-            cfg.free(bus_address);
-
-        }
+        BOLT_SUB(address_from_cert(&entry->crt, &entry->addresses));
 
         BOLT_SYS(LOCK(cert_cache_lock), "");
 
@@ -765,5 +570,198 @@ void release_remote_key_nl(remote_key_t * key) {
     HASH_DEL(kid_cache, key);
     rb_delete(&remote_key_expiration, &key->rb_expiration);
     unref_remote_key(key);
+
+}
+
+int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses) {
+
+    int err = E_XL4BUS_OK;
+    char * aux = 0;
+
+    do {
+
+        mbedtls_asn1_sequence seq;
+        seq.next = 0;
+
+        unsigned char * start = crt->v3_ext.p;
+        unsigned char * end = start + crt->v3_ext.len;
+        char * x_oid = 0;
+
+        if (!mbedtls_asn1_get_sequence_of(&start, end, &seq, MBEDTLS_ASN1_SEQUENCE|MBEDTLS_ASN1_CONSTRUCTED)) {
+
+            // each sequence element is sequence of:
+            //    Extension  ::=  SEQUENCE  {
+            //      extnID      OBJECT IDENTIFIER,
+            //      critical    BOOLEAN DEFAULT FALSE,
+            //      extnValue   OCTET STRING
+            //      -- contains the DER encoding of an ASN.1 value
+            //      -- corresponding to the extension type identified
+            //      -- by extnID
+            //    }
+
+            for (mbedtls_asn1_sequence * cur_seq = &seq; cur_seq; cur_seq = cur_seq->next) {
+
+                start = cur_seq->buf.p;
+                end = start + cur_seq->buf.len;
+
+                // because we asked to unwrap sequence of sequences,
+                // the inner sequence is already unpacked into the corresponding
+                // mbedtls_asn1_buf, so we can start plucking sub-sequence items.
+
+                // next must be OID
+                mbedtls_asn1_buf oid;
+                if (get_oid(&start, end, &oid)) {
+                    continue;
+                }
+
+                cfg.free(x_oid);
+                x_oid = make_chr_oid(&oid);
+                // DBG("extension oid %s", NULL_STR(x_oid));
+
+                int is_xl4bus_addr =  !z_strcmp(x_oid, "1.3.6.1.4.1.45473.1.6");
+                int is_xl4bus_group = !z_strcmp(x_oid, "1.3.6.1.4.1.45473.1.7");
+
+                // NOTE: we don't expect critical value because we always issue our certs
+                // marking out extensions as not critical, which is default, and therefore
+                // not included in DER. We can't mark is as critical, because any other verification
+                // will have to reject it.
+
+                if (is_xl4bus_group) {
+
+                    size_t inner_len;
+
+                    if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
+                        DBG("xl4group attr : not octet string");
+                        continue;
+                    }
+                    end = start + inner_len;
+
+                    // the extracted octet string should contain SET of UTF8String
+                    if (mbedtls_asn1_get_tag(&start, end, &inner_len,
+                            MBEDTLS_ASN1_SET|MBEDTLS_ASN1_CONSTRUCTED)) {
+                        DBG("Group list is not a constructed set");
+                        continue;
+                    }
+
+                    end = start + inner_len;
+                    char * group_name = 0;
+
+                    while (start < end) {
+
+                        if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_UTF8_STRING)) {
+                            DBG("Group element is not utf-8 string");
+                            break;
+                        }
+
+                        cfg.free(group_name);
+                        BOLT_MEM(group_name = f_strndup(start, inner_len));
+                        BOLT_SUB(xl4bus_chain_address(cert_addresses, XL4BAT_GROUP, group_name, 0));
+                        DBG("Identity has group %s", group_name);
+                        group_name = 0; // consumed.
+
+                        start += inner_len;
+
+                    }
+
+                    cfg.free(group_name);
+                    BOLT_NEST();
+
+                }
+
+                if (is_xl4bus_addr) {
+
+                    size_t inner_len;
+
+                    if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
+                        DBG("Addr attribute is not octet string");
+                        continue;
+                    }
+                    end = start + inner_len;
+
+                    // the extracted octet string should contain Xl4-Bus-Addresses
+
+                    mbedtls_asn1_sequence addr;
+                    addr.next = 0;
+
+                    if (!mbedtls_asn1_get_sequence_of(&start, end, &addr,
+                            MBEDTLS_ASN1_SEQUENCE | MBEDTLS_ASN1_CONSTRUCTED)) {
+
+                        char * ua_name = 0;
+
+                        for (mbedtls_asn1_sequence *p_addr = &addr; p_addr; p_addr = p_addr->next) {
+
+                            // ok, address contains of an OID, followed by a parameter.
+
+                            start = p_addr->buf.p;
+                            end = start + p_addr->buf.len;
+
+                            if (get_oid(&start, end, &oid)) {
+                                DBG("Address doesn't start with an OID");
+                                continue;
+                            }
+
+                            cfg.free(x_oid);
+                            x_oid = make_chr_oid(&oid);
+                            // DBG("extension oid %s", NULL_STR(x_oid));
+
+                            if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.1")) {
+
+                                BOLT_SUB(xl4bus_chain_address(cert_addresses, XL4BAT_SPECIAL, XL4BAS_BROKER));
+                                DBG("Identity is BROKER");
+
+                            } else if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.2")) {
+
+                                BOLT_SUB(xl4bus_chain_address(cert_addresses, XL4BAT_SPECIAL, XL4BAS_DM_CLIENT));
+                                DBG("Identity is DM_CLIENT");
+
+                            } else if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.3")) {
+                                if (!mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_UTF8_STRING)) {
+
+                                    // $TODO: validate utf-8
+                                    BOLT_MEM(ua_name = f_strndup(start, inner_len));
+                                    BOLT_SUB(xl4bus_chain_address(cert_addresses, XL4BAT_UPDATE_AGENT, ua_name, 0));
+                                    DBG("Identity is UA %s", ua_name);
+                                    ua_name = 0; // consume
+
+                                } else {
+                                    DBG("Address value part is not utf8 string");
+                                }
+                            } else {
+                                DBG("Unknown address OID %s", x_oid);
+                            }
+
+                        }
+
+                        cfg.free(ua_name);
+
+                        BOLT_NEST();
+
+                    } else {
+                        DBG("address is not a sequence of constructed sequences");
+                    }
+
+                    for (mbedtls_asn1_sequence *f_seq = addr.next; f_seq;) {
+                        void *ptr = f_seq;
+                        f_seq = f_seq->next;
+                        cfg.free(ptr);
+                    }
+
+                    BOLT_NEST();
+
+                }
+
+            }
+
+        }
+
+        for (mbedtls_asn1_sequence * f_seq = seq.next; f_seq; ) {
+            void * ptr = f_seq;
+            f_seq = f_seq->next;
+            cfg.free(ptr);
+        }
+
+        cfg.free(x_oid);
+
+    } while (0);
 
 }

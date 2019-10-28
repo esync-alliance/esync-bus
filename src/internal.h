@@ -400,8 +400,6 @@ typedef struct decrypt_and_verify_data {
 
 } decrypt_and_verify_data_t;
 
-typedef int (*x509_lookup_t)(char * x5t, void * data, xl4bus_buf_t ** x509, cjose_jwk_t ** jwk);
-
 #define cfg XI(cfg)
 #define hash_sha256 XI(hash_sha256)
 #define remote_key_expiration XI(remote_key_expiration)
@@ -588,6 +586,8 @@ json_object * xl4json_make_obj_v(json_object *obj, va_list ap2);
 #define base64url_hash XI(base64url_hash)
 #define update_remote_symmetric_key XI(update_remote_symmetric_key)
 
+#define address_from_cert XI(address_from_cert)
+
 // finds the cjose key object for the specified tag.
 remote_info_t * find_by_x5t(const char * x5t);
 remote_key_t * find_by_kid(const char * kid);
@@ -600,6 +600,8 @@ int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * c
 int accept_remote_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t **);
 int process_remote_key(json_object*, char const * local_x5t, remote_info_t * source, char const ** kid);
 int update_remote_symmetric_key(char const * local_x5t, remote_info_t * remote);
+
+int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses);
 
 /**
  * Hash the specified data (SHA-256), and convert the result into base64url value.

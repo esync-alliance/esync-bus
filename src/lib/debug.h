@@ -31,6 +31,7 @@ void str_output_time(char *);
 #define MSG(a,b...) do { LINE_OUT(HOW_MSG, a, ##b); } while(0)
 #define FATAL(a,b...) do { LINE_OUT(HOW_FATAL, a, ##b); } while(0)
 #define FATAL_SYS(a,b...) do { LINE_OUT_SYS(HOW_FATAL, a, ##b); } while(0)
+#define FATAL_DIR(rc, a,b...) do { errno = rc; LINE_OUT_SYS(HOW_FATAL, a, ##b); } while(0)
 
 #define BOLT_MEM(a) if (!(a)) { \
     FATAL("out of memory"); \
@@ -43,6 +44,7 @@ void str_output_time(char *);
 #define BOLT_IF(cond, __err, msg, x...) if ((cond)) { err = (__err); DBG(msg ", setting err %d", ## x, err); break; } do{}while(0)
 #define BOLT_M1(a, m, x...) if ((a)==-1) { DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
 #define BOLT_SYS(a, m, x...) if ((a)) { DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
+#define BOLT_DIR(a, m, x...) if ((err = a)) { errno = err; DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
 #define BOLT_SUB(a) { err = (a); if (err != E_XL4BUS_OK) { BOLT_SAY(err, #a); }} do{}while(0)
 #define BOLT_CJOSE(a) { c_err.code = CJOSE_ERR_NONE; a; if (c_err.code != CJOSE_ERR_NONE) { BOLT_SAY(cjose_to_err(&c_err), "cjose failure %d %s:%s", c_err.code, c_err.message, #a);}} do {} while(0)
 #define BOLT_ARES(a) { int __err = (a); if (__err != ARES_SUCCESS) { if (__err == ARES_ENOMEM) { __err = E_XL4BUS_MEMORY; } else { __err = E_XL4BUS_INTERNAL; } BOLT_SAY(__err, "%s", #a); } } do{} while(0)

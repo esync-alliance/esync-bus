@@ -423,7 +423,7 @@ char * addr_to_str(xl4bus_address_t * addr) {
                     case XL4BAS_DM_CLIENT:
                         new = f_strdup("<DM-CLIENT>");
                         break;
-                    case XL4BAS_DM_BROKER:
+                    case XL4BAS_BROKER:
                         new = f_strdup("<BROKER>");
                         break;
                     default:
