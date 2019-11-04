@@ -16,12 +16,12 @@ int hello_world() {
     do {
 
         BOLT_SUB(full_test_broker_start(&broker));
-        BOLT_SUB(full_test_client_start(&client1, &broker));
-        BOLT_SUB(full_test_client_start(&client2, &broker));
+        BOLT_SUB(full_test_client_start(&client1, &broker, 1));
+        BOLT_SUB(full_test_client_start(&client2, &broker, 1));
         BOLT_SUB(full_test_send_message(&client1, &client2, f_strdup("boo")));
         test_event_t * event;
         BOLT_SUB(full_test_client_expect_single(0, &client2, &event, TET_CLT_MSG_RECEIVE));
-        TEST_CHR_EQUAL(event->msg->data, "boo");
+        TEST_CHR_N_EQUAL(event->msg->data, "boo", 3);
         full_test_free_event(event);
         BOLT_SUB(full_test_client_expect_single(0, &client1, &event, TET_MSG_ACK_OK));
         full_test_free_event(event);

@@ -35,6 +35,7 @@ xl4bus_identity_t broker_identity;
 
 broker_context_t broker_context = {
         .stream_timeout_ms = 10000,
+        .init_ll = 1
 };
 
 
@@ -197,7 +198,7 @@ int start_broker() {
         FATAL("Demo PKI label can not be used with X.509 identity parameters");
     }
 
-    if (xl4bus_init_ll(&ll_cfg)) {
+    if (broker_context.init_ll && xl4bus_init_ll(&ll_cfg)) {
         FATAL("failed to initialize xl4bus");
     }
 
@@ -226,6 +227,16 @@ int start_broker() {
 
         broker_identity.type = XL4BIT_X509;
 
+        if (broker_context.key_password) {
+            broker_identity.x509.custom = broker_context.key_password;
+            broker_identity.x509.password = simple_password_input;
+        } else if (broker_context.key_path) {
+            // $TODO: Using console_password_input ATM is a bad idea
+            // because it will ask the password every time it's needed.
+            broker_identity.x509.password = console_password_input;
+            broker_identity.x509.custom = f_strdup(broker_context.key_path);
+        }
+
         if (broker_context.key_path) {
             if (!(broker_identity.x509.private_key = load_pem(broker_context.key_path))) {
                 ERR("Key file %s could not be loaded", broker_context.key_path);
@@ -247,16 +258,6 @@ int start_broker() {
             free(broker_context.cert_path);
         } else {
             ERR("No certificate/certificate chain specified");
-        }
-
-        if (broker_context.key_password) {
-            broker_identity.x509.custom = broker_context.key_password;
-            broker_identity.x509.password = simple_password_input;
-        } else if (broker_context.key_path) {
-            // $TODO: Using console_password_input ATM is a bad idea
-            // because it will ask the password every time it's needed.
-            broker_identity.x509.password = console_password_input;
-            broker_identity.x509.custom = f_strdup(broker_context.key_path);
         }
 
     }

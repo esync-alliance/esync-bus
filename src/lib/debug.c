@@ -6,6 +6,10 @@
 #include <android/log.h>
 #endif
 
+#if WITH_UNIT_TEST
+#include "tests/full-test.h"
+#endif
+
 static void v_debug_out(char const * func, char const * file, int line, int how, char const * str, va_list va);
 
 void debug_out(char const * func, char const * file, int line, int how, char const * str, ...) {
@@ -42,7 +46,7 @@ static void v_debug_out(char const * func, char const * file, int line, int how,
 
     char const * eol;
 
-#if XL4BUS_ANDROID
+#if XL4BUS_ANDROID || WITH_UNIT_TEST
     eol = "";
 #else
     eol = "\n";
@@ -57,6 +61,23 @@ static void v_debug_out(char const * func, char const * file, int line, int how,
 
     // time func:file:line how <orig>
     char * final_fmt = f_asprintf("%s%s:%s:%d %s%s%s", now, func, file, line, how_str, str, eol);
+
+#if WITH_UNIT_TEST
+
+    va_list va2;
+    va_copy(va2, va);
+
+    char * msg;
+    int rc = vasprintf(&msg, final_fmt, va2);
+    if (rc < 0) {
+        abort();
+    }
+
+    full_test_print_out(msg);
+
+    free(msg);
+
+#else
 
 #if XL4BUS_ANDROID
     int prio;
@@ -77,6 +98,8 @@ static void v_debug_out(char const * func, char const * file, int line, int how,
     if (how == HOW_FATAL) {
         abort();
     }
+#endif
+
 #endif
 
     free(final_fmt);

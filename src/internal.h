@@ -490,6 +490,7 @@ void clean_keyspec(cjose_jwk_rsa_keyspec *);
 int get_oid(unsigned char ** p, unsigned char *, mbedtls_asn1_buf * oid);
 char * make_chr_oid(mbedtls_asn1_buf *);
 int z_strcmp(const char *, const char *);
+int z_strncmp(const char *, const char *, size_t);
 int make_private_key(xl4bus_identity_t *, mbedtls_pk_context *, cjose_jwk_t **);
 const char * deflate_content_type(const char *);
 char * inflate_content_type(char const *);

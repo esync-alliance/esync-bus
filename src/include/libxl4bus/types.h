@@ -678,7 +678,12 @@ typedef enum xl4bus_client_condition {
      * Note that this condition will be used if the client is managed
      * by an internal library thread, and the thread ran into I/O issue.
      */
-    XL4BCC_CLIENT_STOPPED
+    XL4BCC_CLIENT_STOPPED,
+
+    /**
+     * Issued only once when the client starts up.
+     */
+    XL4BCC_CLIENT_START
 } xl4bus_client_condition_t;
 
 typedef int (*xl4bus_set_poll) (struct xl4bus_client *, int fd, int modes);

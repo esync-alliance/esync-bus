@@ -143,6 +143,8 @@ typedef struct broker_context {
 
     int quit;
 
+    int init_ll;
+
 } broker_context_t;
 
 extern UT_array dm_clients;

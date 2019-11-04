@@ -30,8 +30,11 @@ static void check_loud_mode(const char *);
 static int should_run_test_case(const char *);
 static void delivered_handler(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok);
 static void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg);
+static void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status);
+static char * set_client_thread_name(test_client_t * clt);
 
 FILE * output_log = 0;
+char const * test_name = 0;
 
 static pthread_mutex_t broker_start_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t broker_start_cond = PTHREAD_COND_INITIALIZER;
@@ -45,6 +48,14 @@ static test_case_t * ignored_tests = 0;
 static test_case_t * excluded_cases = 0;
 static test_case_t * was_excluded = 0;
 static int test_skip_count = 0;
+static int through_count;
+static pthread_key_t thread_name_key;
+static xl4bus_ll_cfg_t ll_cfg = {
+        .realloc = realloc,
+        .malloc = malloc,
+        .free = free,
+        .debug_f = full_test_print_out
+};
 
 void help() {
 
@@ -56,6 +67,15 @@ void help() {
 
 }
 
+static __attribute__((constructor)) void my_init() {
+
+    if (xl4bus_init_ll(&ll_cfg)) {
+        abort();
+    }
+    pthread_key_create(&thread_name_key, free);
+    pthread_setspecific(thread_name_key, f_strdup("main"));
+
+}
 
 void version(FILE * to) {
 
@@ -145,6 +165,7 @@ int main(int argc, char ** argv) {
 
 #define CASE(n) do { \
     if (should_run_test_case(#n)) { \
+        test_name = #n; \
         check_loud_mode(#n); \
         if (n()) { \
             if (ignore_failure(#n)) {\
@@ -224,21 +245,27 @@ int main(int argc, char ** argv) {
 
 }
 
-int full_test_client_start(test_client_t * clt, test_broker_t * brk) {
+int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on_latch) {
 
     int err /*= E_XL4BUS_OK*/;
     char * url = 0;
+    test_event_t * event = 0;
 
     do {
 
         BOLT_IF(!brk->port, E_XL4BUS_ARG, "");
         url = f_asprintf("tcp://localhost:%d", brk->port);
 
+        if (!clt->name) {
+            clt->name = f_asprintf("%s:%s:%d", test_name, clt->label, through_count++);
+        }
+
         clt->bus_client.mt_support = 1;
         clt->bus_client.use_internal_thread = 1;
         clt->bus_client.on_release = release_handler;
         clt->bus_client.on_delivered = delivered_handler;
         clt->bus_client.on_message = incoming_handler;
+        clt->bus_client.on_status = status_handler;
 
         BOLT_IF(load_simple_x509_creds(&clt->bus_client.identity,
                 f_asprintf("./testdata/pki/%s/private.pem", clt->label),
@@ -248,12 +275,19 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk) {
         BOLT_SUB(xl4bus_init_client(&clt->bus_client, url));
         clt->started = 1;
 
+        if (wait_on_latch) {
+            BOLT_SUB(full_test_client_expect_single(0, clt, &event, TET_CLT_RUNNING));
+        }
+
+        TEST_DBG("client %s started", clt->name);
+
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
 #pragma clang diagnostic pop
 
     free(url);
+    full_test_free_event(event);
 
     return err;
 
@@ -262,7 +296,7 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk) {
 void full_test_client_stop(test_client_t * clt) {
     if (!clt->started) { return; }
     xl4bus_stop_client(&clt->bus_client);
-    full_test_client_expect(0, clt, 0, TET_CLIENT_QUIT, TET_NONE);
+    full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE);
 }
 
 int full_test_broker_start(test_broker_t * brk) {
@@ -272,9 +306,14 @@ int full_test_broker_start(test_broker_t * brk) {
 
     do {
 
+        broker_context.init_ll = 0;
         broker_context.key_path = f_strdup("./testdata/pki/broker/private.pem");
         add_to_str_array(&broker_context.cert_path, "./testdata/pki/broker/cert.pem");
         add_to_str_array(&broker_context.ca_list, "./testdata/pki/ca/ca.pem");
+
+        if (!brk->name) {
+            brk->name = f_asprintf("%s:%d", test_name, through_count++);
+        }
 
         BOLT_DIR(pthread_mutex_lock(&broker_start_lock), "");
         locked = 1;
@@ -332,6 +371,8 @@ static void * broker_runner(void * arg) {
 
     int err = E_XL4BUS_OK;
     int locked = 0;
+
+    pthread_setspecific(thread_name_key, f_asprintf("brk %s", broker->name));
 
     do {
 
@@ -519,7 +560,7 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
                     // bad, because if the application waited for something
                     // else, but those came instead, there won't be anything else.
 
-                    if (head->type == TET_BRK_FAILED || head->type == TET_CLIENT_QUIT || head->type == TET_BRK_QUIT) {
+                    if (head->type == TET_BRK_FAILED || head->type == TET_CLT_QUIT || head->type == TET_BRK_QUIT) {
                         TEST_ERR("failing on negative event %d", head->type);
                         found = 1;
                         err = E_XL4BUS_DATA;
@@ -607,6 +648,46 @@ void full_test_free_event(test_event_t * evt) {
 
 }
 
+char * set_client_thread_name(test_client_t * clt) {
+
+    char * used =  f_asprintf("clt %s", clt->name);
+    pthread_setspecific(thread_name_key, used);
+    return used;
+
+}
+
+void full_test_print_out(char const * s) {
+
+    char const * thread = pthread_getspecific(thread_name_key);
+    if (!thread) { thread = "?"; }
+    char * msg = f_asprintf("[%s] %s", thread, s);
+
+    fprintf(stderr, "%s\n", msg);
+    if (output_log) {
+        fprintf(output_log, "%s\n", msg);
+    }
+
+    free(msg);
+
+}
+
+void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status) {
+
+    test_client_t * t_clt = (test_client_t*)clt;
+    char const * name = pthread_getspecific(thread_name_key);
+    if (!name) {
+        set_client_thread_name(t_clt);
+    }
+
+    if (status == XL4BCC_RUNNING) {
+        test_event_t * evt = f_malloc(sizeof(test_event_t));
+        evt->type = TET_CLT_RUNNING;
+        submit_event(&t_clt->events, evt);
+    }
+
+}
+
+
 void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg) {
 
     test_client_t * t_clt = (test_client_t*)clt;
@@ -637,7 +718,7 @@ void release_handler(struct xl4bus_client * clt) {
     test_client_t * test = (test_client_t *) clt;
 
     test_event_t * event = f_malloc(sizeof(test_event_t));
-    event->type = TET_CLIENT_QUIT;
+    event->type = TET_CLT_QUIT;
 
     submit_event(&test->events, event);
 
@@ -729,6 +810,9 @@ int full_test_send_message(test_client_t * from, test_client_t * to, char * str)
 
     int err = E_XL4BUS_OK;
 
+    char * old_name = pthread_getspecific(thread_name_key);
+    char * new_name = set_client_thread_name(from);
+
     do {
 
         msg = f_malloc(sizeof(xl4bus_message_t));
@@ -736,7 +820,7 @@ int full_test_send_message(test_client_t * from, test_client_t * to, char * str)
         msg->data = str;
         msg->data_len = strlen(str);
         str = 0; // consume
-        BOLT_SUB(xl4bus_send_message2(&from->bus_client, msg, 0, 0));
+        BOLT_SUB(xl4bus_send_message2(&from->bus_client, msg, 0, 1));
 
     } while (0);
 
@@ -745,6 +829,9 @@ int full_test_send_message(test_client_t * from, test_client_t * to, char * str)
         free((void*)msg->data);
         free(msg);
     }
+
+    pthread_setspecific(thread_name_key, old_name);
+    free(new_name);
 
     free(str);
 
