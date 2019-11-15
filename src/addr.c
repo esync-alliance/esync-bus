@@ -278,7 +278,7 @@ int xl4bus_require_address(xl4bus_address_t * needle, xl4bus_address_t * haystac
 
     if (!needle) {
         // it's questionable what we should return in this case
-        if (haystack) { *failed = 0; }
+        if (failed) { *failed = 0; }
         return E_XL4BUS_ARG;
     }
 
