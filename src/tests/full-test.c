@@ -9,6 +9,7 @@
 #include "cases.h"
 
 #include <sys/un.h>
+#include <pthread.h>
 
 typedef struct test_case {
     UT_hash_handle hh;
