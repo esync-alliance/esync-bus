@@ -15,19 +15,20 @@ struct xl4bus_identity;
 struct xl4bus_X509v3_Identity;
 struct xl4bus_connection;
 
-typedef struct dbuf {
-    uint8_t * data;
-    size_t len;
-    size_t cap;
-} dbuf_t;
-
 /**
  * Used as a general buffer, when variably sized
  * data needs to be exchanged.
  */
 typedef struct xl4bus_buf {
+    /** pointer to the buffer's data */
     uint8_t * data;
+    /** length of usable bytes in the data */
     size_t len;
+    /**
+     * total size of allocated memory that the data pointer points to. Does not need to be populated if the
+     * buffer is not written to by the library.
+     */
+    size_t cap;
 } xl4bus_buf_t;
 
 typedef enum xl4bus_asn1enc_t {
@@ -590,7 +591,7 @@ typedef struct xl4bus_connection {
             char * remote_x5t;
             char * remote_x5c;
             char * my_x5t;
-            dbuf_t my_x5t_bin;
+            xl4bus_buf_t my_x5t_bin;
         };
     };
 

@@ -407,7 +407,7 @@ int process_remote_key(json_object * body, char const * local_x5t, remote_info_t
 
 }
 
-int base64url_hash(void * data, size_t data_len, char ** to, dbuf_t * raw) {
+int base64url_hash(void * data, size_t data_len, char ** to, xl4bus_buf_t * raw) {
 
     mbedtls_md_context_t mdc;
     mbedtls_md_init(&mdc);

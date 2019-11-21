@@ -113,7 +113,7 @@ typedef struct stream {
     uint16_t stream_id;
 
     int incoming_message_ct;
-    dbuf_t incoming_message_data;
+    xl4bus_buf_t incoming_message_data;
 
     int message_started;
     uint16_t frame_seq_in;
@@ -145,7 +145,7 @@ typedef struct connection_internal {
             uint32_t frame_len;
         };
 
-        dbuf_t data;
+        xl4bus_buf_t data;
 
         uint32_t crc;
 
@@ -478,10 +478,10 @@ int build_address_list(json_object *, xl4bus_address_t **);
 #define free_s XI(free_s)
 #define zero_s XI(zero_s)
 
-int consume_dbuf(dbuf_t * , dbuf_t * , int);
-int add_to_dbuf(dbuf_t * , void * , size_t );
-void free_dbuf(dbuf_t **);
-void clear_dbuf(dbuf_t *);
+int consume_dbuf(xl4bus_buf_t * , xl4bus_buf_t * , int);
+int add_to_dbuf(xl4bus_buf_t * , void * , size_t );
+void free_dbuf(xl4bus_buf_t **);
+void clear_dbuf(xl4bus_buf_t *);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
 void shutdown_connection_ts(xl4bus_connection_t *, char const * reason);
@@ -613,7 +613,7 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
  * @param to where the result is stored
  * @return E_XL4BUS_ error code.
  */
-int base64url_hash(void * data, size_t data_len, char ** to, dbuf_t * hash);
+int base64url_hash(void * data, size_t data_len, char ** to, xl4bus_buf_t * hash);
 
 /* timeout.h */
 

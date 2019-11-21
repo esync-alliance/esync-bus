@@ -352,7 +352,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
 }
 
-int consume_dbuf(dbuf_t * into, dbuf_t * from, int do_free) {
+int consume_dbuf(xl4bus_buf_t * into, xl4bus_buf_t * from, int do_free) {
 
     // quick paths
     if (do_free) {
@@ -368,9 +368,9 @@ int consume_dbuf(dbuf_t * into, dbuf_t * from, int do_free) {
 
         if (do_copy) {
             // data is not allocated, we don't have to care about anything else.
-            memcpy(into, from, sizeof(dbuf_t));
+            memcpy(into, from, sizeof(xl4bus_buf_t));
             free(from->data);
-            memset(from, 0, sizeof(dbuf_t));
+            memset(from, 0, sizeof(xl4bus_buf_t));
             return 0;
         }
     }
@@ -388,7 +388,7 @@ int consume_dbuf(dbuf_t * into, dbuf_t * from, int do_free) {
 
 }
 
-int add_to_dbuf(dbuf_t * into, void * from, size_t from_len) {
+int add_to_dbuf(xl4bus_buf_t * into, void * from, size_t from_len) {
 
     size_t need = from_len + into->len;
     if (need > into->cap) {
@@ -403,17 +403,17 @@ int add_to_dbuf(dbuf_t * into, void * from, size_t from_len) {
 
 }
 
-void free_dbuf(dbuf_t ** buf) {
+void free_dbuf(xl4bus_buf_t ** buf) {
     clear_dbuf(*buf);
     free(*buf);
     *buf = 0;
 }
 
-void clear_dbuf(dbuf_t * buf) {
+void clear_dbuf(xl4bus_buf_t * buf) {
 
     if (buf) {
         cfg.free(buf->data);
-        memset(buf, 0, sizeof(dbuf_t));
+        memset(buf, 0, sizeof(xl4bus_buf_t));
     }
 
 }
