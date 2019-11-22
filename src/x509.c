@@ -576,7 +576,6 @@ void release_remote_key_nl(remote_key_t * key) {
 int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses) {
 
     int err = E_XL4BUS_OK;
-    char * aux = 0;
 
     do {
 
@@ -763,5 +762,7 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
         cfg.free(x_oid);
 
     } while (0);
+
+    return err;
 
 }
