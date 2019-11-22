@@ -694,7 +694,7 @@ void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg) {
     test_client_t * t_clt = (test_client_t*)clt;
     test_event_t * evt = f_malloc(sizeof(test_event_t));
     evt->type = TET_CLT_MSG_RECEIVE;
-    evt->msg = f_malloc(sizeof(xl4bus_message_t*));
+    evt->msg = f_malloc(sizeof(xl4bus_message_t));
     evt->msg->data = f_malloc(evt->msg->data_len = msg->data_len);
     memcpy((void*)evt->msg->data, msg->data, msg->data_len);
     xl4bus_copy_address(msg->address, 1, &evt->msg->address);
