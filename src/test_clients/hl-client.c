@@ -48,10 +48,11 @@ int main(int argc, char ** argv) {
     char * cert_dir = 0;
     int flood = 0;
     int msg_count = 1;
+    char * cl_type = 0;
 
     signal(SIGINT, signal_f);
 
-    while ((c = getopt(argc, argv, "Cc:dfm:s:xh")) != -1) {
+    while ((c = getopt(argc, argv, "Cc:dfm:s:t:xh")) != -1) {
 
         switch (c) {
 
@@ -71,6 +72,11 @@ int main(int argc, char ** argv) {
             case 's':
                 g_msg_size = atoi(optarg);
                 break;
+            case 't':
+                if(cl_type)
+                    free(cl_type);
+                cl_type = f_strdup(optarg);
+                break;
             case 'x':
                 g_respond = 0;
                 break;
@@ -82,6 +88,10 @@ int main(int argc, char ** argv) {
 
     if (!cert_dir) {
         cert_dir = f_strdup("hl-client");
+    }
+
+    if (!cl_type) {
+        cl_type = f_strdup("hl-client");
     }
 
     xl4bus_ll_cfg_t ll_cfg;
@@ -117,7 +127,7 @@ int main(int argc, char ** argv) {
 
         xl4bus_address_t addr = {
                 .type = XL4BAT_UPDATE_AGENT,
-                .update_agent = cert_dir,
+                .update_agent = cl_type,
                 .next = 0
         };
 
@@ -135,6 +145,7 @@ int main(int argc, char ** argv) {
         msg->data_len = strlen(msg->data) + 1;
 
         if (xl4bus_send_message(&clt, msg, msg_data)) {
+            printf("xl4bus_send_message failed!\n");
             handle_delivered(&clt, msg, msg_data, 0);     // if send message failed cleanup here
         }
     }
@@ -165,6 +176,7 @@ void help() {
             "-m <cnt>  : send that many messages to start with, 1 by default\n"
             "-x        : don't reflect incoming messages\n"
             "-f        : flood\n"
+            "-t <addr> : send messages to addr\n"
     );
     _exit(1);
 
@@ -193,6 +205,8 @@ struct timespec ts_diff(struct timespec end, struct timespec start) {
 }
 
 void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
+
+    printf("!!!!!!!!!!!  handle_message  !!!!!!!!!!!\n");
 
     char * src = addr_to_str(msg->address);
 
@@ -261,7 +275,7 @@ void handle_presence(struct xl4bus_client * clt, xl4bus_address_t * connected, x
 #pragma clang diagnostic ignored "-Wunused-parameter"
 void handle_delivered(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok) {
 #pragma clang diagnostic pop
-
+    msg_info(clt, msg, arg, ok);
     xl4bus_free_address(msg->address, 1);
     if (arg == msg->data)
       free(arg);
