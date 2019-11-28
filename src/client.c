@@ -1573,7 +1573,7 @@ int xl4bus_stop_client(xl4bus_client_t *clt) {
 
             if (i_clt->state == CS_RUNNING) {
                 do {
-                    itc_message_t itc;
+                    itc_message_t itc = {0};
                     itc.magic = ITC_STOP_CLIENT_MAGIC;
                     itc.ref = clt;
                     BOLT_SYS(pf_send(i_clt->ll->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
