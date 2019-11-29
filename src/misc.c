@@ -123,6 +123,8 @@ uint32_t crcTable[] = {
 
 };
 
+static global_cache_t default_cache = {0};
+
 #ifdef __QNX__
 static int vasprintf(char **buf, const char *fmt, va_list ap)
 {
@@ -212,6 +214,10 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
         mbedtls_x509_crl_init(&i_conn->crl);
         mbedtls_x509_crt_init(&i_conn->chain);
         mbedtls_x509_crt_init(&i_conn->trust);
+
+        if (!conn->cache) {
+            conn->cache = &default_cache;
+        }
 
 #if XL4_SUPPORT_THREADS
         BOLT_SYS(pf_init_lock(&i_conn->hash_lock), "initializing read lock");

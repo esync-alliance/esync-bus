@@ -64,6 +64,7 @@ typedef struct test_broker {
     test_event_t * events;
     char * name;
     broker_context_t context;
+    pthread_t thread;
 
 } test_broker_t;
 

@@ -422,7 +422,7 @@ if (RUN_TESTS)
         add_test(NAME unit-timeout COMMAND timeout-test)
         if (XL4_FULL_TEST)
             add_test(NAME unit-full-prepare WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/src/tests/prepare-full-test.sh ${CMAKE_CURRENT_BINARY_DIR})
-            add_test(NAME unit-full-test COMMAND full-test)
+            add_test(NAME unit-full-test COMMAND full-test -O full-test.log)
             SET_TESTS_PROPERTIES(unit-full-test PROPERTIES DEPENDS "unit-full-prepare")
         endif()
         add_custom_command(

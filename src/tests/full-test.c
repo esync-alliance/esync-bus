@@ -325,8 +325,7 @@ int full_test_broker_start(test_broker_t * brk) {
 
         BOLT_DIR(pthread_mutex_lock(&broker_start_lock), "");
         locked = 1;
-        pthread_t broker_thread;
-        BOLT_DIR(pthread_create(&broker_thread, 0, broker_runner, brk), "");
+        BOLT_DIR(pthread_create(&brk->thread, 0, broker_runner, brk), "");
         BOLT_DIR(pthread_cond_wait(&broker_start_cond, &broker_start_lock), "");
         if (!brk->started) {
             err = brk->start_err;
@@ -371,7 +370,11 @@ void full_test_broker_stop(test_broker_t * brk) {
         FATAL_SYS("problem sending BCC message");
     }
 
-    full_test_broker_expect(0, brk, 0, TET_BRK_QUIT, TET_NONE);
+    if (full_test_broker_expect(0, brk, 0, TET_BRK_QUIT, TET_NONE) == E_XL4BUS_OK) {
+        pthread_join(brk->thread, 0);
+    } else {
+        TEST_ERR("Couldn't wait for broker to stop!");
+    }
 
 }
 
@@ -391,7 +394,7 @@ static void * broker_runner(void * arg) {
         BOLT_DIR(pthread_cond_broadcast(&broker_start_cond), "");
 
         broker->context.use_bcc = 1;
-        broker->context.bcc_path = f_asprintf("/tmp/test-xl4bus-broker%d", getpid());
+        broker->context.bcc_path = f_asprintf("/tmp/test-xl4bus-broker.%s.%d", broker->name, getpid());
         broker->context.key_path = f_strdup("./testdata/pki/broker/private.pem");
         add_to_str_array(&broker->context.cert_path, "./testdata/pki/broker/cert.pem");
         add_to_str_array(&broker->context.ca_list, "./testdata/pki/ca/ca.pem");
@@ -434,11 +437,11 @@ static void * broker_runner(void * arg) {
     } while (0);
 #pragma clang diagnostic pop
 
+    release_broker_context(&broker->context);
+
     if (locked) {
         pthread_mutex_unlock(&broker_start_lock);
     }
-
-    release_broker_context(&broker->context);
 
     broker->start_err = err;
     return 0;

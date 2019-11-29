@@ -951,7 +951,7 @@ int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
         xl4bus_connection_t * conn = i_clt->ll;
 
         BOLT_MALLOC(msg, sizeof(ll_message_container_t));
-        DBG("--> alloc %p", msg);
+        // DBG("--> alloc %p", msg);
 
         BOLT_MEM(msg->json = json_object_new_object());
         if (body) {
