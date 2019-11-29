@@ -14,6 +14,9 @@ int main(int argc, char ** argv) {
     MSG("xl4-broker %s", xl4bus_version());
     MSG("Use -h to see help options");
 
+    broker_context_t broker_context;
+    init_broker_context(&broker_context);
+
     broker_context.argv0 = argv[0];
 
     while ((c = getopt(argc, argv, "hk:K:c:t:D:dpqT:iI:")) != -1) {
@@ -84,10 +87,10 @@ int main(int argc, char ** argv) {
 
     }
 
-    int res = start_broker();
+    int res = start_broker(&broker_context);
     if (res) { return res; }
     while (1) {
-        res = cycle_broker(-1);
+        res = cycle_broker(&broker_context, -1);
         if (res) { return res; }
         if (broker_context.quit) {
             return 0;

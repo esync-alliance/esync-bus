@@ -357,14 +357,14 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
                     }
 
                     BOLT_NEST();
-                    BOLT_SUB(accept_x5c(x5c_json, dav->trust, dav->crl, &dav->ku_flags, &rmi));
+                    BOLT_SUB(accept_x5c(dav->cache, x5c_json, dav->trust, dav->crl, &dav->ku_flags, &rmi));
 
                 } else {
 
                     const char * x5t;
                     BOLT_CJOSE(x5t = cjose_header_get(p_headers, "x5t#S256", &c_err));
                     // BOLT_IF(!(remote_info = find_by_x5t(x5t)), E_XL4BUS_SYS, "Could not find JWK for tag %s", NULL_STR(x5t));
-                    rmi = find_by_x5t(x5t);
+                    rmi = find_by_x5t(dav->cache, x5t);
 
                     if (!rmi) {
                         dav->missing_x5t = f_strdup(x5t);
@@ -575,7 +575,7 @@ int xl4bus_set_remote_identity(xl4bus_connection_t * conn, xl4bus_identity_t * i
 
         BOLT_NEST();
 
-        BOLT_SUB(accept_x5c(x5c, &i_conn->trust, &i_conn->crl, &i_conn->ku_flags, &remote_info));
+        BOLT_SUB(accept_x5c(conn->cache, x5c, &i_conn->trust, &i_conn->crl, &i_conn->ku_flags, &remote_info));
         BOLT_MEM(x5c_str = f_strdup(json_object_get_string(x5c)));
         BOLT_SUB(xl4bus_copy_address(remote_info->addresses, 1, &remote_address));
         BOLT_MEM(x5t = f_strdup(remote_info->x5t));

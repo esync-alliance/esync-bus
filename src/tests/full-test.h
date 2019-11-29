@@ -5,6 +5,7 @@
 #ifdef WITH_UNIT_TEST
 
 #include <libxl4bus/high_level.h>
+#include "broker/broker.h"
 
 #define PRINT_LN(to_prt, s, fm, a...) do { \
     char now__[25]; \
@@ -23,7 +24,7 @@
 
 #define TEST_ERR(s, a...) PRINT_LN(1, "ERR", " " s, ## a)
 #define TEST_MSG(s, a...) PRINT_LN(1, "MSG", " " s, ## a)
-#define TEST_DBG(s, a...) do { PRINT_LN(1, "DBG", " " s, ## a); } while (0)
+#define TEST_DBG(s, a...) if (show_debug) PRINT_LN(1, "DBG", " " s, ## a)
 
 typedef enum test_event_type {
     TET_NONE = 0,
@@ -62,6 +63,8 @@ typedef struct test_broker {
     int started;
     test_event_t * events;
     char * name;
+    broker_context_t context;
+    pthread_t thread;
 
 } test_broker_t;
 
@@ -80,6 +83,7 @@ int full_test_client_expect(int timeout_ms, test_client_t *, test_event_t ** eve
 int full_test_client_expect_single(int timeout_ms, test_client_t *, test_event_t ** event, test_event_type_t first);
 int full_test_broker_expect(int timeout_ms, test_broker_t *, test_event_t ** event, test_event_type_t first, ...);
 void full_test_print_out(char const * msg);
+void full_test_print_out_d(int, int, char const * msg);
 int full_test_send_message(test_client_t * from, test_client_t * to, char * str);
 extern char const * test_name;
 
@@ -87,6 +91,7 @@ extern char const * test_name;
 #define TEST_CHR_N_EQUAL(chr1, chr2, len) BOLT_IF(z_strncmp(chr1, chr2, len), E_XL4BUS_INTERNAL, "String %.*s was expected to be equal to %.*s", len, chr2, len, chr1)
 
 extern FILE * output_log;
+extern int show_debug;
 
 #endif
 

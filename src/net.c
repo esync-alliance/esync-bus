@@ -949,5 +949,6 @@ void init_dav(xl4bus_connection_t * conn, decrypt_and_verify_data_t * dav) {
     dav->my_x5t = conn->my_x5t;
     dav->trust = &i_conn->trust;
     dav->crl = &i_conn->crl;
+    dav->cache = conn->cache;
 
 }

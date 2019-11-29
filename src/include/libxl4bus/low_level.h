@@ -216,6 +216,8 @@ XL4_PUB int xl4bus_send_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message
 XL4_PUB char const * xl4bus_strerr(int);
 XL4_PUB void xl4bus_abort_stream(xl4bus_connection_t *, uint16_t stream_id);
 
+XL4_PUB size_t xl4bus_get_cache_size(void);
+
 #undef XL4_PUB
 
 #endif

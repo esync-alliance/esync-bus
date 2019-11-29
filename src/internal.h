@@ -66,7 +66,6 @@
 
 #define cfg XI(cfg)
 #define hash_sha256 XI(hash_sha256)
-#define cert_cache_lock XI(cert_cache_lock)
 
 #if XL4_PROVIDE_PRINTF
 #define vasprintf tft_vasprintf
@@ -96,6 +95,51 @@
 // forward definitions
 
 struct remote_info;
+
+typedef struct xl4bus_global_cache {
+
+    // I thought about this for a while - whether certificate cache should be
+    // global or not. The key into this cache is sha-256 of the certificate.
+    // So, there is no real danger of collisions (the certificate still needs
+    // to be valid to be added to the cache, though I suppose it's possible
+    // to implement some padding attack and knock another certificate out of
+    // the cache, effectively DDoSing the caller that owns that knocked out
+    // cert. The fix will be to parse ASN.1 as it's being read, making sure
+    // that hashing stops when X.509 structure stops).
+    // The only way that a credential can legitimately have the same sha-256
+    // value, but has other differences - is when the chain is different. Meaning
+    // that the same certificate has been validated by different chains. However,
+    // the cache will only be overwritten when when the second chain is received,
+    // and that second chain will need to be validated first. The connection with
+    // the first chain identity will continue to be given a pass for the same
+    // sha-256 tag, but I don't see this as a security problem, as all information
+    // pertaining to the client still must be present in the top-level certificate,
+    // which is what's hashed.
+    // Alternative is to have cache per identity (so that identities with the same
+    // trust anchors can share caches), but that adds burden on the user to maintain
+    // those somehow, and, as stated above, doesn't provide any real additional
+    // security.
+    //
+    // $TODO: On second thought, the certificate cache must be bound to a trust.
+    // If trusts are different for connections, the certificates must not be
+    // held together, since they won't authenticate against different trust
+
+    struct remote_info * x5t_cache;
+
+    // $TODO: The KID cache is even more controversial. The KID is based on
+    // local and remote X5t values, so it's really per identity used in a client,
+    // but to implement it per client is simply more tedious, especially when it comes
+    // to clean up. Since using multiple identities is not a use case for us right now,
+    // I'm making this a global. The work to refactor this can be not so trivial.
+    struct remote_key * kid_cache;
+
+    rb_node_t * remote_key_expiration;
+
+#if XL4_SUPPORT_THREADS
+    void * cert_cache_lock;
+#endif
+
+} global_cache_t;
 
 typedef struct chunk {
     uint8_t * data;
@@ -348,6 +392,8 @@ typedef struct client_internal {
     int dual_ip;
 #endif
 
+    global_cache_t cache;
+
 } client_internal_t;
 
 typedef struct decrypt_and_verify_data {
@@ -398,20 +444,15 @@ typedef struct decrypt_and_verify_data {
 
     xl4bus_identity_t * full_id;
 
+    global_cache_t * cache;
+
 } decrypt_and_verify_data_t;
 
 #define cfg XI(cfg)
 #define hash_sha256 XI(hash_sha256)
-#define remote_key_expiration XI(remote_key_expiration)
 
 extern xl4bus_ll_cfg_t cfg;
 extern const mbedtls_md_info_t * hash_sha256;
-extern rb_node_t * remote_key_expiration;
-
-#if XL4_SUPPORT_THREADS
-#define cert_cache_lock XI(cert_cache_lock)
-extern void * cert_cache_lock;
-#endif
 
 /* net.c */
 #define check_conn_io XI(check_conn_io)
@@ -590,16 +631,16 @@ json_object * xl4json_make_obj_v(json_object *obj, va_list ap2);
 #define address_from_cert XI(address_from_cert)
 
 // finds the cjose key object for the specified tag.
-remote_info_t * find_by_x5t(const char * x5t);
-remote_key_t * find_by_kid(const char * kid);
-void release_remote_key_nl(remote_key_t *);
+remote_info_t * find_by_x5t(global_cache_t *, const char * x5t);
+remote_key_t * find_by_kid(global_cache_t *, const char * kid);
+void release_remote_key_nl(global_cache_t *, remote_key_t *);
 
 MAKE_REF_UNREF(remote_key)
 MAKE_REF_UNREF(remote_info)
 
-int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, int * ku_flags, remote_info_t **);
+int accept_x5c(global_cache_t *, json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl, int * ku_flags, remote_info_t **);
 int accept_remote_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info_t **);
-int process_remote_key(json_object*, char const * local_x5t, remote_info_t * source, char const ** kid);
+int process_remote_key(global_cache_t *, json_object*, char const * local_x5t, remote_info_t * source, char const ** kid);
 int update_remote_symmetric_key(char const * local_x5t, remote_info_t * remote);
 
 int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses);

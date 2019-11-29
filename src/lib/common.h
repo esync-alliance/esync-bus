@@ -11,6 +11,14 @@
 
 #include <include/libxl4bus/types.h>
 
+#if WITH_UNIT_TEST
+#include "full-test.h"
+#define MSG_OUT(fmt, c...) do { \
+    char * str = f_asprintf(fmt, ## c); \
+    full_test_print_out_d(0, 0, str); \
+    free(str); \
+} while (0)
+#else
 #if defined(__ANDROID__) && __ANDROID__
 #include <android/log.h>
 #define XL4BUS_ANDROID (1)
@@ -23,6 +31,7 @@
 #define MSG_OUT(fmt, c...) do { \
     printf(fmt, ## c); \
 } while (0)
+#endif
 #endif
 
 #define NULL_STR(a) ((a)?(a):"(NULL)")

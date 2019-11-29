@@ -72,6 +72,8 @@ typedef struct conn_info {
 
     int sent_x5c;
 
+    struct broker_context * ctx;
+
 } conn_info_t;
 
 typedef struct remote_info {
@@ -145,19 +147,21 @@ typedef struct broker_context {
 
     int init_ll;
 
+    int poll_fd;
+
+    UT_array dm_clients;
+    hash_list_t * ci_by_group;
+    hash_list_t * ci_by_x5t;
+    conn_info_t * connections;
+    xl4bus_identity_t broker_identity;
+    conn_info_hash_tree_t * ci_ua_tree;
+
+    struct xl4bus_global_cache * g_cache;
+
 } broker_context_t;
 
-extern UT_array dm_clients;
-extern hash_list_t * ci_by_group;
-extern hash_list_t * ci_by_x5t;
-extern conn_info_t * connections;
-extern int poll_fd;
-extern xl4bus_identity_t broker_identity;
-extern conn_info_hash_tree_t * ci_ua_tree;
-extern broker_context_t broker_context;
-
 // e900
-#define E900(a,b,c) do { if (!broker_context.be_quiet) { e900(a, b, c); }} while(0)
+#define E900(ctx, a,b,c) do { if (!(ctx)->be_quiet) { e900(a, b, c); }} while(0)
 void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to);
 
 // hash_tree
@@ -169,10 +173,10 @@ int hash_tree_maybe_delete(conn_info_hash_tree_t * current);
 
 // gather
 
-void gather_destinations(json_object * array, json_object ** x5t, UT_array * conns);
-void gather_destination(xl4bus_address_t *, str_t ** x5t, UT_array * conns);
+void gather_destinations(broker_context_t * bc, json_object * array, json_object ** x5t, UT_array * conns);
+void gather_destination(broker_context_t * bc, xl4bus_address_t *, str_t ** x5t, UT_array * conns);
 void finish_x5t_destinations(json_object ** x5t, str_t * strings);
-void gather_all_destinations(xl4bus_address_t * first, UT_array * conns);
+void gather_all_destinations(broker_context_t * bc, xl4bus_address_t * first, UT_array * conns);
 
 // crypto
 
@@ -185,7 +189,7 @@ int get_oid(unsigned char **p, unsigned char *end, mbedtls_asn1_buf *oid);
 char * make_chr_oid(mbedtls_asn1_buf *);
 void clean_keyspec(cjose_jwk_rsa_keyspec *);
 int sign_jws(conn_info_t * ci, json_object * bus_object, const void *data, size_t data_len, char const * ct, const void **jws_data, size_t *jws_len);
-int init_x509_values(void);
+int init_x509_values(broker_context_t *);
 int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to);
 int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_t ** jwk);
 void load_pem_array(char ** file_list, xl4bus_asn1_t ***asn_list, char const *string);
@@ -201,11 +205,13 @@ int on_stream_close(struct xl4bus_connection *, uint16_t stream, xl4bus_stream_c
 
 // broker
 
-void send_presence(json_object * connected, json_object * disconnected, conn_info_t * except);
+void init_broker_context(broker_context_t * c);
+void release_broker_context(broker_context_t * c);
+void send_presence(broker_context_t *, json_object * connected, json_object * disconnected, conn_info_t * except);
 int send_json_message(conn_info_t *, const char *, json_object * body, uint16_t stream_id, int is_reply, int is_final);
-void count(int in, int out);
-int start_broker(void);
-int cycle_broker(int);
+void count(broker_context_t * bc, int in, int out);
+int start_broker(broker_context_t * bc);
+int cycle_broker(broker_context_t * bc, int);
 void add_to_str_array(char *** array, char const * str);
 
 
