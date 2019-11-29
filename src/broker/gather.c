@@ -4,7 +4,7 @@
 #include "lib/common.h"
 #include "lib/hash_list.h"
 
-void gather_destinations(json_object * array, json_object ** x5t, UT_array * conns) {
+void gather_destinations(broker_context_t * bc, json_object * array, json_object ** x5t, UT_array * conns) {
 
     int l;
     if (!array || !json_object_is_type(array, json_type_array) || (l = json_object_array_length(array)) <= 0) {
@@ -46,7 +46,7 @@ void gather_destinations(json_object * array, json_object ** x5t, UT_array * con
         }
 
         if (ok) {
-            gather_destination(&addr, x5t ? &set : 0, conns);
+            gather_destination(bc, &addr, x5t ? &set : 0, conns);
         }
 
 
@@ -58,29 +58,29 @@ void gather_destinations(json_object * array, json_object ** x5t, UT_array * con
 
 }
 
-void gather_destination(xl4bus_address_t * addr, str_t ** x5t, UT_array * conns) {
+void gather_destination(broker_context_t * bc, xl4bus_address_t * addr, str_t ** x5t, UT_array * conns) {
 
     UT_array * send_list = 0;
     int clear_send_list = 0;
 
     if (addr->type == XL4BAT_UPDATE_AGENT) {
         utarray_new(send_list, &ut_ptr_icd);
-        hash_tree_do_rec(ci_ua_tree, 0, 0, addr->update_agent, XL4_MAX_UA_PATHS, 0, send_list);
+        hash_tree_do_rec(bc->ci_ua_tree, 0, 0, addr->update_agent, XL4_MAX_UA_PATHS, 0, send_list);
         clear_send_list = 1;
     } else if (addr->type == XL4BAT_GROUP) {
         hash_list_t * val;
-        HASH_FIND(hh, ci_by_group, addr->group, strlen(addr->group)+1, val);
+        HASH_FIND(hh, bc->ci_by_group, addr->group, strlen(addr->group)+1, val);
         if (val) {
             send_list = &val->items;
         }
     } else if (addr->type == XL4BAT_X5T_S256) {
         hash_list_t * val;
-        HASH_FIND(hh, ci_by_x5t, addr->x5ts256, strlen(addr->x5ts256)+1, val);
+        HASH_FIND(hh, bc->ci_by_x5t, addr->x5ts256, strlen(addr->x5ts256)+1, val);
         if (val) {
             send_list = &val->items;
         }
     } else if (addr->type == XL4BAT_SPECIAL && addr->special == XL4BAS_DM_CLIENT) {
-        send_list = &dm_clients;
+        send_list = &bc->dm_clients;
     }
 
     if (!send_list) {
@@ -134,8 +134,8 @@ void finish_x5t_destinations(json_object ** x5t, str_t * strings) {
 
 }
 
-void gather_all_destinations(xl4bus_address_t * first, UT_array * conns) {
+void gather_all_destinations(broker_context_t * bc, xl4bus_address_t * first, UT_array * conns) {
     for (xl4bus_address_t * addr = first; addr; addr = addr->next) {
-        gather_destination(addr, 0, conns);
+        gather_destination(bc, addr, 0, conns);
     }
 }

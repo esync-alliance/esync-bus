@@ -182,12 +182,6 @@ int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
         return E_XL4BUS_SYS;
     }
 
-#if XL4_SUPPORT_THREADS
-    if (pf_init_lock(&cert_cache_lock)) {
-        return E_XL4BUS_SYS;
-    }
-#endif
-
     return E_XL4BUS_OK;
 
 }
@@ -221,6 +215,9 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
 
 #if XL4_SUPPORT_THREADS
         BOLT_SYS(pf_init_lock(&i_conn->hash_lock), "initializing read lock");
+        if (!conn->cache->cert_cache_lock) {
+            BOLT_SYS(pf_init_lock(&conn->cache->cert_cache_lock), "initializing cert cache lock");
+        }
 #endif
 
         BOLT_MEM(i_conn->x5c = json_object_new_array());
@@ -1184,5 +1181,11 @@ void free_s(void * ptr, size_t s) {
     zero_s(ptr, s);
 
     cfg.free(ptr);
+
+}
+
+size_t xl4bus_get_cache_size() {
+
+    return sizeof(global_cache_t);
 
 }

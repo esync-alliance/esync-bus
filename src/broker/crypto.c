@@ -742,7 +742,7 @@ int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_
 
 }
 
-int init_x509_values() {
+int init_x509_values(broker_context_t * bc) {
 
     int err = E_XL4BUS_OK;
     json_object * json_cert = 0;
@@ -760,12 +760,12 @@ int init_x509_values() {
 
         BOLT_MEM(my_x5c = json_object_new_array());
 
-        if (broker_identity.type == XL4BIT_X509) {
+        if (bc->broker_identity.type == XL4BIT_X509) {
 
             cjose_err c_err;
 
             // load trust
-            for (xl4bus_asn1_t ** buf = broker_identity.x509.trust; buf && *buf; buf++) {
+            for (xl4bus_asn1_t ** buf = bc->broker_identity.x509.trust; buf && *buf; buf++) {
 
                 switch ((*buf)->enc) {
                     case XL4BUS_ASN1ENC_DER:
@@ -785,7 +785,7 @@ int init_x509_values() {
             int chain_count = 0;
 
             // load chain
-            for (xl4bus_asn1_t ** buf = broker_identity.x509.chain; buf && *buf; buf++) {
+            for (xl4bus_asn1_t ** buf = bc->broker_identity.x509.chain; buf && *buf; buf++) {
 
                 BOLT_SUB(asn1_to_json(*buf, &json_cert));
 
@@ -793,7 +793,7 @@ int init_x509_values() {
 
                     case XL4BUS_ASN1ENC_DER:
 
-                        if (buf == broker_identity.x509.chain) {
+                        if (buf == bc->broker_identity.x509.chain) {
                             // first cert, need to build my x5t
                             BOLT_MEM(my_x5t = make_cert_hash((*buf)->buf.data, (*buf)->buf.len));
                         }
@@ -804,7 +804,7 @@ int init_x509_values() {
                     case XL4BUS_ASN1ENC_PEM:
                     {
 
-                        if (buf == broker_identity.x509.chain) {
+                        if (buf == bc->broker_identity.x509.chain) {
                             // first cert, need to build my x5t
 
                             uint8_t * der = 0;
@@ -851,11 +851,11 @@ int init_x509_values() {
             // $TODO: do we verify that the provided cert checks out against the provided trust?
             // realistically there are no rules to say it should.
 
-            BOLT_SUB(make_private_key(&broker_identity, &chain.pk, &private_key));
+            BOLT_SUB(make_private_key(&bc->broker_identity, &chain.pk, &private_key));
 
         } else {
 
-            BOLT_SAY(E_XL4BUS_ARG, "Unsupported identity type %d", broker_identity.type);
+            BOLT_SAY(E_XL4BUS_ARG, "Unsupported identity type %d", bc->broker_identity.type);
 
         }
 

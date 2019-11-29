@@ -10,7 +10,6 @@ extern uint32_t crcTable[];
 #define NULL_STR(a) ((a)?(a):"(null)")
 
 #define Z_FREE(a) do { cfg.free(a); a = 0; } while (0)
-#define Z(op, p) do { op(p); p = 0; } while (0)
 
 static inline int always_ok(void) { return E_XL4BUS_OK; }
 

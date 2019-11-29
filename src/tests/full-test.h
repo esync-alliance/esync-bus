@@ -5,6 +5,7 @@
 #ifdef WITH_UNIT_TEST
 
 #include <libxl4bus/high_level.h>
+#include "broker/broker.h"
 
 #define PRINT_LN(to_prt, s, fm, a...) do { \
     char now__[25]; \
@@ -62,6 +63,7 @@ typedef struct test_broker {
     int started;
     test_event_t * events;
     char * name;
+    broker_context_t context;
 
 } test_broker_t;
 

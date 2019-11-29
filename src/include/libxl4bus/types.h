@@ -572,8 +572,25 @@ typedef struct xl4bus_key {
 
 typedef struct xl4bus_connection {
 
+    /**
+     * socket to send/receive data for the connection.
+     */
     int fd;
+
+    /**
+     * If `!0`, then this connection is on the client side, otherwise
+     * it's on the broker side; used for determining stream parity.
+     */
     int is_client;
+
+    /**
+     * If for, for some reason, different connection should use different cache,
+     * allocate and zero out the memory block necessary to maintain the cache, and point this
+     * property to such cache object. You can reuse the cache between multiple connections,
+     * as long as it's OK to have that data shared. If not specified, than internal
+     * shared cache will be used, and will be the same for all the connections.
+     */
+    struct xl4bus_global_cache * cache;
 
     xl4bus_identity_t identity;
 

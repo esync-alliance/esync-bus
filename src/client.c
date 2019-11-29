@@ -858,6 +858,7 @@ int create_ll_connection(xl4bus_client_t * clt) {
         i_clt->ll->is_client = 1;
         i_clt->ll->on_message = ll_msg_cb;
         i_clt->ll->on_sent_message = ll_send_cb;
+        i_clt->ll->cache = &i_clt->cache;
 
 #if XL4_SUPPORT_THREADS
 
@@ -1173,6 +1174,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                         dav.symmetric_key_locator = aes_key_locator;
                         dav.symmetric_locator_data = &asd;
+                        dav.cache = conn->cache;
 
                         BOLT_SUB(decrypt_and_verify(&dav));
 
@@ -1188,10 +1190,15 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                             }
 
                             BOLT_IF(dav.missing_x5t && msg->is_final, E_XL4BUS_DATA, "Can not follow up, and no remote");
+
+                            // if mint is already present, we have made a remote (key or cert) request, but the
+                            // response came (that's why we are here), but we still couldn't find KID/Cert in the cache
+                            // this would be a wrong state.
                             BOLT_IF(mint, E_XL4BUS_DATA, "No remote after remote request");
 
                             BOLT_MALLOC(mint, sizeof(message_internal_t));
                             mint = ref_mint(mint);
+                            mint->stream_id = msg->stream_id;
 
                             if (dav.missing_x5t || asd.missing_x5t) {
                                 mint->mis = MIS_NEED_REMOTE;
@@ -1259,7 +1266,7 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                                 BOLT_IF(!dav.was_encrypted, E_XL4BUS_DATA, "Key info message must have been encrypted");
 
                                 char const * kid;
-                                BOLT_SUB(process_remote_key(root, conn->my_x5t, dav.remote, &kid));
+                                BOLT_SUB(process_remote_key(conn->cache, root, conn->my_x5t, dav.remote, &kid));
 
                                 hash_list_t * pending;
                                 HASH_FIND(hh, mint_by_kid, kid, strlen(kid) + 1, pending);
@@ -1971,7 +1978,7 @@ const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void 
     aes_search_data_t * asd = data;
 
     // let's see if I simply have this key in the hash
-    remote_key_t * rmi = find_by_kid(kid);
+    remote_key_t * rmi = find_by_kid(asd->conn->cache, kid);
     if (rmi) {
         cjose_jwk_release(asd->key);
         asd->key = cjose_jwk_retain(rmi->from_key, 0);
@@ -2010,7 +2017,7 @@ const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void 
 
         // I also need to know who did this request come from, there is a chance I don't even know that guy.
         BOLT_CJOSE(cjose_base64url_encode(kid_raw, hash_len, &remote_x5t, &remote_x5t_len, &c_err));
-        remote = find_by_x5t(remote_x5t);
+        remote = find_by_x5t(asd->conn->cache, remote_x5t);
         if (!remote) {
             DBG("X5T %s is unknown, requesting discovery", remote_x5t);
             asd->missing_x5t = remote_x5t;
@@ -2301,15 +2308,16 @@ int apply_timeouts(xl4bus_client_t * clt, int need_timeout) {
 
     client_internal_t * i_clt = clt->_private;
     int ret = i_clt->ll_timeout = pick_timeout(i_clt->ll_timeout, need_timeout);
+    global_cache_t * cache = &i_clt->cache;
 
-    if (!LOCK(cert_cache_lock)) {
+    if (!LOCK(cache->cert_cache_lock)) {
 
-        if (remote_key_expiration) {
+        if (cache->remote_key_expiration) {
 
             uint64_t exp_timeout;
 
             rb_tree_nav_t nav = {0};
-            rb_tree_start(&nav, remote_key_expiration);
+            rb_tree_start(&nav, cache->remote_key_expiration);
             uint64_t now = pf_ms_value();
             uint64_t expires_at = TO_RB_NODE2(remote_key_t, nav.node, rb_expiration)->from_key_expiration;
             if (now >= expires_at) {
@@ -2322,7 +2330,7 @@ int apply_timeouts(xl4bus_client_t * clt, int need_timeout) {
 
         }
 
-        UNLOCK(cert_cache_lock);
+        UNLOCK(cache->cert_cache_lock);
 
     }
 
@@ -2334,23 +2342,26 @@ void clean_expired_things(xl4bus_client_t * clt) {
 
     uint64_t now = pf_ms_value();
 
-    if (!LOCK(cert_cache_lock)) {
+    client_internal_t * i_clt = clt->_private;
+    global_cache_t * cache = &i_clt->cache;
+
+    if (!LOCK(cache->cert_cache_lock)) {
 
         rb_tree_nav_t nav = {0};
 
-        for (rb_tree_start(&nav, remote_key_expiration); nav.node; rb_tree_next(&nav)) {
+        for (rb_tree_start(&nav, cache->remote_key_expiration); nav.node; rb_tree_next(&nav)) {
 
             remote_key_t * key = TO_RB_NODE2(remote_key_t, nav.node, rb_expiration);
             if (key->from_key_expiration <= now) {
                 DBG("Key %s expired, releasing", key->from_kid);
-                release_remote_key_nl(key);
+                release_remote_key_nl(cache, key);
             } else {
                 break;
             }
 
         }
 
-        UNLOCK(cert_cache_lock);
+        UNLOCK(cache->cert_cache_lock);
 
     }
 
@@ -2359,7 +2370,7 @@ void clean_expired_things(xl4bus_client_t * clt) {
 
 int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, message_internal_t * mint) {
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK*/;
     json_object * in_root = 0;
     json_object * req_destinations = 0;
 
@@ -2368,7 +2379,6 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
         char const * in_type;
 
         xl4bus_client_t * clt = conn->custom;
-        client_internal_t * i_clt = clt->_private;
 
         BOLT_SUB(get_xl4bus_message_msg(msg, &in_root, &in_type));
 
@@ -2418,7 +2428,7 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
 
                 json_object *item = json_object_array_get_idx(tags, i);
                 const char * x5t = json_object_get_string(item);
-                remote_info_t *rmi = find_by_x5t(x5t);
+                remote_info_t *rmi = find_by_x5t(conn->cache, x5t);
                 if (rmi) {
                     mint->remotes[mint->key_idx++] = rmi;
                 } else {
@@ -2488,7 +2498,10 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
         }
 
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     json_object_put(in_root);
     json_object_put(req_destinations);

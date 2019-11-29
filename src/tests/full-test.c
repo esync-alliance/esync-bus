@@ -64,6 +64,11 @@ void help() {
 "Options:\n"
 " -h          show this help\n"
 " -d          turn on debug output\n"
+" -t <case>   run a single test case only (can be repeated)\n"
+" -T <case>   exclude a test case (can be repeated)\n"
+" -Q <case>   turn on debugging output for just this test case (can be repeated)\n"
+" -I <case>   ignore the results of a single test case (can be repeated)\n"
+" -O <file>   send full log output to the specified file\n"
 "");
 
 }
@@ -205,6 +210,7 @@ int main(int argc, char ** argv) {
     }
 
     CASE(hello_world);
+    CASE(esync_4381);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
@@ -307,10 +313,11 @@ int full_test_broker_start(test_broker_t * brk) {
 
     do {
 
-        broker_context.init_ll = 0;
-        broker_context.key_path = f_strdup("./testdata/pki/broker/private.pem");
-        add_to_str_array(&broker_context.cert_path, "./testdata/pki/broker/cert.pem");
-        add_to_str_array(&broker_context.ca_list, "./testdata/pki/ca/ca.pem");
+        init_broker_context(&brk->context);
+        brk->context.init_ll = 0;
+        brk->context.key_path = f_strdup("./testdata/pki/broker/private.pem");
+        add_to_str_array(&brk->context.cert_path, "./testdata/pki/broker/cert.pem");
+        add_to_str_array(&brk->context.ca_list, "./testdata/pki/ca/ca.pem");
 
         if (!brk->name) {
             brk->name = f_asprintf("%s:%d", test_name, through_count++);
@@ -341,12 +348,14 @@ void full_test_broker_stop(test_broker_t * brk) {
 
     if (!brk->started) { return; }
 
+    TEST_DBG("Stopping broker %s", brk->name);
+
     int fd = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (fd < 0) {
         FATAL_SYS("socket failed");
     }
     struct sockaddr_un addr = { .sun_family = AF_UNIX };
-    strncpy(addr.sun_path, broker_context.bcc_path, sizeof(addr.sun_path)-1);
+    strncpy(addr.sun_path, brk->context.bcc_path, sizeof(addr.sun_path)-1);
     if (connect(fd, (struct sockaddr*)&addr, sizeof(struct sockaddr_un))) {
         FATAL_SYS("connecting to BCC failed");
     }
@@ -381,17 +390,17 @@ static void * broker_runner(void * arg) {
         locked = 1;
         BOLT_DIR(pthread_cond_broadcast(&broker_start_cond), "");
 
-        broker_context.use_bcc = 1;
-        broker_context.bcc_path = f_asprintf("/tmp/test-xl4bus-broker%d", getpid());
-        broker_context.key_path = f_strdup("./testdata/pki/broker/private.pem");
-        add_to_str_array(&broker_context.cert_path, "./testdata/pki/broker/cert.pem");
-        add_to_str_array(&broker_context.ca_list, "./testdata/pki/ca/ca.pem");
+        broker->context.use_bcc = 1;
+        broker->context.bcc_path = f_asprintf("/tmp/test-xl4bus-broker%d", getpid());
+        broker->context.key_path = f_strdup("./testdata/pki/broker/private.pem");
+        add_to_str_array(&broker->context.cert_path, "./testdata/pki/broker/cert.pem");
+        add_to_str_array(&broker->context.ca_list, "./testdata/pki/ca/ca.pem");
 
-        BOLT_IF(start_broker(), E_XL4BUS_INTERNAL, "");
+        BOLT_IF(start_broker(&broker->context), E_XL4BUS_INTERNAL, "");
 
         struct sockaddr_in sin;
         socklen_t len = sizeof(sin);
-        if (getsockname(broker_context.fd, (struct sockaddr *)&sin, &len) == -1) {
+        if (getsockname(broker->context.fd, (struct sockaddr *)&sin, &len) == -1) {
             FATAL_SYS("Can't get port number from broker listen socket");
         } else {
             broker->port = ntohs(sin.sin_port);
@@ -404,7 +413,7 @@ static void * broker_runner(void * arg) {
         locked = 0;
 
         while (1) {
-            int cycle_err = cycle_broker(-1);
+            int cycle_err = cycle_broker(&broker->context, -1);
             if (cycle_err) {
                 test_event_t * event = f_malloc(sizeof(test_event_t));
                 event->type = TET_BRK_FAILED;
@@ -412,7 +421,7 @@ static void * broker_runner(void * arg) {
                 err = E_XL4BUS_INTERNAL;
                 break;
             }
-            if (broker_context.quit) {
+            if (broker->context.quit) {
                 test_event_t * event = f_malloc(sizeof(test_event_t));
                 event->type = TET_BRK_QUIT;
                 submit_event(&broker->events, event);
@@ -428,6 +437,8 @@ static void * broker_runner(void * arg) {
     if (locked) {
         pthread_mutex_unlock(&broker_start_lock);
     }
+
+    release_broker_context(&broker->context);
 
     broker->start_err = err;
     return 0;
@@ -508,10 +519,13 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
                 in_success = 0;
                 target = &failure;
                 target_count = &failure_count;
+                continue;
             } else {
                 break;
             }
         }
+
+        TEST_DBG("Considering event %d for %s", consider, in_success ? "SUCCESS":"FAILURE");
 
         *target = realloc(*target, (*target_count+1) * sizeof(test_event_type_t));
         *target[*target_count] = consider;
@@ -549,7 +563,9 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
                 test_event_t *head = *queue;
 
                 for (int i=0; i<success_count; i++) {
+                    TEST_DBG("Expecting event %d", success[i]);
                     if (head->type == success[i]) {
+                        TEST_DBG("Expected event %d found", head->type);
                         found = 1;
                         break;
                     }
@@ -593,6 +609,8 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
 
             }
 
+            TEST_DBG("Event queue empty");
+
             if (found) {
                 break;
             }
@@ -602,6 +620,7 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
             int rc = pthread_cond_timedwait(&queue_cond, &queue_lock, &ts);
             if (rc) {
                 if (rc == ETIMEDOUT) {
+                    TEST_DBG("Expect timeout");
                     err = E_XL4BUS_FULL; // $TODO: this really should be timeout...
                     break;
                 }

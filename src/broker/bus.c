@@ -79,7 +79,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 free(json_addr);
             }
 
-            E900(f_asprintf("Connection %p identified", conn), conn->remote_address_list, 0);
+            E900(ci->ctx, f_asprintf("Connection %p identified", conn), conn->remote_address_list, 0);
 
         }
 
@@ -142,7 +142,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                             ci->group_names = f_realloc(ci->group_names, sizeof(char *) * (ci->group_count + 1));
                             ci->group_names[ci->group_count] = f_strdup(r_addr->group);
-                            HASH_LIST_ADD(ci_by_group, ci, group_names[ci->group_count]);
+                            HASH_LIST_ADD(ci->ctx->ci_by_group, ci, group_names[ci->group_count]);
                             ci->group_count++;
 
                             json_object *cel;
@@ -158,7 +158,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                                 ci->is_dm_client = 1;
 
-                                ADD_TO_ARRAY_ONCE(&dm_clients, ci);
+                                ADD_TO_ARRAY_ONCE(&ci->ctx->dm_clients, ci);
 
                                 json_object *cel = json_object_new_object();
                                 json_object_object_add(cel, "special", json_object_new_string("dmclient"));
@@ -190,7 +190,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 BOLT_NEST();
 
-                HASH_LIST_ADD(ci_by_x5t, ci, remote_x5t);
+                HASH_LIST_ADD(ci->ctx->ci_by_x5t, ci, remote_x5t);
 
                 // send current presence
                 // https://gitlab.excelfore.com/schema/json/xl4bus/presence.json
@@ -204,7 +204,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     unsigned long lc;
 
-                    UTCOUNT_WITHOUT(&dm_clients, ci, lc);
+                    UTCOUNT_WITHOUT(&ci->ctx->dm_clients, ci, lc);
 
                     if (lc) {
                         json_object *cux;
@@ -232,7 +232,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                     BOLT_NEST();
 
-                    HASH_ITER(hh, ci_by_group, cti, tmp) {
+                    HASH_ITER(hh, ci->ctx->ci_by_group, cti, tmp) {
                         UTCOUNT_WITHOUT(&cti->items, ci, lc);
                         if (lc > 0) {
                             json_object *cux;
@@ -254,7 +254,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 } else {
                     // tell everybody else this client arrived.
                     if (json_object_array_length(connected)) {
-                        send_presence(connected, 0, ci);
+                        send_presence(ci->ctx, connected, 0, ci);
                         connected = 0; // connected is consumed
                     }
 
@@ -272,7 +272,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 json_object * array;
                 if (xl4json_get_pointer(root, "/body/destinations", json_type_array, &array) == E_XL4BUS_OK) {
                     req_dest = json_object_get_string(array);
-                    gather_destinations(array, &x5t, 0);
+                    gather_destinations(ci->ctx, array, &x5t, 0);
                 }
 
                 // send destination list
@@ -287,7 +287,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 send_json_message(ci, "xl4bus.destination-info", body, msg->stream_id, 1, !has_dest);
 
                 if (!has_dest) {
-                    E900(f_asprintf("%p-%04x has no viable destinations for %s", conn, msg->stream_id, req_dest), conn->remote_address_list, 0);
+                    E900(ci->ctx, f_asprintf("%p-%04x has no viable destinations for %s", conn, msg->stream_id, req_dest), conn->remote_address_list, 0);
                 }
 
                 break;
@@ -310,7 +310,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                         UT_array * items = 0;
 
                         hash_list_t * val;
-                        HASH_FIND(hh, ci_by_x5t, x5t, strlen(x5t)+1, val);
+                        HASH_FIND(hh, ci->ctx->ci_by_x5t, x5t, strlen(x5t)+1, val);
                         if (val) {
                             items = &val->items;
                         }
@@ -346,7 +346,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             } else if (!strcmp(MSG_TYPE_MESSAGE_CONFIRM, type)) {
                 // do nothing, it's the client telling us it's OK.
 
-                E900(f_asprintf("Confirmed receipt of %p-%04x", conn, msg->stream_id), conn->remote_address_list, 0);
+                E900(ci->ctx, f_asprintf("Confirmed receipt of %p-%04x", conn, msg->stream_id), conn->remote_address_list, 0);
 
                 BOLT_IF(!msg->is_final, E_XL4BUS_CLIENT, "Message confirmation must be final");
                 break;
@@ -363,21 +363,21 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             in_msg_id = f_asprintf("%p-%04x", conn, (unsigned int)stream_id);
 
             if (!json_object_object_get_ex(bus_object, "destinations", &destinations)) {
-                E900(f_asprintf("Rejected message %s - no destinations", in_msg_id), conn->remote_address_list, 0);
+                E900(ci->ctx, f_asprintf("Rejected message %s - no destinations", in_msg_id), conn->remote_address_list, 0);
                 BOLT_SAY(E_XL4BUS_DATA, "Not XL4 message, no destinations in bus object");
             }
 
             BOLT_SUB(xl4bus_json_to_address(json_object_get_string(destinations), &forward_to));
 
-            gather_all_destinations(forward_to, &send_list);
+            gather_all_destinations(ci->ctx, forward_to, &send_list);
 
             int l = utarray_len(&send_list);
 
             // DBG("Received application message, has %d send list elements", l);
 
-            E900(f_asprintf("Incoming message %s", in_msg_id), conn->remote_address_list, forward_to);
+            E900(ci->ctx, f_asprintf("Incoming message %s", in_msg_id), conn->remote_address_list, forward_to);
 
-            count(1, 0);
+            count(ci->ctx, 1, 0);
 
             int sent_to_any = 0;
 
@@ -399,7 +399,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                 msg->uses_session_key = 1;
                 msg->uses_encryption = 1;
 
-                count(0, 1);
+                count(ci->ctx, 0, 1);
 
                 // note: we are sending data that is inside the incoming message.
                 // this only works so far because we are not using multi-threading
@@ -421,7 +421,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     int sub_err = xl4bus_send_ll_message(ci2->conn, msg, ctx, 0);
 
                     if (sub_err) {
-                        E900(f_asprintf("Failed to send message %s as %p-%04x: %s", in_msg_id, ci2->conn,
+                        E900(ci->ctx, f_asprintf("Failed to send message %s as %p-%04x: %s", in_msg_id, ci2->conn,
                                 (unsigned int)msg->stream_id, xl4bus_strerr(sub_err)),
                                 conn->remote_address_list, forward_to);
                         xl4bus_shutdown_connection(ci2->conn);
@@ -439,7 +439,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             }
 
             if (!sent_to_any) {
-                E900(f_asprintf("Message %s perished - no effective destinations", in_msg_id),
+                E900(ci->ctx, f_asprintf("Message %s perished - no effective destinations", in_msg_id),
                         conn->remote_address_list, forward_to);
             }
 
@@ -478,7 +478,7 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
 
     conn_info_t * ci = conn->custom;
 
-    DL_DELETE(connections, ci);
+    DL_DELETE(ci->ctx->connections, ci);
 
     DBG("Shutting down connection %p/%p fd %d", ci, ci->conn, ci->conn->fd);
 
@@ -488,8 +488,8 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
     json_object * disconnected = json_object_new_array();
 
     if (ci->is_dm_client) {
-        REMOVE_FROM_ARRAY(&dm_clients, ci, "Removing CI from DM Client list");
-        if (!utarray_len(&dm_clients)) {
+        REMOVE_FROM_ARRAY(&ci->ctx->dm_clients, ci, "Removing CI from DM Client list");
+        if (!utarray_len(&ci->ctx->dm_clients)) {
             // no more dmclients :(
             json_object * bux = json_object_new_object();
             json_object_object_add(bux, "special", json_object_new_string("dmclient"));
@@ -513,7 +513,7 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
 
     for (int i=0; i<ci->group_count; i++) {
         int n_len;
-        REMOVE_FROM_HASH(ci_by_group, ci, group_names[i], n_len, "Removing by group name");
+        REMOVE_FROM_HASH(ci->ctx->ci_by_group, ci, group_names[i], n_len, "Removing by group name");
 
         if (!n_len) {
             json_object * bux = json_object_new_object();
@@ -531,12 +531,12 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
         int n_len;
 #pragma clang diagnostic pop
         if (ci->remote_x5t) {
-            REMOVE_FROM_HASH(ci_by_x5t, ci, remote_x5t, n_len, "Removing by x5t");
+            REMOVE_FROM_HASH(ci->ctx->ci_by_x5t, ci, remote_x5t, n_len, "Removing by x5t");
         }
     }
 
     if (json_object_array_length(disconnected) > 0) {
-        send_presence(0, disconnected, 0); // this consumes disconnected.
+        send_presence(ci->ctx, 0, disconnected, 0); // this consumes disconnected.
     } else {
         json_object_put(disconnected);
     }
@@ -584,14 +584,14 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
             };
 
             if (ci->poll_modes) {
-                rc = epoll_ctl(poll_fd, EPOLL_CTL_MOD, conn->fd, &ev);
+                rc = epoll_ctl(ci->ctx->poll_fd, EPOLL_CTL_MOD, conn->fd, &ev);
             } else {
-                rc = epoll_ctl(poll_fd, EPOLL_CTL_ADD, conn->fd, &ev);
+                rc = epoll_ctl(ci->ctx->poll_fd, EPOLL_CTL_ADD, conn->fd, &ev);
             }
 
         } else {
             if (ci->poll_modes) {
-                rc = epoll_ctl(poll_fd, EPOLL_CTL_DEL, conn->fd, (struct epoll_event *) 1);
+                rc = epoll_ctl(ci->ctx->poll_fd, EPOLL_CTL_DEL, conn->fd, (struct epoll_event *) 1);
             } else {
                 rc = 0;
             }
@@ -612,11 +612,13 @@ void on_sent_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void
     msg_context_t * ctx = arg;
     if (ctx->magic == MAGIC_CLIENT_MESSAGE) {
 
+        conn_info_t * ci = conn->custom;
+
         if (err == E_XL4BUS_OK) {
-            E900(f_asprintf("Low level accepted %s as %p-%04x", ctx->in_msg_id, conn,
+            E900(ci->ctx, f_asprintf("Low level accepted %s as %p-%04x", ctx->in_msg_id, conn,
                     (unsigned int)msg->stream_id), ctx->from, ctx->to);
         } else {
-            E900(f_asprintf("Low level rejected %s as %p-%04x : %s", ctx->in_msg_id, conn,
+            E900(ci->ctx, f_asprintf("Low level rejected %s as %p-%04x : %s", ctx->in_msg_id, conn,
                     (unsigned int)msg->stream_id, xl4bus_strerr(err)), ctx->from, ctx->to);
         }
 

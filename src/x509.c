@@ -9,47 +9,6 @@ static int define_symmetric_key(void const * key_data, size_t key_data_len, char
 
 static int expiration_cmp(rb_node_t * node, void * val_ptr);
 
-// I thought about this for a while - whether certificate cache should be
-// global or not. The key into this cache is sha-256 of the certificate.
-// So, there is no real danger of collisions (the certificate still needs
-// to be valid to be added to the cache, though I suppose it's possible
-// to implement some padding attack and knock another certificate out of
-// the cache, effectively DDoSing the caller that owns that knocked out
-// cert. The fix will be to parse ASN.1 as it's being read, making sure
-// that hashing stops when X.509 structure stops).
-// The only way that a credential can legitimately have the same sha-256
-// value, but has other differences - is when the chain is different. Meaning
-// that the same certificate has been validated by different chains. However,
-// the cache will only be overwritten when when the second chain is received,
-// and that second chain will need to be validated first. The connection with
-// the first chain identity will continue to be given a pass for the same
-// sha-256 tag, but I don't see this as a security problem, as all information
-// pertaining to the client still must be present in the top-level certificate,
-// which is what's hashed.
-// Alternative is to have cache per identity (so that identities with the same
-// trust anchors can share caches), but that adds burden on the user to maintain
-// those somehow, and, as stated above, doesn't provide any real additional
-// security.
-//
-// $TODO: On second thought, the certificate cache must be bound to a trust.
-// If trusts are different for connections, the certificates must not be
-// held together, since they won't authenticate against different trust
-
-static remote_info_t * x5t_cache = 0;
-
-// $TODO: The KID cache is even more controversial. The KID is based on
-// local and remote X5t values, so it's really per identity used in a client,
-// but to implement it per client is simply more tedious, especially when it comes
-// to clean up. Since using multiple identities is not a use case for us right now,
-// I'm making this a global. The work to refactor this can be not so trivial.
-static remote_key_t * kid_cache = 0;
-
-rb_node_t * remote_key_expiration = 0;
-
-#if XL4_SUPPORT_THREADS
-void * cert_cache_lock;
-#endif
-
 #if 0
 
 static void print_time(char *, mbedtls_x509_time *);
@@ -144,11 +103,11 @@ int accept_remote_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info
 
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
 
-    return accept_x5c(x5c, &i_conn->trust, &i_conn->crl, &ku_flags, rmi);
+    return accept_x5c(conn->cache, x5c, &i_conn->trust, &i_conn->crl, &ku_flags, rmi);
 
 }
 
-int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl,
+int accept_x5c(global_cache_t * cache, json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * crl,
         int * ku_flags, remote_info_t ** rmi) {
 
     int err = E_XL4BUS_OK;
@@ -229,23 +188,23 @@ int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * c
 
         BOLT_SUB(address_from_cert(&entry->crt, &entry->addresses));
 
-        BOLT_SYS(LOCK(cert_cache_lock), "");
+        BOLT_SYS(LOCK(cache->cert_cache_lock), "");
 
         remote_info_t * old;
-        HASH_FIND(hh, x5t_cache, entry->x5t, strlen(entry->x5t), old);
+        HASH_FIND(hh, cache->x5t_cache, entry->x5t, strlen(entry->x5t), old);
         if (old) {
-            HASH_DELETE(hh, x5t_cache, old);
+            HASH_DELETE(hh, cache->x5t_cache, old);
             unref_remote_info(old);
         }
 
-        BOLT_HASH_ADD_KEYPTR(hh, x5t_cache, entry->x5t, strlen(entry->x5t), entry);
+        BOLT_HASH_ADD_KEYPTR(hh, cache->x5t_cache, entry->x5t, strlen(entry->x5t), entry);
         ref_remote_info(entry);
 
         if (rmi) {
             *rmi = ref_remote_info(entry);
         }
 
-        UNLOCK(cert_cache_lock);
+        UNLOCK(cache->cert_cache_lock);
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -262,40 +221,40 @@ int accept_x5c(json_object * x5c, mbedtls_x509_crt * trust, mbedtls_x509_crl * c
 
 }
 
-remote_info_t * find_by_x5t(const char * x5t) {
+remote_info_t * find_by_x5t(global_cache_t * cache, const char * x5t) {
 
     remote_info_t * entry;
 
     if (!x5t) { return 0; }
 
-    if (LOCK(cert_cache_lock)) {
+    if (LOCK(cache->cert_cache_lock)) {
         return 0;
     }
 
-    HASH_FIND(hh, x5t_cache, x5t, strlen(x5t), entry);
+    HASH_FIND(hh, cache->x5t_cache, x5t, strlen(x5t), entry);
 
     entry = ref_remote_info(entry);
 
-    UNLOCK(cert_cache_lock);
+    UNLOCK(cache->cert_cache_lock);
 
     return entry;
 
 }
 
-remote_key_t * find_by_kid(const char * kid) {
+remote_key_t * find_by_kid(global_cache_t * cache, const char * kid) {
 
     remote_key_t * entry;
 
     if (!kid) { return 0; }
 
-    if (LOCK(cert_cache_lock)) {
+    if (LOCK(cache->cert_cache_lock)) {
         return 0;
     }
 
-    HASH_FIND(hh, kid_cache, kid, strlen(kid), entry);
+    HASH_FIND(hh, cache->kid_cache, kid, strlen(kid), entry);
     entry = ref_remote_key(entry);
 
-    UNLOCK(cert_cache_lock);
+    UNLOCK(cache->cert_cache_lock);
 
     return entry;
 
@@ -333,7 +292,7 @@ MAKE_UNREF_FUNCTION(remote_key) {
 
 }
 
-int process_remote_key(json_object * body, char const * local_x5t, remote_info_t * source, char const ** kid) {
+int process_remote_key(global_cache_t * cache, json_object * body, char const * local_x5t, remote_info_t * source, char const ** kid) {
 
     int err /*= E_XL4BUS_OK*/;
     cjose_err c_err;
@@ -361,13 +320,13 @@ int process_remote_key(json_object * body, char const * local_x5t, remote_info_t
         // $TODO: may be limit the amount of keys a remote can register, otherwise we let us being DDoSed, by
         // exhausting our memory with different keys.
 
-        LOCK(cert_cache_lock);
+        LOCK(cache->cert_cache_lock);
         locked = 1;
 
-        HASH_FIND_STR(kid_cache, *kid, entry);
+        HASH_FIND_STR(cache->kid_cache, *kid, entry);
 
         if (entry) {
-            HASH_DEL(kid_cache, entry);
+            HASH_DEL(cache->kid_cache, entry);
             unref_remote_key(entry);
             // entry = 0;
         }
@@ -378,14 +337,14 @@ int process_remote_key(json_object * body, char const * local_x5t, remote_info_t
         BOLT_CJOSE(entry->from_key = cjose_jwk_retain(key, &c_err));
         entry->from_kid = *kid;
         entry->from_key_expiration = pf_ms_value() + XL4_HL_KEY_EXPIRATION_MS;
-        BOLT_HASH_ADD_KEYPTR(hh, kid_cache, *kid, strlen(*kid), entry);
+        BOLT_HASH_ADD_KEYPTR(hh, cache->kid_cache, *kid, strlen(*kid), entry);
 
         rb_tree_search_t search;
-        if (rb_find(&remote_key_expiration, &entry->from_key_expiration, expiration_cmp, &search)) {
+        if (rb_find(&cache->remote_key_expiration, &entry->from_key_expiration, expiration_cmp, &search)) {
             pf_abort("Found the impossible to find");
         }
 
-        rb_insert(&entry->rb_expiration, &search, &remote_key_expiration);
+        rb_insert(&entry->rb_expiration, &search, &cache->remote_key_expiration);
         ref_remote_key(entry); // added to hash and RB tree
 
 #pragma clang diagnostic push
@@ -394,7 +353,7 @@ int process_remote_key(json_object * body, char const * local_x5t, remote_info_t
 #pragma clang diagnostic pop
 
     if (locked) {
-        UNLOCK(cert_cache_lock);
+        UNLOCK(cache->cert_cache_lock);
     }
 
     cjose_jwk_release(key);
@@ -565,10 +524,10 @@ int expiration_cmp(rb_node_t * node, void * val_ptr) {
 
 }
 
-void release_remote_key_nl(remote_key_t * key) {
+void release_remote_key_nl(global_cache_t * cache, remote_key_t * key) {
 
-    HASH_DEL(kid_cache, key);
-    rb_delete(&remote_key_expiration, &key->rb_expiration);
+    HASH_DEL(cache->kid_cache, key);
+    rb_delete(&cache->remote_key_expiration, &key->rb_expiration);
     unref_remote_key(key);
 
 }
@@ -761,7 +720,10 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
 
         cfg.free(x_oid);
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     return err;
 

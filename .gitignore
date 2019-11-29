@@ -15,3 +15,4 @@ c-ares-build
 jansson-build
 Release
 Debug
+*.swp

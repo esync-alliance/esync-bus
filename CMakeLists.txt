@@ -361,7 +361,7 @@ if (BUILD_BINS)
             target_link_libraries(full-test ${JSON_C_LIB})
 
             set(TEST_BINARIES ${TEST_BINARIES} "full-test")
-            set(THEADED_BINARIES ${THREADED_BINARIES} "full-test")
+            set(THREADED_BINARIES ${THREADED_BINARIES} "full-test")
             target_compile_definitions(full-test PRIVATE WITH_UNIT_TEST)
         endif()
 
