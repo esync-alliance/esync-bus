@@ -16,6 +16,7 @@ void gather_destinations(broker_context_t * bc, json_object * array, json_object
     for (int i=0; i<l; i++) {
 
         json_object * el = json_object_array_get_idx(array, i);
+        DBG("Checking destination %s", json_object_get_string(el));
         if (!json_object_is_type(el, json_type_object)) {
             DBG("BRK : skipping destination - not an object");
             continue;

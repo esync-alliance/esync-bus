@@ -36,6 +36,7 @@ static char * set_client_thread_name(test_client_t * clt);
 
 FILE * output_log = 0;
 char const * test_name = 0;
+int show_debug = 0;
 
 static pthread_mutex_t broker_start_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t broker_start_cond = PTHREAD_COND_INITIALIZER;
@@ -107,6 +108,8 @@ int main(int argc, char ** argv) {
         printf("Use -h for brief help\n");
     }
 
+    debug = 1;
+
     while ((c = getopt(argc, argv, "hdt:T:Q:I:O:")) != -1) {
 
 #pragma clang diagnostic push
@@ -117,7 +120,7 @@ int main(int argc, char ** argv) {
                 help();
                 return 1;
             case 'd':
-                debug = 1;
+                show_debug = 1;
                 break;
             case 't':
             {
@@ -681,13 +684,23 @@ char * set_client_thread_name(test_client_t * clt) {
 
 void full_test_print_out(char const * s) {
 
+    full_test_print_out_d(1, 1, s);
+
+}
+
+void full_test_print_out_d(int is_debug, int add_nl, char const * s) {
+
     char const * thread = pthread_getspecific(thread_name_key);
     if (!thread) { thread = "?"; }
     char * msg = f_asprintf("[%s] %s", thread, s);
 
-    fprintf(stderr, "%s\n", msg);
+    char const * nl = add_nl ? "\n": "";
+
+    if (!is_debug || show_debug) {
+        fprintf(stderr, "%s%s", msg, nl);
+    }
     if (output_log) {
-        fprintf(output_log, "%s\n", msg);
+        fprintf(output_log, "%s%s", msg, nl);
     }
 
     free(msg);

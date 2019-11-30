@@ -181,6 +181,7 @@ configure_file(${CMAKE_SOURCE_DIR}/json-c-rename.h ${CMAKE_BINARY_DIR} COPYONLY)
 
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${BUILD_INCLUDE})
+include_directories(${CMAKE_SOURCE_DIR}/src/tests)
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${PORT})
 include_directories(${CMAKE_BINARY_DIR})
