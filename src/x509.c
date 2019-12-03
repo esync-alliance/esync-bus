@@ -345,7 +345,8 @@ int process_remote_key(global_cache_t * cache, json_object * body, char const * 
         }
 
         rb_insert(&entry->rb_expiration, &search, &cache->remote_key_expiration);
-        ref_remote_key(entry); // added to hash and RB tree
+        ref_remote_key(entry); // added to hash
+        ref_remote_key(entry); // added to RB tree
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"

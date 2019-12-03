@@ -10,6 +10,7 @@
 
 #include <sys/un.h>
 #include <pthread.h>
+#include <bus-test-support.h>
 
 typedef struct test_case {
     UT_hash_handle hh;
@@ -33,6 +34,7 @@ static void delivered_handler(struct xl4bus_client * clt, xl4bus_message_t * msg
 static void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg);
 static void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status);
 static char * set_client_thread_name(test_client_t * clt);
+static void pause_callback(xl4bus_client_t *, int is_pause);
 
 FILE * output_log = 0;
 char const * test_name = 0;
@@ -109,6 +111,8 @@ int main(int argc, char ** argv) {
     }
 
     debug = 1;
+
+    test_pause_callback = pause_callback;
 
     while ((c = getopt(argc, argv, "hdt:T:Q:I:O:")) != -1) {
 
@@ -214,6 +218,7 @@ int main(int argc, char ** argv) {
 
     CASE(hello_world);
     CASE(esync_4381);
+    CASE(esync_4413);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
@@ -300,6 +305,16 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
     full_test_free_event(event);
 
     return err;
+
+}
+
+int full_test_client_pause_receive(test_client_t * clt, int pause) {
+
+    if (!clt->started) { return E_XL4BUS_ARG; }
+
+    test_event_type_t need_event = pause ? TET_CLT_PAUSED : TET_CLT_UNPAUSED;
+    xl4bus_pause_client_receive(&clt->bus_client, pause);
+    full_test_client_expect(0, clt, 0, need_event, TET_NONE);
 
 }
 
@@ -671,6 +686,15 @@ void full_test_free_event(test_event_t * evt) {
     }
 
     free(evt);
+
+}
+
+static void pause_callback(xl4bus_client_t * clt, int is_pause) {
+
+    test_client_t * t_clt = (test_client_t*)clt;
+    test_event_t * evt = f_malloc(sizeof(test_event_t));
+    evt->type = is_pause ? TET_CLT_PAUSED : TET_CLT_UNPAUSED;
+    submit_event(&t_clt->events, evt);
 
 }
 

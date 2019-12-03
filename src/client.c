@@ -6,6 +6,11 @@
 #include "misc.h"
 #include "basics.h"
 #include "lib/hash_list.h"
+#include "bus-test-support.h"
+
+#if WITH_UNIT_TEST
+xl4bus_pause_callback test_pause_callback;
+#endif
 
 #if XL4_PROVIDE_THREADS
 
@@ -552,6 +557,19 @@ void client_thread(void * arg) {
 
         pf_unlock(&i_clt->run_lock);
         i_clt->run_locked = 0;
+
+#if WITH_UNIT_TEST
+        if (i_clt->rcv_paused) {
+            // if the reception is paused, we can just not poll the corresponding
+            // file descriptor for data
+            for (int i=0; i<poll_info.polls_len; i++) {
+                if (poll_info.polls[i].fd == i_clt->ll->fd) {
+                    poll_info.polls[i].events &= ~XL4BUS_POLL_READ;
+                }
+            }
+        }
+#endif
+
         int res = pf_poll(poll_info.polls, poll_info.polls_len, timeout);
         if (res < 0) {
             break;
@@ -1600,7 +1618,6 @@ int xl4bus_stop_client(xl4bus_client_t *clt) {
 
         return err;
 
-
     }
 #endif
 
@@ -1608,6 +1625,28 @@ int xl4bus_stop_client(xl4bus_client_t *clt) {
     return E_XL4BUS_OK;
 
 }
+
+#if WITH_UNIT_TEST
+
+void xl4bus_pause_client_receive(xl4bus_client_t *clt, int is_pause) {
+
+#if !XL4_PROVIDE_THREADS
+#error threads are required
+#endif
+
+    if (!clt->use_internal_thread) { abort(); }
+
+    client_internal_t *i_clt = clt->_private;
+
+    itc_message_t itc = {0};
+    itc.magic = ITC_PAUSE_RCV_MAGIC;
+    itc.ref = clt;
+    itc.pause = is_pause;
+    pf_send(i_clt->ll->mt_write_socket, &itc, sizeof(itc));
+
+}
+
+#endif
 
 void stop_client_ts(xl4bus_client_t * clt) {
 
@@ -2110,9 +2149,23 @@ void free_outgoing_message(ll_message_container_t * msg) {
 int handle_mt_message(struct xl4bus_connection * conn, void * buf, size_t buf_size) {
 #pragma clang diagnostic pop
 
-    if (buf_size == sizeof(itc_message_t) && ((itc_message_t*)buf)->magic == ITC_STOP_CLIENT_MAGIC) {
-        ((client_internal_t *) ((xl4bus_client_t *) (((itc_message_t *) buf)->ref))->_private)->stop = 1;
+    itc_message_t * itc = buf;
+
+    if (buf_size == sizeof(itc_message_t) && itc->magic == ITC_STOP_CLIENT_MAGIC) {
+        ((client_internal_t *) ((xl4bus_client_t *) (itc->ref))->_private)->stop = 1;
     }
+
+#if WITH_UNIT_TEST
+
+    if (buf_size == sizeof(itc_message_t) && itc->magic == ITC_PAUSE_RCV_MAGIC) {
+        xl4bus_client_t * clt = itc->ref;
+        ((client_internal_t *) clt->_private)->rcv_paused = itc->pause;
+        if (test_pause_callback) {
+            test_pause_callback(clt, itc->pause);
+        }
+    }
+
+#endif
 
     return E_XL4BUS_OK;
 
@@ -2237,7 +2290,10 @@ void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add
 
         if (with_kid_list && mint->in_kid_list) {
             DBG("Removing mint %p from KID list", mint);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-variable"
             int aux;
+#pragma clang diagnostic pop
             REMOVE_FROM_HASH(mint_by_kid, mint, needs_kid, aux, "Removing mint %p from KID list", mint);
             mint->in_kid_list = 0;
             ref_mint(mint);

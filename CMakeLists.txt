@@ -337,7 +337,7 @@ if (BUILD_BINS)
 
     if (XL4_PROVIDE_THREADS)
 
-        set(THREADED_BINARIES ll-server hl-client)
+        set(THREADED_BINARIES ${THREADED_BINARIES} ll-server hl-client)
 
         add_executable(ll-server
                 src/test_clients/ll-server.c
@@ -349,6 +349,16 @@ if (BUILD_BINS)
             )
 
         if (XL4_FULL_TEST AND BUILD_SHARED)
+
+            # let's build our own version of the shared library,
+            # because we'll have some testing code built into it.
+            add_library(xl4bus-shared-test SHARED ${LIB_SOURCE})
+            set_target_properties(xl4bus-shared-test PROPERTIES OUTPUT_NAME xl4bus-test CLEAN_DIRECT_OUTPUT 1)
+            set(THREADED_BINARIES ${THREADED_BINARIES} xl4bus-shared-test)
+            target_link_libraries(xl4bus-shared-test ${SHARED_LIBS})
+            target_compile_definitions(xl4bus-shared-test PUBLIC XL4BUS_BUILD)
+            target_compile_definitions(xl4bus-shared-test PRIVATE WITH_UNIT_TEST)
+
             aux_source_directory(src/tests/cases TEST_CASES)
             add_executable(full-test
                 src/tests/full-test.c
@@ -358,7 +368,7 @@ if (BUILD_BINS)
                 ${BIN_LIB_SRC}
             )
 
-            target_link_libraries(full-test ${USE_LIB})
+            target_link_libraries(full-test xl4bus-shared-test)
             target_link_libraries(full-test ${JSON_C_LIB})
 
             set(TEST_BINARIES ${TEST_BINARIES} "full-test")

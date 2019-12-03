@@ -380,6 +380,11 @@ typedef struct client_internal {
 #if XL4_PROVIDE_THREADS
     void * xl4_thread_space;
     int stop;
+
+#if WITH_UNIT_TEST
+    int rcv_paused;
+#endif
+
     void * hash_lock;
     /* run_lock is used to control client start/stop when low-level connection
      * does not exist, and we can't exchange control messages yet
@@ -656,7 +661,7 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
  */
 int base64url_hash(void * data, size_t data_len, char ** to, xl4bus_buf_t * hash);
 
-/* timeout.h */
+/* timeout.c */
 
 #define schedule_stream_timeout XI(schedule_stream_timeout)
 #define remove_stream_timeout XI(remove_stream_timeout)

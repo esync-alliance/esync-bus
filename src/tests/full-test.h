@@ -32,6 +32,8 @@ typedef enum test_event_type {
     TET_BRK_QUIT,
     TET_BRK_FAILED,
     TET_CLT_QUIT,
+    TET_CLT_PAUSED,
+    TET_CLT_UNPAUSED,
     TET_MSG_ACK_OK,
     TET_MSG_ACK_FAIL,
     TET_CLT_RUNNING
@@ -78,6 +80,7 @@ void full_test_client_stop(test_client_t *);
 int full_test_broker_start(test_broker_t *);
 void full_test_broker_stop(test_broker_t *);
 void full_test_free_event(test_event_t *);
+int full_test_client_pause_receive(test_client_t *, int pause);
 
 int full_test_client_expect(int timeout_ms, test_client_t *, test_event_t ** event, test_event_type_t first, ...);
 int full_test_client_expect_single(int timeout_ms, test_client_t *, test_event_t ** event, test_event_type_t first);
