@@ -68,6 +68,10 @@
 #define XL4_LL_KEY_EXPIRATION_MS (24 * MILLIS_PER_HOUR)
 #endif
 
+#ifndef XL4_CLIENT_RECONNECT_INTERVAL_MS
+#define XL4_CLIENT_RECONNECT_INTERVAL_MS (2 * MILLIS_PER_SEC)
+#endif
+
 #ifndef XI
 #define XI(a) a
 #endif

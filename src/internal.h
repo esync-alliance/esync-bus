@@ -323,10 +323,35 @@ typedef struct remote_info {
 
 } remote_info_t;
 
+/*
+ * message_internal structure keeps state of a message as it's being delivered.
+ * the current state of the message sending process is stored in 'mis'.
+ * It's used in two cases - for outgoing messages - while the client is figuring out who
+ * to encrypt the message to, and the incoming messages, when the client needs to obtain
+ * a key/certificate to the message to be able to decrypt it.
+ *
+ * Outgoing message is registered in stream hash - so when a response is received on a stream
+ * that is used to send out the message, it can be identified. They are also registered in a message list -
+ * so they can be gathered up together. A message may not be in the stream hash if the
+ * connection terminated. Messages are resent if client reconnects to the broker. Messages are
+ * kicked out if they time out.
+ *
+ * Incoming messages are also registered in the message list, so they are easy to clean up
+ * when needed.
+ *
+ * When an incoming message needs a state, it is registered with a stream hash if we need to
+ * make a certificate request. The response to the certificate request comes from the broker, so when response
+ * is received on the same stream, the message will be attempted to be redelivered.
+ *
+ * If incoming message needs a key, then it is registered with kid_hash_list (by the KID that is being
+ * requested). When a response containing this KID is received, all such messages are found and attempted
+ * redelivery.
+ *
+ */
+
 typedef struct message_internal {
 
     message_info_state_t mis;
-    int in_restart;
     int ref_count;
 
     xl4bus_ll_message_t ll_msg;
@@ -380,6 +405,11 @@ typedef struct client_internal {
 #if XL4_PROVIDE_THREADS
     void * xl4_thread_space;
     int stop;
+
+#if WITH_UNIT_TEST
+    int rcv_paused;
+#endif
+
     void * hash_lock;
     /* run_lock is used to control client start/stop when low-level connection
      * does not exist, and we can't exchange control messages yet
@@ -656,7 +686,7 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
  */
 int base64url_hash(void * data, size_t data_len, char ** to, xl4bus_buf_t * hash);
 
-/* timeout.h */
+/* timeout.c */
 
 #define schedule_stream_timeout XI(schedule_stream_timeout)
 #define remove_stream_timeout XI(remove_stream_timeout)
@@ -667,5 +697,18 @@ void schedule_stream_timeout(xl4bus_connection_t * conn, stream_t * stream, unsi
 void remove_stream_timeout(xl4bus_connection_t * conn, stream_t * stream);
 void release_timed_out_streams(xl4bus_connection_t * conn);
 int next_stream_timeout(xl4bus_connection_t * conn);
+
+/* client.c */
+
+#if XL4_DEBUG_REFS
+#define ref_message_internal(a) real_ref_message_internal(__FILE__, __LINE__, a)
+#define unref_message_internal(a) real_unref_message_internal(__FILE__, __LINE__, a)
+#else
+#define ref_message_internal XI(ref_message_internal)
+#define unref_message_internal XI(unref_message_internal)
+#endif
+
+MAKE_REF_UNREF(message_internal)
+
 
 #endif

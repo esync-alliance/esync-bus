@@ -66,7 +66,7 @@ void gather_destination(broker_context_t * bc, xl4bus_address_t * addr, str_t **
 
     if (addr->type == XL4BAT_UPDATE_AGENT) {
         utarray_new(send_list, &ut_ptr_icd);
-        hash_tree_do_rec(bc->ci_ua_tree, 0, 0, addr->update_agent, XL4_MAX_UA_PATHS, 0, send_list);
+        hash_tree_do_rec(&bc->ci_ua_tree, 0, 0, addr->update_agent, XL4_MAX_UA_PATHS, 0, send_list);
         clear_send_list = 1;
     } else if (addr->type == XL4BAT_GROUP) {
         hash_list_t * val;

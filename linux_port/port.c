@@ -34,7 +34,7 @@ static void * thread_runner(void *);
 #endif
 
 ssize_t pf_send(int sockfd, const void *buf, size_t len) {
-    return send(sockfd, buf, len, 0);
+    return send(sockfd, buf, len, MSG_NOSIGNAL);
 }
 
 ssize_t pf_recv(int sockfd, void *buf, size_t len) {
@@ -125,11 +125,11 @@ void pf_random(void * to, size_t where) {
 
 int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
 
-    struct rlimit rlim;
+    struct rlimit r_lim;
 
-    getrlimit(RLIMIT_NOFILE, &rlim);
+    getrlimit(RLIMIT_NOFILE, &r_lim);
 
-    if (polls_len < 0 || polls_len > rlim.rlim_cur) {
+    if (polls_len < 0 || polls_len > r_lim.rlim_cur) {
         pf_set_errno(EINVAL);
         return -1;
     }

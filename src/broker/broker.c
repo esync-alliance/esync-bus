@@ -14,7 +14,6 @@
 #include <signal.h>
 
 #include <mbedtls/x509_crt.h>
-#include <mbedtls/oid.h>
 
 #include "utlist.h"
 
@@ -121,6 +120,7 @@ void init_broker_context(broker_context_t * c) {
     c->init_ll = 1;
     c->fd = -1;
     c->bcc_fd = -1;
+    c->poll_fd = -1;
 }
 
 void release_broker_context(broker_context_t * c) {
@@ -130,17 +130,25 @@ void release_broker_context(broker_context_t * c) {
     Z(free, c->demo_pki);
     Z(free, c->key_password);
     close(c->fd);
+    c->fd = -1;
     close(c->poll_fd);
+    c->poll_fd = -1;
 
     if (c->use_bcc) {
         close(c->bcc_fd);
+        c->bcc_fd = -1;
         unlink(c->bcc_path);
     }
 
     Z(free, c->bcc_path);
 
-    // $TODO: There is so much more to clean up! Look at everything below poll_fd
-    // in broker_context
+    xl4bus_release_cache(c->g_cache);
+    Z(free, c->g_cache);
+    release_identity(&c->broker_identity);
+    Z(cjose_jwk_release, c->private_key);
+    mbedtls_x509_crt_free(&c->trust);
+    mbedtls_x509_crl_free(&c->crl);
+    Z(json_object_put, c->my_x5c);
 
     // memset(c, 0, sizeof(broker_context_t));
 }
@@ -230,9 +238,11 @@ int start_broker(broker_context_t * bc) {
     memset(&ll_cfg, 0, sizeof(xl4bus_ll_cfg_t));
     if (debug) {
         ll_cfg.debug_f = print_out;
+
 #if XL4BUS_ANDROID
         ll_cfg.debug_no_time = 1;
 #endif
+
     }
 
     if (bc->demo_pki && (bc->key_path || bc->ca_list || bc->cert_path)) {
@@ -543,7 +553,7 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
 
             } else if (rev[i].events & POLLOUT) {
                 // this is not possible...
-                FATAL("Write even on BCC socket?");
+                FATAL("Write event on BCC socket?");
             } else {
                 // this must be an error event, let's just clear it...
                 get_socket_error(pit->fd);
@@ -691,7 +701,17 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
 #endif
 
     if (bc->quit) {
-        return 0;
+
+        // make sure we don't accept new connections.
+        epoll_ctl(bc->poll_fd, EPOLL_CTL_DEL, bc->fd, (void*)1);
+
+        conn_info_t * ci;
+        conn_info_t * aux;
+
+        DL_FOREACH_SAFE(bc->connections, ci, aux) {
+            xl4bus_shutdown_connection(ci->conn);
+        }
+
     }
 
     if (!bc->timeout) {

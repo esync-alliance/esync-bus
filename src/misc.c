@@ -1195,3 +1195,27 @@ size_t xl4bus_get_cache_size() {
     return sizeof(global_cache_t);
 
 }
+
+void xl4bus_release_cache(global_cache_t * cache) {
+
+    remote_info_t *rmi, *aux;
+    HASH_ITER(hh, cache->x5t_cache, rmi, aux) {
+        HASH_DEL(cache->x5t_cache, rmi);
+        unref_remote_info(rmi);
+    }
+
+    rb_tree_nav_t nav = {0};
+    for (rb_tree_start(&nav, cache->remote_key_expiration); nav.node; rb_tree_next(&nav)) {
+        remote_key_t * key = TO_RB_NODE2(remote_key_t, nav.node, rb_expiration);
+        release_remote_key_nl(cache, key);
+    }
+
+    remote_key_t *rmk, *bux;
+    HASH_ITER(hh, cache->kid_cache, rmk, bux) {
+        HASH_DEL(cache->kid_cache, rmk);
+        unref_remote_key(rmk);
+    }
+
+    Z(pf_release_lock, cache->cert_cache_lock);
+
+}

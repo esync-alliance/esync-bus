@@ -216,6 +216,7 @@ void release_identity(xl4bus_identity_t * identity) {
         if (identity->x509.trust) {
             for (xl4bus_asn1_t ** buf = identity->x509.trust; *buf; buf++) {
                 free((*buf)->buf.data);
+                free(*buf);
             }
             free(identity->x509.trust);
         }
@@ -223,11 +224,17 @@ void release_identity(xl4bus_identity_t * identity) {
         if (identity->x509.chain) {
             for (xl4bus_asn1_t ** buf = identity->x509.chain; *buf; buf++) {
                 free((*buf)->buf.data);
+                free(*buf);
             }
             free(identity->x509.chain);
         }
 
         free(identity->x509.custom);
+
+        if (identity->x509.private_key) {
+            free(identity->x509.private_key->buf.data);
+            free(identity->x509.private_key);
+        }
 
         identity->type = XL4BIT_INVALID;
 

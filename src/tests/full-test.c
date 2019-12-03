@@ -10,6 +10,7 @@
 
 #include <sys/un.h>
 #include <pthread.h>
+#include <bus-test-support.h>
 
 typedef struct test_case {
     UT_hash_handle hh;
@@ -33,6 +34,7 @@ static void delivered_handler(struct xl4bus_client * clt, xl4bus_message_t * msg
 static void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg);
 static void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status);
 static char * set_client_thread_name(test_client_t * clt);
+static void pause_callback(xl4bus_client_t *, int is_pause);
 
 FILE * output_log = 0;
 char const * test_name = 0;
@@ -110,6 +112,8 @@ int main(int argc, char ** argv) {
 
     debug = 1;
 
+    test_pause_callback = pause_callback;
+
     while ((c = getopt(argc, argv, "hdt:T:Q:I:O:")) != -1) {
 
 #pragma clang diagnostic push
@@ -186,6 +190,8 @@ int main(int argc, char ** argv) {
         } \
         t_count++; \
         end_loud_mode(#n); \
+        test_message_interceptor = 0; \
+        test_control_message_interceptor = 0; \
     } else { \
         test_skip_count++; \
     } \
@@ -214,6 +220,7 @@ int main(int argc, char ** argv) {
 
     CASE(hello_world);
     CASE(esync_4381);
+    CASE(esync_4413);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
@@ -249,6 +256,17 @@ int main(int argc, char ** argv) {
     fclose(stdout);
     fclose(stderr);
 
+    free(output_file_log);
+    fclose(output_log);
+
+    {
+        // $TODO: It's bonkers that I have to do all this,
+        // even though a destructor has been defined for this thread key...
+        void * val = pthread_getspecific(thread_name_key);
+        pthread_setspecific(thread_name_key, 0);
+        free(val);
+    }
+
     // return ret;
     // _exit(ret); /* this breaks gcov! */
     return ret;
@@ -260,6 +278,10 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
     int err /*= E_XL4BUS_OK*/;
     char * url = 0;
     test_event_t * event = 0;
+
+    char * key_path = f_asprintf("./testdata/pki/%s/private.pem", clt->label);
+    char * cert_path = f_asprintf("./testdata/pki/%s/cert.pem", clt->label);
+    char * ca_path = f_strdup("./testdata/pki/ca/ca.pem");
 
     do {
 
@@ -277,10 +299,8 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
         clt->bus_client.on_message = incoming_handler;
         clt->bus_client.on_status = status_handler;
 
-        BOLT_IF(load_simple_x509_creds(&clt->bus_client.identity,
-                f_asprintf("./testdata/pki/%s/private.pem", clt->label),
-                f_asprintf("./testdata/pki/%s/cert.pem", clt->label),
-                f_strdup("./testdata/pki/ca/ca.pem"), 0), E_XL4BUS_INTERNAL, "");
+        BOLT_IF(load_simple_x509_creds(&clt->bus_client.identity, key_path, cert_path, ca_path, 0),
+                E_XL4BUS_INTERNAL, "");
 
         BOLT_SUB(xl4bus_init_client(&clt->bus_client, url));
         clt->started = 1;
@@ -299,22 +319,51 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
     free(url);
     full_test_free_event(event);
 
+    free(key_path);
+    free(cert_path);
+    free(ca_path);
+
     return err;
 
 }
 
-void full_test_client_stop(test_client_t * clt) {
-    if (!clt->started) { return; }
-    xl4bus_stop_client(&clt->bus_client);
-    full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE);
+int full_test_client_pause_receive(test_client_t * clt, int pause) {
+
+    if (!clt->started) { return E_XL4BUS_ARG; }
+
+    test_event_type_t need_event = pause ? TET_CLT_PAUSED : TET_CLT_UNPAUSED;
+    xl4bus_pause_client_receive(&clt->bus_client, pause);
+    full_test_client_expect(0, clt, 0, need_event, TET_NONE);
+
+}
+
+void full_test_client_stop(test_client_t * clt, int release) {
+
+    if (clt->started) {
+        xl4bus_stop_client(&clt->bus_client);
+        if (full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE) != E_XL4BUS_OK) {
+            release = 0;
+        } else {
+            release_identity(&clt->bus_client.identity);
+            clt->started = 0;
+            // this is a hack, but helps to keep clean memory.
+            pthread_join(clt->client_thread, 0);
+        }
+    }
+    if (release) {
+        Z(free, clt->label);
+        Z(free, clt->name);
+    }
 }
 
 int full_test_broker_start(test_broker_t * brk) {
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK*/;
     int locked = 0;
 
     do {
+
+        BOLT_IF(brk->started, E_XL4BUS_ARG, "Broker context already started");
 
         init_broker_context(&brk->context);
         brk->context.init_ll = 0;
@@ -346,9 +395,9 @@ int full_test_broker_start(test_broker_t * brk) {
 
 }
 
-void full_test_broker_stop(test_broker_t * brk) {
+int full_test_broker_stop(test_broker_t * brk, int release) {
 
-    if (!brk->started) { return; }
+    if (!brk->started) { return E_XL4BUS_OK; }
 
     TEST_DBG("Stopping broker %s", brk->name);
 
@@ -375,8 +424,15 @@ void full_test_broker_stop(test_broker_t * brk) {
 
     if (full_test_broker_expect(0, brk, 0, TET_BRK_QUIT, TET_NONE) == E_XL4BUS_OK) {
         pthread_join(brk->thread, 0);
+
+        if (release) {
+            Z(free, brk->name);
+        }
+
+        return E_XL4BUS_OK;
     } else {
         TEST_ERR("Couldn't wait for broker to stop!");
+        return E_XL4BUS_INTERNAL;
     }
 
 }
@@ -398,7 +454,6 @@ static void * broker_runner(void * arg) {
 
         broker->context.use_bcc = 1;
         broker->context.bcc_path = f_asprintf("/tmp/test-xl4bus-broker.%s.%d", broker->name, getpid());
-        broker->context.key_path = f_strdup("./testdata/pki/broker/private.pem");
         add_to_str_array(&broker->context.cert_path, "./testdata/pki/broker/cert.pem");
         add_to_str_array(&broker->context.ca_list, "./testdata/pki/ca/ca.pem");
 
@@ -419,18 +474,14 @@ static void * broker_runner(void * arg) {
         locked = 0;
 
         while (1) {
-            int cycle_err = cycle_broker(&broker->context, -1);
+            int cycle_err = cycle_broker(&broker->context, broker->context.quit ? 1 : -1);
             if (cycle_err) {
-                test_event_t * event = f_malloc(sizeof(test_event_t));
-                event->type = TET_BRK_FAILED;
-                submit_event(&broker->events, event);
+                full_test_submit_event(&broker->events, TET_BRK_FAILED);
                 err = E_XL4BUS_INTERNAL;
                 break;
             }
-            if (broker->context.quit) {
-                test_event_t * event = f_malloc(sizeof(test_event_t));
-                event->type = TET_BRK_QUIT;
-                submit_event(&broker->events, event);
+            if (broker->context.quit && !broker->context.connections) {
+                full_test_submit_event(&broker->events, TET_BRK_QUIT);
                 break;
             }
         }
@@ -440,6 +491,8 @@ static void * broker_runner(void * arg) {
     } while (0);
 #pragma clang diagnostic pop
 
+    broker->started = 0;
+
     release_broker_context(&broker->context);
 
     if (locked) {
@@ -448,6 +501,30 @@ static void * broker_runner(void * arg) {
 
     broker->start_err = err;
     return 0;
+
+}
+
+void full_test_submit_event(test_event_t ** event_queue, test_event_type_t type, ...) {
+
+    test_event_t * event = f_malloc(sizeof(test_event_t));
+    event->type = type;
+
+    va_list va;
+    va_start(va, type);
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch"
+    switch (type) {
+        case TET_MSG_ACK_OK:
+        case TET_MSG_ACK_FAIL:
+            event->msg = va_arg(va, xl4bus_message_t*);
+            break;
+    }
+#pragma clang diagnostic pop
+
+    va_end(va);
+
+    submit_event(event_queue, event);
 
 }
 
@@ -615,11 +692,11 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
 
             }
 
-            TEST_DBG("Event queue empty");
-
             if (found) {
                 break;
             }
+
+            TEST_DBG("Event queue empty");
 
             // OK, queue is empty.
             // TEST_MSG("Waiting for event...");
@@ -643,6 +720,9 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
     if (locked) {
         pthread_mutex_unlock(&queue_lock);
     }
+
+    free(success);
+    free(failure);
 
     return err;
 
@@ -671,6 +751,13 @@ void full_test_free_event(test_event_t * evt) {
     }
 
     free(evt);
+
+}
+
+static void pause_callback(xl4bus_client_t * clt, int is_pause) {
+
+    test_client_t * t_clt = (test_client_t*)clt;
+    full_test_submit_event(&t_clt->events, is_pause ? TET_CLT_PAUSED : TET_CLT_UNPAUSED);
 
 }
 
@@ -715,10 +802,16 @@ void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status
         set_client_thread_name(t_clt);
     }
 
+    if (!t_clt->client_thread) {
+        t_clt->client_thread = pthread_self();
+    }
+
+    TEST_DBG("%s reported condition %d", t_clt->name, status);
+
     if (status == XL4BCC_RUNNING) {
-        test_event_t * evt = f_malloc(sizeof(test_event_t));
-        evt->type = TET_CLT_RUNNING;
-        submit_event(&t_clt->events, evt);
+        full_test_submit_event(&t_clt->events, TET_CLT_RUNNING);
+    } else if (status == XL4BCC_CONNECTION_BROKE) {
+        full_test_submit_event(&t_clt->events, TET_CLT_DISCONNECTED);
     }
 
 }
@@ -741,10 +834,7 @@ void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg) {
 void delivered_handler(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok) {
 
     test_client_t * t_clt = (test_client_t*)clt;
-    test_event_t * evt = f_malloc(sizeof(test_event_t));
-    evt->type = ok ? TET_MSG_ACK_OK : TET_MSG_ACK_FAIL;
-    evt->msg = msg;
-    submit_event(&t_clt->events, evt);
+    full_test_submit_event(&t_clt->events, ok ? TET_MSG_ACK_OK : TET_MSG_ACK_FAIL, msg);
 
 }
 
@@ -872,5 +962,26 @@ int full_test_send_message(test_client_t * from, test_client_t * to, char * str)
     free(str);
 
     return err;
+
+}
+
+int full_test_if_bus_message(const xl4bus_ll_message_t * msg, char const * need_type) {
+
+    if (z_strcmp(msg->content_type, FCT_BUS_MESSAGE)) {
+        TEST_DBG("Wrong content type %s", msg->content_type);
+        return 0;
+    }
+
+    json_object * json;
+    char const * type;
+    if (get_xl4bus_message_msg(msg, &json, &type)) { return 0; }
+
+    int matches = !z_strcmp(type, need_type);
+
+    TEST_DBG("Seen type %s", type);
+
+    json_object_put(json);
+
+    return matches;
 
 }

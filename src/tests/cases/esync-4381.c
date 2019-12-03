@@ -39,11 +39,11 @@ int esync_4381() {
 
     } while (0);
 
-    full_test_client_stop(&client1);
-    full_test_client_stop(&client2);
-    full_test_client_stop(&client3);
-    full_test_client_stop(&client4);
-    full_test_broker_stop(&broker);
+    full_test_client_stop(&client1, 1);
+    full_test_client_stop(&client2, 1);
+    full_test_client_stop(&client3, 1);
+    full_test_client_stop(&client4, 1);
+    full_test_broker_stop(&broker, 1);
 
     return err;
 

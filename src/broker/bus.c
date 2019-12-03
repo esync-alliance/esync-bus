@@ -1,7 +1,6 @@
 
 #include <sys/socket.h>
 #include <libxl4bus/low_level.h>
-#include <libxl4bus/high_level.h>
 #include "utlist.h"
 #include "basics.h"
 
@@ -34,25 +33,23 @@ typedef struct msg_context {
 
 static void free_message_context(msg_context_t *);
 
-static hash_list_t * ci_by_name = 0;
-
 int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
-    int err /*= E_XL4BUS_OK*/;
-    json_object * root = 0;
-    conn_info_t * ci = conn->custom;
-    json_object * connected = 0;
-    xl4bus_address_t * forward_to = 0;
-    xl4bus_identity_t id;
-    cjose_err c_err;
-    char * in_msg_id = 0;
-    UT_array send_list;
-    json_object * bus_object = 0;
-    uint8_t * kty_data = 0;
-    size_t kty_data_len = 0;
+#if WITH_UNIT_TEST
+    conn_info_t *ci = conn->custom;
+    if (ci->ctx->single_step) {
+        return ci->ctx->single_step(conn, msg);
+    }
+#endif
 
-    utarray_init(&send_list, &ut_ptr_icd);
-    memset(&id, 0, sizeof(id));
+    return process_incoming_message(conn, msg);
+
+}
+
+int check_remote_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, json_object ** bus_object) {
+
+    int err = E_XL4BUS_OK;
+    conn_info_t *ci = conn->custom;
 
     do {
 
@@ -60,9 +57,9 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         DBG("Incoming BUS object: %p-%04x %s", conn, msg->stream_id, SAFE_STR(msg->bus_data));
         if (msg->bus_data) {
-            BOLT_IF(!(bus_object = json_tokener_parse(msg->bus_data)), E_XL4BUS_DATA, "Can not parse bus object");
+            BOLT_IF(!(*bus_object = json_tokener_parse(msg->bus_data)), E_XL4BUS_DATA, "Can not parse bus object");
         } else {
-            BOLT_MEM(bus_object = json_object_new_object());
+            BOLT_MEM(*bus_object = json_object_new_object());
         }
 
         if (msg->remote_identity) {
@@ -70,7 +67,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             BOLT_SUB(xl4bus_set_remote_identity(conn, msg->remote_identity));
 
             if (debug) {
-                char * json_addr;
+                char *json_addr;
                 int addr_err;
                 if ((addr_err = xl4bus_address_to_json(conn->remote_address_list, &json_addr)) != E_XL4BUS_OK) {
                     json_addr = f_asprintf("Failed to stringify address: %d", addr_err);
@@ -95,6 +92,43 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         BOLT_IF(!ci->remote_x5c || !ci->remote_x5t, E_XL4BUS_DATA, "Remote identity is not fully established");
 
+        DBG("Incoming content: %p-%04x %s", conn, msg->stream_id, SAFE_STR(msg->content_type));
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
+
+    if (err != E_XL4BUS_OK) {
+        Z(json_object_put, *bus_object);
+    }
+
+    return err;
+
+}
+
+int process_incoming_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
+
+    int err /*= E_XL4BUS_OK*/;
+    json_object *root = 0;
+    conn_info_t *ci = conn->custom;
+    json_object *connected = 0;
+    xl4bus_address_t *forward_to = 0;
+    xl4bus_identity_t id;
+    cjose_err c_err;
+    char *in_msg_id = 0;
+    UT_array send_list;
+    json_object *bus_object = 0;
+    uint8_t *kty_data = 0;
+    size_t kty_data_len = 0;
+
+    utarray_init(&send_list, &ut_ptr_icd);
+    memset(&id, 0, sizeof(id));
+
+    do {
+
+        BOLT_SUB(check_remote_message(conn, msg, &bus_object));
+
         if (!strcmp(FCT_BUS_MESSAGE, msg->content_type)) {
 
             // the incoming JSON must be ASCIIZ.
@@ -108,6 +142,8 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             BOLT_SUB(xl4json_get_pointer(root, "/type", json_type_string, &type));
 
             // DBG("LLP message type %s", type);
+
+            DBG("Incoming message: %p-%04x %s", conn, msg->stream_id, SAFE_STR(type));
 
             if (!strcmp(type, MSG_TYPE_REG_REQUEST)) {
 
@@ -171,7 +207,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                             // $TODO: If the update agent address is too long, this becomes
                             // a silent failure. May be this should be detected?
                             hash_tree_add(ci, r_addr->update_agent);
-                            HASH_LIST_ADD(ci_by_name, ci, ua_names[ci->ua_count]);
+                            HASH_LIST_ADD(ci->ctx->ci_by_name, ci, ua_names[ci->ua_count]);
 
                             ci->ua_count++;
 
@@ -218,7 +254,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     hash_list_t *tmp;
                     hash_list_t *cti;
 
-                    HASH_ITER(hh, ci_by_name, cti, tmp) {
+                    HASH_ITER(hh, ci->ctx->ci_by_name, cti, tmp) {
                         UTCOUNT_WITHOUT(&cti->items, ci, lc);
                         if (lc > 0) {
                             json_object *cux;
@@ -248,10 +284,13 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
                 }
 
-                if ((err = send_json_message(ci, "xl4bus.presence", body, msg->stream_id, 1, 1)) != E_XL4BUS_OK) {
+                if ((err = send_json_message(ci, "xl4bus.presence", json_object_get(body), msg->stream_id, 1, 1)) != E_XL4BUS_OK) {
                     ERR("failed to send a message : %s", xl4bus_strerr(err));
                     xl4bus_shutdown_connection(conn);
                 } else {
+
+                    DBG("Responded with presence: %p-%04x %s", conn, msg->stream_id, json_object_get_string(body));
+
                     // tell everybody else this client arrived.
                     if (json_object_array_length(connected)) {
                         send_presence(ci->ctx, connected, 0, ci);
@@ -259,6 +298,8 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
                     }
 
                 }
+
+                json_object_put(body);
 
                 break;
 
@@ -454,6 +495,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
     } while (0);
 #pragma clang diagnostic pop
 
+
     for (xl4bus_asn1_t ** asn1 = id.x509.chain; asn1 && *asn1; asn1++) {
         free((*asn1)->buf.data);
         free(*asn1);
@@ -501,7 +543,7 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
 
     for (int i=0; i< ci->ua_count; i++) {
         int n_len;
-        REMOVE_FROM_HASH(ci_by_name, ci, ua_names[i], n_len, "Removing by UA name");
+        REMOVE_FROM_HASH(ci->ctx->ci_by_name, ci, ua_names[i], n_len, "Removing by UA name");
         if (!n_len) {
             json_object * bux = json_object_new_object();
             json_object_object_add(bux, "update-agent", json_object_new_string(ci->ua_names[i]));

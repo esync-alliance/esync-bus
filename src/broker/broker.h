@@ -11,6 +11,7 @@
 #include <mbedtls/bignum.h>
 #include <mbedtls/asn1.h>
 #include <mbedtls/pk.h>
+#include <mbedtls/x509_crt.h>
 
 #include "json-c-rename.h"
 #include <json.h>
@@ -70,8 +71,6 @@ typedef struct conn_info {
     json_object * remote_x5c;
     char * remote_x5t;
 
-    int sent_x5c;
-
     struct broker_context * ctx;
 
 } conn_info_t;
@@ -90,22 +89,6 @@ typedef struct {
     UT_hash_handle hh;
     const char * str;
 } str_t;
-
-typedef struct validated_object {
-
-    // these need to be cleaned up
-    cjose_jws_t * exp_jws;
-    json_object * bus_object;
-    json_object * x5c;
-    remote_info_t * remote_info;
-    char * content_type;
-
-    // these are internal, and are maintained by the ones above
-    uint8_t * data;
-    size_t data_len;
-    int data_copy; // if data to be release separately
-
-} validated_object_t;
 
 typedef struct conn_info_hash_tree {
 
@@ -154,9 +137,22 @@ typedef struct broker_context {
     hash_list_t * ci_by_x5t;
     conn_info_t * connections;
     xl4bus_identity_t broker_identity;
-    conn_info_hash_tree_t * ci_ua_tree;
+    conn_info_hash_tree_t ci_ua_tree;
+    int ci_ua_tree_init;
 
     struct xl4bus_global_cache * g_cache;
+
+    hash_list_t * ci_by_name;
+
+    mbedtls_x509_crt trust;
+    mbedtls_x509_crl crl;
+    const mbedtls_md_info_t * hash_sha256;
+    json_object * my_x5c;
+    cjose_jwk_t * private_key;
+
+#if WITH_UNIT_TEST
+    xl4bus_handle_ll_message single_step;
+#endif
 
 } broker_context_t;
 
@@ -180,20 +176,13 @@ void gather_all_destinations(broker_context_t * bc, xl4bus_address_t * first, UT
 
 // crypto
 
-int validate_jws(int trusted, void const * data, size_t data_len, validated_object_t * vo);
-int accept_x5c(json_object * x5c, remote_info_t ** rmi);
-remote_info_t * find_by_x5t(const char * x5t);
-char * make_cert_hash(void * der, size_t der_len);
+char * make_cert_hash(broker_context_t *, void * der, size_t der_len);
 int mpi2jwk(mbedtls_mpi * mpi, uint8_t ** dst , size_t * dst_len);
-int get_oid(unsigned char **p, unsigned char *end, mbedtls_asn1_buf *oid);
-char * make_chr_oid(mbedtls_asn1_buf *);
 void clean_keyspec(cjose_jwk_rsa_keyspec *);
-int sign_jws(conn_info_t * ci, json_object * bus_object, const void *data, size_t data_len, char const * ct, const void **jws_data, size_t *jws_len);
 int init_x509_values(broker_context_t *);
 int asn1_to_json(xl4bus_asn1_t *asn1, json_object **to);
 int make_private_key(xl4bus_identity_t * id, mbedtls_pk_context * pk, cjose_jwk_t ** jwk);
 void load_pem_array(char ** file_list, xl4bus_asn1_t ***asn_list, char const *string);
-int free_remote_info(remote_info_t *entry);
 
 // bus
 
@@ -213,6 +202,7 @@ void count(broker_context_t * bc, int in, int out);
 int start_broker(broker_context_t * bc);
 int cycle_broker(broker_context_t * bc, int);
 void add_to_str_array(char *** array, char const * str);
-
+int process_incoming_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg);
+int check_remote_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, json_object ** bus_object);
 
 #endif

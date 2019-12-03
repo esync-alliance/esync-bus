@@ -152,6 +152,8 @@ int accept_x5c(global_cache_t * cache, json_object * x5c, mbedtls_x509_crt * tru
 
             size_t chars = strlen(str);
 
+            Z(cfg.free, der);
+
             size_t der_len;
             BOLT_CJOSE(cjose_base64_decode(str, chars, &der, &der_len, &c_err));
 
@@ -159,6 +161,7 @@ int accept_x5c(global_cache_t * cache, json_object * x5c, mbedtls_x509_crt * tru
             if (!i) {
                 BOLT_SUB(base64url_hash(der, der_len, &entry->x5t, 0));
             }
+
         }
         BOLT_NEST();
 
@@ -265,7 +268,7 @@ MAKE_REF_FUNCTION(remote_info) {
 }
 
 MAKE_REF_FUNCTION(remote_key) {
-    STD_REF_FUNCTION(remote_info);
+    STD_REF_FUNCTION(remote_key);
 }
 
 MAKE_UNREF_FUNCTION(remote_info) {
@@ -284,7 +287,7 @@ MAKE_UNREF_FUNCTION(remote_info) {
 
 MAKE_UNREF_FUNCTION(remote_key) {
 
-    STD_UNREF_FUNCTION(remote_info) ;
+    STD_UNREF_FUNCTION(remote_key);
 
     cjose_jwk_release(obj->from_key);
     unref_remote_info(obj->remote_info);
@@ -345,7 +348,8 @@ int process_remote_key(global_cache_t * cache, json_object * body, char const * 
         }
 
         rb_insert(&entry->rb_expiration, &search, &cache->remote_key_expiration);
-        ref_remote_key(entry); // added to hash and RB tree
+        ref_remote_key(entry); // added to hash
+        ref_remote_key(entry); // added to RB tree
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -527,6 +531,7 @@ int expiration_cmp(rb_node_t * node, void * val_ptr) {
 void release_remote_key_nl(global_cache_t * cache, remote_key_t * key) {
 
     HASH_DEL(cache->kid_cache, key);
+    unref_remote_key(key);
     rb_delete(&cache->remote_key_expiration, &key->rb_expiration);
     unref_remote_key(key);
 

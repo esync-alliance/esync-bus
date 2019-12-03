@@ -25,6 +25,7 @@
 #define TEST_ERR(s, a...) PRINT_LN(1, "ERR", " " s, ## a)
 #define TEST_MSG(s, a...) PRINT_LN(1, "MSG", " " s, ## a)
 #define TEST_DBG(s, a...) if (show_debug) PRINT_LN(1, "DBG", " " s, ## a)
+#define TEST_SUB(a) { err = (a); if (err != E_XL4BUS_OK) { BOLT_SAY(err, "FAIL - " #a); } else { TEST_MSG("OK - " #a); }} do{}while(0)
 
 typedef enum test_event_type {
     TET_NONE = 0,
@@ -32,9 +33,13 @@ typedef enum test_event_type {
     TET_BRK_QUIT,
     TET_BRK_FAILED,
     TET_CLT_QUIT,
+    TET_CLT_PAUSED, // reception paused
+    TET_CLT_UNPAUSED, // reception unpaused
+    TET_CLT_DISCONNECTED, // connection to broker lost
     TET_MSG_ACK_OK,
     TET_MSG_ACK_FAIL,
-    TET_CLT_RUNNING
+    TET_CLT_RUNNING,
+    TET_TEST = 50000, // test can use this as a base value.
 } test_event_type_t;
 
 typedef struct test_event {
@@ -53,6 +58,7 @@ typedef struct test_client {
     int started;
     char * label;
     char * name;
+    pthread_t client_thread;
 
 } test_client_t;
 
@@ -74,10 +80,11 @@ typedef struct test_broker {
  * @return
  */
 int full_test_client_start(test_client_t *, test_broker_t *, int wait_for_latch);
-void full_test_client_stop(test_client_t *);
+void full_test_client_stop(test_client_t *, int release);
 int full_test_broker_start(test_broker_t *);
-void full_test_broker_stop(test_broker_t *);
+int full_test_broker_stop(test_broker_t *, int release);
 void full_test_free_event(test_event_t *);
+int full_test_client_pause_receive(test_client_t *, int pause);
 
 int full_test_client_expect(int timeout_ms, test_client_t *, test_event_t ** event, test_event_type_t first, ...);
 int full_test_client_expect_single(int timeout_ms, test_client_t *, test_event_t ** event, test_event_type_t first);
@@ -86,6 +93,8 @@ void full_test_print_out(char const * msg);
 void full_test_print_out_d(int, int, char const * msg);
 int full_test_send_message(test_client_t * from, test_client_t * to, char * str);
 extern char const * test_name;
+int full_test_if_bus_message(const xl4bus_ll_message_t *, char const *);
+void full_test_submit_event(test_event_t ** event_queue, test_event_type_t type, ...);
 
 #define TEST_CHR_EQUAL(chr1, chr2) BOLT_IF(z_strcmp(chr1, chr2), E_XL4BUS_INTERNAL, "String %s was expected to be equal to %s", chr2, chr1)
 #define TEST_CHR_N_EQUAL(chr1, chr2, len) BOLT_IF(z_strncmp(chr1, chr2, len), E_XL4BUS_INTERNAL, "String %.*s was expected to be equal to %.*s", len, chr2, len, chr1)
