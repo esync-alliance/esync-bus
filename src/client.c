@@ -2564,5 +2564,4 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
 
     return err;
 
-
 }

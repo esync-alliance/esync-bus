@@ -34,7 +34,7 @@ static void * thread_runner(void *);
 #endif
 
 ssize_t pf_send(int sockfd, const void *buf, size_t len) {
-    return send(sockfd, buf, len, 0);
+    return send(sockfd, buf, len, MSG_NOSIGNAL);
 }
 
 ssize_t pf_recv(int sockfd, void *buf, size_t len) {

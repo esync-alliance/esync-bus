@@ -25,6 +25,7 @@
 #define TEST_ERR(s, a...) PRINT_LN(1, "ERR", " " s, ## a)
 #define TEST_MSG(s, a...) PRINT_LN(1, "MSG", " " s, ## a)
 #define TEST_DBG(s, a...) if (show_debug) PRINT_LN(1, "DBG", " " s, ## a)
+#define TEST_SUB(a) { err = (a); if (err != E_XL4BUS_OK) { BOLT_SAY(err, #a); } else { TEST_MSG("OK - " #a); }} do{}while(0)
 
 typedef enum test_event_type {
     TET_NONE = 0,
@@ -32,8 +33,9 @@ typedef enum test_event_type {
     TET_BRK_QUIT,
     TET_BRK_FAILED,
     TET_CLT_QUIT,
-    TET_CLT_PAUSED,
-    TET_CLT_UNPAUSED,
+    TET_CLT_PAUSED, // reception paused
+    TET_CLT_UNPAUSED, // reception unpaused
+    TET_CLT_DISCONNECTED, // connection to broker lost
     TET_MSG_ACK_OK,
     TET_MSG_ACK_FAIL,
     TET_CLT_RUNNING
@@ -76,9 +78,9 @@ typedef struct test_broker {
  * @return
  */
 int full_test_client_start(test_client_t *, test_broker_t *, int wait_for_latch);
-void full_test_client_stop(test_client_t *);
+void full_test_client_stop(test_client_t *, int release);
 int full_test_broker_start(test_broker_t *);
-void full_test_broker_stop(test_broker_t *);
+int full_test_broker_stop(test_broker_t *, int release);
 void full_test_free_event(test_event_t *);
 int full_test_client_pause_receive(test_client_t *, int pause);
 

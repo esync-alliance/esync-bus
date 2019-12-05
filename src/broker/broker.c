@@ -14,7 +14,6 @@
 #include <signal.h>
 
 #include <mbedtls/x509_crt.h>
-#include <mbedtls/oid.h>
 
 #include "utlist.h"
 
@@ -121,6 +120,7 @@ void init_broker_context(broker_context_t * c) {
     c->init_ll = 1;
     c->fd = -1;
     c->bcc_fd = -1;
+    c->poll_fd = -1;
 }
 
 void release_broker_context(broker_context_t * c) {
@@ -130,10 +130,13 @@ void release_broker_context(broker_context_t * c) {
     Z(free, c->demo_pki);
     Z(free, c->key_password);
     close(c->fd);
+    c->fd = -1;
     close(c->poll_fd);
+    c->poll_fd = -1;
 
     if (c->use_bcc) {
         close(c->bcc_fd);
+        c->bcc_fd = -1;
         unlink(c->bcc_path);
     }
 
@@ -691,7 +694,17 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
 #endif
 
     if (bc->quit) {
-        return 0;
+
+        // make sure we don't accept new connections.
+        epoll_ctl(bc->poll_fd, EPOLL_CTL_DEL, bc->fd, (void*)1);
+
+        conn_info_t * ci;
+        conn_info_t * aux;
+
+        DL_FOREACH_SAFE(bc->connections, ci, aux) {
+            xl4bus_shutdown_connection(ci->conn);
+        }
+
     }
 
     if (!bc->timeout) {

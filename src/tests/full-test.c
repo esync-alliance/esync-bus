@@ -254,6 +254,8 @@ int main(int argc, char ** argv) {
     fclose(stdout);
     fclose(stderr);
 
+    free(output_file_log);
+
     // return ret;
     // _exit(ret); /* this breaks gcov! */
     return ret;
@@ -318,18 +320,23 @@ int full_test_client_pause_receive(test_client_t * clt, int pause) {
 
 }
 
-void full_test_client_stop(test_client_t * clt) {
+void full_test_client_stop(test_client_t * clt, int release) {
     if (!clt->started) { return; }
     xl4bus_stop_client(&clt->bus_client);
-    full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE);
+    if (full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE) == E_XL4BUS_OK && release) {
+        Z(free, clt->label);
+        Z(free, clt->name);
+    }
 }
 
 int full_test_broker_start(test_broker_t * brk) {
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK*/;
     int locked = 0;
 
     do {
+
+        BOLT_IF(brk->started, E_XL4BUS_ARG, "Broker context already started");
 
         init_broker_context(&brk->context);
         brk->context.init_ll = 0;
@@ -361,9 +368,9 @@ int full_test_broker_start(test_broker_t * brk) {
 
 }
 
-void full_test_broker_stop(test_broker_t * brk) {
+int full_test_broker_stop(test_broker_t * brk, int release) {
 
-    if (!brk->started) { return; }
+    if (!brk->started) { return E_XL4BUS_OK; }
 
     TEST_DBG("Stopping broker %s", brk->name);
 
@@ -390,8 +397,15 @@ void full_test_broker_stop(test_broker_t * brk) {
 
     if (full_test_broker_expect(0, brk, 0, TET_BRK_QUIT, TET_NONE) == E_XL4BUS_OK) {
         pthread_join(brk->thread, 0);
+
+        if (release) {
+            Z(free, brk->name);
+        }
+
+        return E_XL4BUS_OK;
     } else {
         TEST_ERR("Couldn't wait for broker to stop!");
+        return E_XL4BUS_INTERNAL;
     }
 
 }
@@ -434,7 +448,7 @@ static void * broker_runner(void * arg) {
         locked = 0;
 
         while (1) {
-            int cycle_err = cycle_broker(&broker->context, -1);
+            int cycle_err = cycle_broker(&broker->context, broker->context.quit ? 1 : -1);
             if (cycle_err) {
                 test_event_t * event = f_malloc(sizeof(test_event_t));
                 event->type = TET_BRK_FAILED;
@@ -442,7 +456,7 @@ static void * broker_runner(void * arg) {
                 err = E_XL4BUS_INTERNAL;
                 break;
             }
-            if (broker->context.quit) {
+            if (broker->context.quit && !broker->context.connections) {
                 test_event_t * event = f_malloc(sizeof(test_event_t));
                 event->type = TET_BRK_QUIT;
                 submit_event(&broker->events, event);
@@ -454,6 +468,8 @@ static void * broker_runner(void * arg) {
 #pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
 #pragma clang diagnostic pop
+
+    broker->started = 0;
 
     release_broker_context(&broker->context);
 
@@ -630,11 +646,11 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
 
             }
 
-            TEST_DBG("Event queue empty");
-
             if (found) {
                 break;
             }
+
+            TEST_DBG("Event queue empty");
 
             // OK, queue is empty.
             // TEST_MSG("Waiting for event...");
@@ -658,6 +674,9 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
     if (locked) {
         pthread_mutex_unlock(&queue_lock);
     }
+
+    free(success);
+    free(failure);
 
     return err;
 
@@ -739,9 +758,15 @@ void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status
         set_client_thread_name(t_clt);
     }
 
+    TEST_DBG("%s reported condition %d", t_clt->name, status);
+
     if (status == XL4BCC_RUNNING) {
         test_event_t * evt = f_malloc(sizeof(test_event_t));
         evt->type = TET_CLT_RUNNING;
+        submit_event(&t_clt->events, evt);
+    } else if (status == XL4BCC_CONNECTION_BROKE) {
+        test_event_t * evt = f_malloc(sizeof(test_event_t));
+        evt->type = TET_CLT_DISCONNECTED;
         submit_event(&t_clt->events, evt);
     }
 
