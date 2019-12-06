@@ -149,6 +149,9 @@ typedef struct broker_context {
     json_object * my_x5c;
     cjose_jwk_t * private_key;
 
+#if WITH_UNIT_TEST
+    xl4bus_handle_ll_message single_step;
+#endif
 
 } broker_context_t;
 
@@ -198,6 +201,7 @@ void count(broker_context_t * bc, int in, int out);
 int start_broker(broker_context_t * bc);
 int cycle_broker(broker_context_t * bc, int);
 void add_to_str_array(char *** array, char const * str);
-
+int process_incoming_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg);
+int check_remote_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, json_object ** bus_object);
 
 #endif

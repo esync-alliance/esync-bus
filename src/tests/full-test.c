@@ -190,6 +190,8 @@ int main(int argc, char ** argv) {
         } \
         t_count++; \
         end_loud_mode(#n); \
+        test_message_interceptor = 0; \
+        test_control_message_interceptor = 0; \
     } else { \
         test_skip_count++; \
     } \
@@ -321,9 +323,16 @@ int full_test_client_pause_receive(test_client_t * clt, int pause) {
 }
 
 void full_test_client_stop(test_client_t * clt, int release) {
-    if (!clt->started) { return; }
-    xl4bus_stop_client(&clt->bus_client);
-    if (full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE) == E_XL4BUS_OK && release) {
+
+    if (clt->started) {
+        xl4bus_stop_client(&clt->bus_client);
+        if (full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE) != E_XL4BUS_OK) {
+            release = 0;
+        } else {
+            clt->started = 0;
+        }
+    }
+    if (release) {
         Z(free, clt->label);
         Z(free, clt->name);
     }
@@ -450,16 +459,12 @@ static void * broker_runner(void * arg) {
         while (1) {
             int cycle_err = cycle_broker(&broker->context, broker->context.quit ? 1 : -1);
             if (cycle_err) {
-                test_event_t * event = f_malloc(sizeof(test_event_t));
-                event->type = TET_BRK_FAILED;
-                submit_event(&broker->events, event);
+                full_test_submit_event(&broker->events, TET_BRK_FAILED);
                 err = E_XL4BUS_INTERNAL;
                 break;
             }
             if (broker->context.quit && !broker->context.connections) {
-                test_event_t * event = f_malloc(sizeof(test_event_t));
-                event->type = TET_BRK_QUIT;
-                submit_event(&broker->events, event);
+                full_test_submit_event(&broker->events, TET_BRK_QUIT);
                 break;
             }
         }
@@ -479,6 +484,30 @@ static void * broker_runner(void * arg) {
 
     broker->start_err = err;
     return 0;
+
+}
+
+void full_test_submit_event(test_event_t ** event_queue, test_event_type_t type, ...) {
+
+    test_event_t * event = f_malloc(sizeof(test_event_t));
+    event->type = type;
+
+    va_list va;
+    va_start(va, type);
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch"
+    switch (type) {
+        case TET_MSG_ACK_OK:
+        case TET_MSG_ACK_FAIL:
+            event->msg = va_arg(va, xl4bus_message_t*);
+            break;
+    }
+#pragma clang diagnostic pop
+
+    va_end(va);
+
+    submit_event(event_queue, event);
 
 }
 
@@ -711,9 +740,7 @@ void full_test_free_event(test_event_t * evt) {
 static void pause_callback(xl4bus_client_t * clt, int is_pause) {
 
     test_client_t * t_clt = (test_client_t*)clt;
-    test_event_t * evt = f_malloc(sizeof(test_event_t));
-    evt->type = is_pause ? TET_CLT_PAUSED : TET_CLT_UNPAUSED;
-    submit_event(&t_clt->events, evt);
+    full_test_submit_event(&t_clt->events, is_pause ? TET_CLT_PAUSED : TET_CLT_UNPAUSED);
 
 }
 
@@ -761,13 +788,9 @@ void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status
     TEST_DBG("%s reported condition %d", t_clt->name, status);
 
     if (status == XL4BCC_RUNNING) {
-        test_event_t * evt = f_malloc(sizeof(test_event_t));
-        evt->type = TET_CLT_RUNNING;
-        submit_event(&t_clt->events, evt);
+        full_test_submit_event(&t_clt->events, TET_CLT_RUNNING);
     } else if (status == XL4BCC_CONNECTION_BROKE) {
-        test_event_t * evt = f_malloc(sizeof(test_event_t));
-        evt->type = TET_CLT_DISCONNECTED;
-        submit_event(&t_clt->events, evt);
+        full_test_submit_event(&t_clt->events, TET_CLT_DISCONNECTED);
     }
 
 }
@@ -790,10 +813,7 @@ void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg) {
 void delivered_handler(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok) {
 
     test_client_t * t_clt = (test_client_t*)clt;
-    test_event_t * evt = f_malloc(sizeof(test_event_t));
-    evt->type = ok ? TET_MSG_ACK_OK : TET_MSG_ACK_FAIL;
-    evt->msg = msg;
-    submit_event(&t_clt->events, evt);
+    full_test_submit_event(&t_clt->events, ok ? TET_MSG_ACK_OK : TET_MSG_ACK_FAIL, msg);
 
 }
 
@@ -921,5 +941,26 @@ int full_test_send_message(test_client_t * from, test_client_t * to, char * str)
     free(str);
 
     return err;
+
+}
+
+int full_test_if_bus_message(const xl4bus_ll_message_t * msg, char const * need_type) {
+
+    if (z_strcmp(msg->content_type, FCT_BUS_MESSAGE)) {
+        TEST_DBG("Wrong content type %s", msg->content_type);
+        return 0;
+    }
+
+    json_object * json;
+    char const * type;
+    if (get_xl4bus_message_msg(msg, &json, &type)) { return 0; }
+
+    int matches = !z_strcmp(type, need_type);
+
+    TEST_DBG("Seen type %s", type);
+
+    json_object_put(json);
+
+    return matches;
 
 }

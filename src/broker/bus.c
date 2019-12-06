@@ -35,21 +35,21 @@ static void free_message_context(msg_context_t *);
 
 int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
-    int err /*= E_XL4BUS_OK*/;
-    json_object * root = 0;
-    conn_info_t * ci = conn->custom;
-    json_object * connected = 0;
-    xl4bus_address_t * forward_to = 0;
-    xl4bus_identity_t id;
-    cjose_err c_err;
-    char * in_msg_id = 0;
-    UT_array send_list;
-    json_object * bus_object = 0;
-    uint8_t * kty_data = 0;
-    size_t kty_data_len = 0;
+#if WITH_UNIT_TEST
+    conn_info_t *ci = conn->custom;
+    if (ci->ctx->single_step) {
+        return ci->ctx->single_step(conn, msg);
+    }
+#endif
 
-    utarray_init(&send_list, &ut_ptr_icd);
-    memset(&id, 0, sizeof(id));
+    return process_incoming_message(conn, msg);
+
+}
+
+int check_remote_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, json_object ** bus_object) {
+
+    int err = E_XL4BUS_OK;
+    conn_info_t *ci = conn->custom;
 
     do {
 
@@ -57,9 +57,9 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
         DBG("Incoming BUS object: %p-%04x %s", conn, msg->stream_id, SAFE_STR(msg->bus_data));
         if (msg->bus_data) {
-            BOLT_IF(!(bus_object = json_tokener_parse(msg->bus_data)), E_XL4BUS_DATA, "Can not parse bus object");
+            BOLT_IF(!(*bus_object = json_tokener_parse(msg->bus_data)), E_XL4BUS_DATA, "Can not parse bus object");
         } else {
-            BOLT_MEM(bus_object = json_object_new_object());
+            BOLT_MEM(*bus_object = json_object_new_object());
         }
 
         if (msg->remote_identity) {
@@ -67,7 +67,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
             BOLT_SUB(xl4bus_set_remote_identity(conn, msg->remote_identity));
 
             if (debug) {
-                char * json_addr;
+                char *json_addr;
                 int addr_err;
                 if ((addr_err = xl4bus_address_to_json(conn->remote_address_list, &json_addr)) != E_XL4BUS_OK) {
                     json_addr = f_asprintf("Failed to stringify address: %d", addr_err);
@@ -93,6 +93,41 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
         BOLT_IF(!ci->remote_x5c || !ci->remote_x5t, E_XL4BUS_DATA, "Remote identity is not fully established");
 
         DBG("Incoming content: %p-%04x %s", conn, msg->stream_id, SAFE_STR(msg->content_type));
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
+    } while (0);
+#pragma clang diagnostic pop
+
+    if (err != E_XL4BUS_OK) {
+        Z(json_object_put, *bus_object);
+    }
+
+    return err;
+
+}
+
+int process_incoming_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
+
+    int err /*= E_XL4BUS_OK*/;
+    json_object *root = 0;
+    conn_info_t *ci = conn->custom;
+    json_object *connected = 0;
+    xl4bus_address_t *forward_to = 0;
+    xl4bus_identity_t id;
+    cjose_err c_err;
+    char *in_msg_id = 0;
+    UT_array send_list;
+    json_object *bus_object = 0;
+    uint8_t *kty_data = 0;
+    size_t kty_data_len = 0;
+
+    utarray_init(&send_list, &ut_ptr_icd);
+    memset(&id, 0, sizeof(id));
+
+    do {
+
+        BOLT_SUB(check_remote_message(conn, msg, &bus_object));
 
         if (!strcmp(FCT_BUS_MESSAGE, msg->content_type)) {
 
@@ -459,6 +494,7 @@ int brk_on_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 #pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
 #pragma clang diagnostic pop
+
 
     for (xl4bus_asn1_t ** asn1 = id.x509.chain; asn1 && *asn1; asn1++) {
         free((*asn1)->buf.data);
