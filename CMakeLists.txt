@@ -333,7 +333,7 @@ if (BUILD_BINS)
         set(TEST_BINARIES ${TEST_BINARIES} "timeout-test")
     endif()
 
-    set(BINARIES "ll-client" "xl4bus-broker" "xl4bus-broker-untested" ${TEST_BINARIES})
+    set(NORMAL_BINARIES "ll-client" "xl4bus-broker" "xl4bus-broker-untested")
 
     if (XL4_PROVIDE_THREADS)
 
@@ -358,6 +358,8 @@ if (BUILD_BINS)
             target_link_libraries(xl4bus-shared-test ${SHARED_LIBS})
             target_compile_definitions(xl4bus-shared-test PUBLIC XL4BUS_BUILD)
             target_compile_definitions(xl4bus-shared-test PRIVATE WITH_UNIT_TEST)
+            target_compile_definitions(xl4bus-shared-test PRIVATE XL4_CLIENT_RECONNECT_INTERVAL_MS=300)
+            set(USE_TEST_LIB xl4bus-shared-test)
 
             aux_source_directory(src/tests/cases TEST_CASES)
             add_executable(full-test
@@ -368,7 +370,7 @@ if (BUILD_BINS)
                 ${BIN_LIB_SRC}
             )
 
-            target_link_libraries(full-test xl4bus-shared-test)
+            # target_link_libraries(full-test xl4bus-shared-test)
             target_link_libraries(full-test ${JSON_C_LIB})
 
             set(TEST_BINARIES ${TEST_BINARIES} "full-test")
@@ -377,10 +379,12 @@ if (BUILD_BINS)
         endif()
 
         targets_link_libraries(${THREADED_BINARIES} LIBRARIES Threads::Threads)
-        set(BINARIES ${BINARIES} ${THREADED_BINARIES})
+        set(NORMAL_BINARIES ${NORMAL_BINARIES} ${THREADED_BINARIES})
     else()
         message(WARNING "Some binaries require threading support, those binaries have not been built")
     endif()
+
+    set(BINARIES ${NORMAL_BINARIES} ${TEST_BINARIES})
 
     install(TARGETS xl4bus-broker RUNTIME DESTINATION bin)
     
@@ -390,7 +394,11 @@ if (BUILD_BINS)
         targets_link_libraries(${BINARIES} LIBRARIES -lefence)
     endif()
 
-    targets_link_libraries(${BINARIES} LIBRARIES ${USE_LIB})
+    targets_link_libraries(${NORMAL_BINARIES} LIBRARIES ${USE_LIB})
+    if (NOT USE_TEST_LIB)
+        set(USE_TEST_LIB ${USE_LIB})
+    endif()
+    targets_link_libraries(${TEST_BINARIES} LIBRARIES ${USE_TEST_LIB})
 
 endif()
 

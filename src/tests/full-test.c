@@ -257,6 +257,15 @@ int main(int argc, char ** argv) {
     fclose(stderr);
 
     free(output_file_log);
+    fclose(output_log);
+
+    {
+        // $TODO: It's bonkers that I have to do all this,
+        // even though a destructor has been defined for this thread key...
+        void * val = pthread_getspecific(thread_name_key);
+        pthread_setspecific(thread_name_key, 0);
+        free(val);
+    }
 
     // return ret;
     // _exit(ret); /* this breaks gcov! */
@@ -269,6 +278,10 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
     int err /*= E_XL4BUS_OK*/;
     char * url = 0;
     test_event_t * event = 0;
+
+    char * key_path = f_asprintf("./testdata/pki/%s/private.pem", clt->label);
+    char * cert_path = f_asprintf("./testdata/pki/%s/cert.pem", clt->label);
+    char * ca_path = f_strdup("./testdata/pki/ca/ca.pem");
 
     do {
 
@@ -286,10 +299,9 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
         clt->bus_client.on_message = incoming_handler;
         clt->bus_client.on_status = status_handler;
 
-        BOLT_IF(load_simple_x509_creds(&clt->bus_client.identity,
-                f_asprintf("./testdata/pki/%s/private.pem", clt->label),
-                f_asprintf("./testdata/pki/%s/cert.pem", clt->label),
-                f_strdup("./testdata/pki/ca/ca.pem"), 0), E_XL4BUS_INTERNAL, "");
+        BOLT_IF(load_simple_x509_creds(&clt->bus_client.identity, key_path, cert_path, ca_path, 0),
+                E_XL4BUS_INTERNAL, "");
+        TEST_DBG("IDD %p populated", &clt->bus_client.identity);
 
         BOLT_SUB(xl4bus_init_client(&clt->bus_client, url));
         clt->started = 1;
@@ -307,6 +319,10 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
 
     free(url);
     full_test_free_event(event);
+
+    free(key_path);
+    free(cert_path);
+    free(ca_path);
 
     return err;
 
@@ -329,6 +345,8 @@ void full_test_client_stop(test_client_t * clt, int release) {
         if (full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE) != E_XL4BUS_OK) {
             release = 0;
         } else {
+            TEST_DBG("IDD %p about to release", &clt->bus_client.identity);
+            release_identity(&clt->bus_client.identity);
             clt->started = 0;
         }
     }
@@ -436,7 +454,6 @@ static void * broker_runner(void * arg) {
 
         broker->context.use_bcc = 1;
         broker->context.bcc_path = f_asprintf("/tmp/test-xl4bus-broker.%s.%d", broker->name, getpid());
-        broker->context.key_path = f_strdup("./testdata/pki/broker/private.pem");
         add_to_str_array(&broker->context.cert_path, "./testdata/pki/broker/cert.pem");
         add_to_str_array(&broker->context.ca_list, "./testdata/pki/ca/ca.pem");
 

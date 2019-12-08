@@ -87,6 +87,9 @@ void xl4bus_free_address(xl4bus_address_t * addr, int chain) {
             case XL4BAT_GROUP:
                 cfg.free(addr->group);
                 break;
+            case XL4BAT_X5T_S256:
+                cfg.free(addr->x5ts256);
+                break;
         }
 
 #pragma clang diagnostic pop

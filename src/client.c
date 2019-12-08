@@ -62,6 +62,7 @@ static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
 static int ll_poll_cb(struct xl4bus_connection*, int, int);
 static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
+static void ll_shutdown_cb(xl4bus_connection_t *);
 static int create_ll_connection(xl4bus_client_t *);
 static void process_message_out(xl4bus_client_t *, message_internal_t *, int);
 static int get_xl4bus_message_dav(decrypt_and_verify_data_t * dav, json_object **, char const **);
@@ -92,6 +93,7 @@ static void unref_mint(message_internal_t *);
 static int is_expired(message_internal_t *);
 static void reattempt_pending_message(xl4bus_connection_t *, message_internal_t *);
 static int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, message_internal_t * mint);
+static int is_mint_without_message(message_internal_t *);
 
 #if !WITH_UNIT_TEST
 static int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg);
@@ -616,6 +618,8 @@ void client_thread(void * arg) {
 
     }
 
+    free(poll_info.polls);
+
     stop_client_ts(clt);
 
 }
@@ -780,21 +784,16 @@ void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent*
 
 void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     client_internal_t * i_clt = clt->_private;
-    // $TODO: 2sec here is an arbitrary constant, and probably should
-    // be a configuration value.
-    i_clt->down_target = pf_ms_value() + 2000;
+    i_clt->down_target = pf_ms_value() + XL4_CLIENT_RECONNECT_INTERVAL_MS;
     i_clt->state = CS_DOWN;
     i_clt->net_addr_current = 0;
 
-    if (i_clt->ll) {
-        cfg.free(i_clt->ll);
-        i_clt->ll = 0;
-    }
-
     if (i_clt->tcp_fd >= 0) {
         pf_shutdown_rdwr(i_clt->tcp_fd);
+        if (!i_clt->stop) {
+            clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_REMOVE);
+        }
         pf_close(i_clt->tcp_fd);
-        clt->set_poll(clt, i_clt->tcp_fd, XL4BUS_POLL_REMOVE);
         i_clt->tcp_fd = -1;
     }
 
@@ -832,6 +831,8 @@ void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
             record_mint_nl(clt, mint, 0, 0, 1, 0);
             if (is_expired(mint)) {
                 FOR_DISPOSAL(mint, "expired");
+            } else if (i_clt->stop) {
+                FOR_DISPOSAL(mint, "client stopped");
             }
             mint->expired_count++;
         }
@@ -840,8 +841,8 @@ void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
 
         message_internal_t * aux;
         HASH_ITER(hh, i_clt->stream_hash, mint, aux) {
-            if (mint->mis == MIS_NEED_REMOTE) {
-                FOR_DISPOSAL(mint, "opened remotely");
+            if (is_mint_without_message(mint)) {
+                FOR_DISPOSAL(mint, "closed before data received");
             }
         }
 
@@ -854,7 +855,7 @@ void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
 
         for (int i=0; i < dismiss_count; i++) {
             message_internal_t * mint = to_dismiss[i];
-            if (mint->mis == MIS_NEED_REMOTE) {
+            if (is_mint_without_message(mint)) {
                 dispose_message(clt, mint);
             } else {
                 release_message(clt, mint, E_XL4BUS_UNDELIVERABLE);
@@ -866,7 +867,22 @@ void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
 
     }
 
+    if (i_clt->ll) {
+        DBG("LLC shutting down %p in %p", i_clt->ll, clt);
+        xl4bus_shutdown_connection(i_clt->ll);
+        // $TODO: Is this safe to do from this (any) thread at this point?
+        xl4bus_process_connection(i_clt->ll, -1, 0);
+    }
+
 }
+
+int is_mint_without_message(message_internal_t *mint) {
+
+    return mint->mis == MIS_NEED_REMOTE || mint->mis == MIS_WAITING_KEY;
+
+}
+
+
 int create_ll_connection(xl4bus_client_t * clt) {
 
     int err;
@@ -884,6 +900,7 @@ int create_ll_connection(xl4bus_client_t * clt) {
         i_clt->ll->on_message = ll_msg_cb;
         i_clt->ll->on_sent_message = ll_send_cb;
         i_clt->ll->cache = &i_clt->cache;
+        i_clt->ll->on_shutdown = ll_shutdown_cb;
 
 #if XL4_SUPPORT_THREADS
 
@@ -900,6 +917,7 @@ int create_ll_connection(xl4bus_client_t * clt) {
         BOLT_SUB(make_private_key(&i_clt->ll->identity, 0, &i_clt->private_key));
 
         BOLT_SUB(xl4bus_init_connection(i_clt->ll));
+        DBG("LLC created %p in %p", i_clt->ll, clt);
 
         i_clt->state = CS_EXPECTING_ALGO;
 
@@ -919,6 +937,7 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
 
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
+        BOLT_IF(i_clt->stop, E_XL4BUS_EOF, "Stopped client");
 
         clean_expired_things(clt);
 
@@ -1558,8 +1577,10 @@ int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t * m
 
         }
 
-
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     json_object_put(body);
     free_s(key_base64, key_base64_len);
@@ -1704,17 +1725,39 @@ void stop_client_ts(xl4bus_client_t * clt) {
     // $TODO: we must clean up a ton of stuff
     // that's attached to this client, if it is stopped!!!
 
+    client_internal_t * i_clt = clt->_private;
+
 #if XL4_PROVIDE_THREADS
 
-    client_internal_t * i_clt = clt->_private;
     if (i_clt) { // that's probably always so
         if (i_clt->run_locked) {
             pf_unlock(&i_clt->run_lock);
             i_clt->run_locked = 0; // useless
         }
+
+        pf_release_lock(i_clt->hash_lock);
+        pf_release_lock(i_clt->run_lock);
+
     }
 
 #endif
+
+    if (i_clt) {
+        ares_destroy(i_clt->ares);
+        // $TODO: should we hold cache lock?
+
+        xl4bus_release_cache(&i_clt->cache);
+        Z(cfg.free, i_clt->pending);
+        Z(cfg.free, i_clt->host);
+        Z(cfg.free, clt->_private);
+
+        known_fd_t *fdi, *aux;
+        HASH_ITER(hh, i_clt->known_fd, fdi, aux) {
+            HASH_DEL(i_clt->known_fd, fdi);
+            free(fdi);
+        }
+
+    }
 
     // clt->on_release must be the last call, clt
     // should be freed after that.
@@ -1866,8 +1909,10 @@ void dispose_message(xl4bus_client_t *clt, message_internal_t *mint) {
 
 void release_message(xl4bus_client_t * clt, message_internal_t * mint, int err) {
 
-    mint->msg->err = err;
-    clt->on_delivered(clt, mint->msg, mint->custom, err == E_XL4BUS_OK);
+    if (mint->msg) {
+        mint->msg->err = err;
+        clt->on_delivered(clt, mint->msg, mint->custom, err == E_XL4BUS_OK);
+    }
 
     dispose_message(clt, mint);
 
@@ -1878,6 +1923,13 @@ void release_message(xl4bus_client_t * clt, message_internal_t * mint, int err) 
 void ll_send_cb(struct xl4bus_connection* conn, xl4bus_ll_message_t * msg, void * ref, int err) {
 #pragma clang diagnostic pop
     free_outgoing_message((ll_message_container_t*)msg);
+}
+
+void ll_shutdown_cb(xl4bus_connection_t * c) {
+    xl4bus_client_t * clt = c->custom;
+    client_internal_t * i_clt = clt->_private;
+    DBG("LLC freeing %p in %p", i_clt->ll, clt);
+    Z(free, i_clt->ll);
 }
 
 int xl4bus_address_to_json(xl4bus_address_t *addr, char **json) {

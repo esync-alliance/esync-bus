@@ -142,6 +142,14 @@ void release_broker_context(broker_context_t * c) {
 
     Z(free, c->bcc_path);
 
+    xl4bus_release_cache(c->g_cache);
+    Z(free, c->g_cache);
+    release_identity(&c->broker_identity);
+    Z(cjose_jwk_release, c->private_key);
+    mbedtls_x509_crt_free(&c->trust);
+    mbedtls_x509_crl_free(&c->crl);
+    Z(json_object_put, c->my_x5c);
+
     // $TODO: There is so much more to clean up! Look at everything below poll_fd
     // in broker_context
 
