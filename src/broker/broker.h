@@ -137,7 +137,8 @@ typedef struct broker_context {
     hash_list_t * ci_by_x5t;
     conn_info_t * connections;
     xl4bus_identity_t broker_identity;
-    conn_info_hash_tree_t * ci_ua_tree;
+    conn_info_hash_tree_t ci_ua_tree;
+    int ci_ua_tree_init;
 
     struct xl4bus_global_cache * g_cache;
 

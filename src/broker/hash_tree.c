@@ -13,12 +13,19 @@ void hash_tree_add(conn_info_t * ci, const char * ua_name) {
     // HASH_LIST_ADD(ci_by_name, ci, ua_names[ci->ua_count]);
 
     // we have to deal with root, before calling in recursive tree storage.
+#if 0
     if (!ci->ctx->ci_ua_tree) {
         ci->ctx->ci_ua_tree = f_malloc(sizeof(conn_info_hash_tree_t));
         utarray_init(&ci->ctx->ci_ua_tree->items, &ut_ptr_icd);
     }
+#else
+    if (!ci->ctx->ci_ua_tree_init) {
+        utarray_init(&ci->ctx->ci_ua_tree.items, &ut_ptr_icd);
+        ci->ctx->ci_ua_tree_init = 1;
+    }
+#endif
 
-    hash_tree_do_rec(ci->ctx->ci_ua_tree, ci, ua_name, ua_name, XL4_MAX_UA_PATHS, 0, 0);
+    hash_tree_do_rec(&ci->ctx->ci_ua_tree, ci, ua_name, ua_name, XL4_MAX_UA_PATHS, 0, 0);
 
 #if 0
     // honestly, there is no point to deleting the root.
@@ -132,12 +139,12 @@ void hash_tree_remove(conn_info_t * ci) {
 
         const char * ua_name = ci->ua_names[i];
 
-        if (!ci->ctx->ci_ua_tree) {
+        if (!ci->ctx->ci_ua_tree_init) {
             ERR("Cleaning UA %s - no root UA has tree root!", ua_name);
             continue;
         }
 
-        hash_tree_do_rec(ci->ctx->ci_ua_tree, ci, ua_name, ua_name, XL4_MAX_UA_PATHS, 1, 0);
+        hash_tree_do_rec(&ci->ctx->ci_ua_tree, ci, ua_name, ua_name, XL4_MAX_UA_PATHS, 1, 0);
 
     }
 

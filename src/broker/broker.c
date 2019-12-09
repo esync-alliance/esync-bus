@@ -150,9 +150,6 @@ void release_broker_context(broker_context_t * c) {
     mbedtls_x509_crl_free(&c->crl);
     Z(json_object_put, c->my_x5c);
 
-    // $TODO: There is so much more to clean up! Look at everything below poll_fd
-    // in broker_context
-
     // memset(c, 0, sizeof(broker_context_t));
 }
 
