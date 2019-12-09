@@ -301,7 +301,6 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
 
         BOLT_IF(load_simple_x509_creds(&clt->bus_client.identity, key_path, cert_path, ca_path, 0),
                 E_XL4BUS_INTERNAL, "");
-        TEST_DBG("IDD %p populated", &clt->bus_client.identity);
 
         BOLT_SUB(xl4bus_init_client(&clt->bus_client, url));
         clt->started = 1;
@@ -345,9 +344,10 @@ void full_test_client_stop(test_client_t * clt, int release) {
         if (full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE) != E_XL4BUS_OK) {
             release = 0;
         } else {
-            TEST_DBG("IDD %p about to release", &clt->bus_client.identity);
             release_identity(&clt->bus_client.identity);
             clt->started = 0;
+            // this is a hack, but helps to keep clean memory.
+            pthread_join(clt->client_thread, 0);
         }
     }
     if (release) {
@@ -800,6 +800,10 @@ void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status
     char const * name = pthread_getspecific(thread_name_key);
     if (!name) {
         set_client_thread_name(t_clt);
+    }
+
+    if (!t_clt->client_thread) {
+        t_clt->client_thread = pthread_self();
     }
 
     TEST_DBG("%s reported condition %d", t_clt->name, status);

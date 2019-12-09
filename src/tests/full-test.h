@@ -58,6 +58,7 @@ typedef struct test_client {
     int started;
     char * label;
     char * name;
+    pthread_t client_thread;
 
 } test_client_t;
 

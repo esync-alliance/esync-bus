@@ -116,13 +116,17 @@ MAKE_REF_FUNCTION(message_internal) {
 }
 
 MAKE_UNREF_FUNCTION(message_internal) {
+
     STD_UNREF_FUNCTION(message_internal);
+
     release_remotes(obj);
     json_object_put(obj->addr);
 
     cfg.free((void*)obj->ll_msg.data);
     cfg.free((void*)obj->ll_msg.content_type);
+
     cfg.free(obj->needs_kid);
+
     cfg.free(obj);
 
 }
