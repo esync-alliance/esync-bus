@@ -37,6 +37,7 @@
     if (!obj) { DBG("unref:" STRINGIFY(name) "[0]=0 %s:%d", chop_path(file), line); return; } \
     int new_ref = pf_add_and_get(&obj->ref_count, -1); \
     DBG("unref:" STRINGIFY(name) "[%p]=%d %s:%d", obj, new_ref, chop_path(file), line); \
+    if (new_ref < 0) { pf_abort("Reference count 0 when unreferencing"); } \
     if (new_ref) { return; } \
     do{}while(0)
 
