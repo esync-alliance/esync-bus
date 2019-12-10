@@ -1082,6 +1082,7 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
     cjose_jwe_recipient_t recipients[mint->key_idx];
     ll_message_container_t * msg = 0;
     cjose_jwk_t * key = 0;
+    json_object * bus_object = json_object_new_object();
 
     do {
 
@@ -1104,12 +1105,15 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
             recipients[i].jwk = mint->remotes[i]->to_key;
         }
 
+        json_object_object_add(bus_object, "destinations", json_object_get(mint->addr));
+
         BOLT_NEST();
 
         BOLT_CJOSE(hdr = cjose_header_new(&c_err));
 
         BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ALG, CJOSE_HDR_ALG_A256KW, &c_err));
         BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_ENC, CJOSE_HDR_ENC_A256CBC_HS512, &c_err));
+        BOLT_CJOSE(cjose_header_set(hdr, HDR_XL4BUS, json_object_get_string(bus_object), &c_err));
 
         BOLT_CJOSE(cjose_header_set(hdr, CJOSE_HDR_CTY, deflate_content_type(mint->msg->content_type), &c_err));
 
@@ -1140,8 +1144,8 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
         cjose_header_release(recipients[i].unprotected_header);
     }
     cjose_jwk_release(key);
+    json_object_put(bus_object);
 
-    DBG("--> clean up %p", msg);
     free_outgoing_message(msg);
 
     return err;

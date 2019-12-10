@@ -1213,6 +1213,7 @@ void xl4bus_release_cache(global_cache_t * cache) {
     remote_key_t *rmk, *bux;
     HASH_ITER(hh, cache->kid_cache, rmk, bux) {
         HASH_DEL(cache->kid_cache, rmk);
+        rmk->in_kid_cache = 0;
         unref_remote_key(rmk);
     }
 

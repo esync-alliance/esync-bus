@@ -105,6 +105,13 @@ typedef struct xl4bus_ll_cfg {
 } xl4bus_ll_cfg_t;
 
 /**
+ * In previous version, the broker special value was incorrectly defined as XL4BAS_DM_BROKER,
+ * and has since been renamed. This define is used to preserve compatibility with the older
+ * versions, however xl4bus_address_special_t::XL4BAS_BROKER should be used instead.
+ */
+#define XL4BAS_DM_BROKER XL4BAS_BROKER
+
+/**
  * Special addresses enumeration.
  */
 typedef enum xl4bus_address_special {

@@ -254,7 +254,7 @@ remote_key_t * find_by_kid(global_cache_t * cache, const char * kid) {
         return 0;
     }
 
-    HASH_FIND(hh, cache->kid_cache, kid, strlen(kid), entry);
+    HASH_FIND_STR(cache->kid_cache, kid, entry);
     entry = ref_remote_key(entry);
 
     UNLOCK(cache->cert_cache_lock);
@@ -330,8 +330,8 @@ int process_remote_key(global_cache_t * cache, json_object * body, char const * 
 
         if (entry) {
             HASH_DEL(cache->kid_cache, entry);
+            entry->in_kid_cache = 0;
             unref_remote_key(entry);
-            // entry = 0;
         }
 
         BOLT_MEM(entry = ref_remote_key(f_malloc(sizeof(remote_key_t))));
@@ -341,6 +341,7 @@ int process_remote_key(global_cache_t * cache, json_object * body, char const * 
         entry->from_kid = *kid;
         entry->from_key_expiration = pf_ms_value() + XL4_HL_KEY_EXPIRATION_MS;
         BOLT_HASH_ADD_KEYPTR(hh, cache->kid_cache, *kid, strlen(*kid), entry);
+        entry->in_kid_cache = 1;
 
         rb_tree_search_t search;
         if (rb_find(&cache->remote_key_expiration, &entry->from_key_expiration, expiration_cmp, &search)) {
@@ -530,8 +531,10 @@ int expiration_cmp(rb_node_t * node, void * val_ptr) {
 
 void release_remote_key_nl(global_cache_t * cache, remote_key_t * key) {
 
-    HASH_DEL(cache->kid_cache, key);
-    unref_remote_key(key);
+    if (key->in_kid_cache) {
+        HASH_DEL(cache->kid_cache, key);
+        unref_remote_key(key);
+    }
     rb_delete(&cache->remote_key_expiration, &key->rb_expiration);
     unref_remote_key(key);
 
