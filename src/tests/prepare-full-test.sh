@@ -59,3 +59,4 @@ make_cert client-grp1
 make_cert client-grp2
 make_cert ua-tbox
 make_cert ua-rom
+make_cert ua-and-group

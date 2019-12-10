@@ -287,6 +287,8 @@ typedef struct remote_key {
 
     int ref_count;
 
+    int in_kid_cache;
+
     rb_node_t rb_expiration;
 
 } remote_key_t;

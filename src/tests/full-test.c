@@ -39,6 +39,7 @@ static void pause_callback(xl4bus_client_t *, int is_pause);
 FILE * output_log = 0;
 char const * test_name = 0;
 int show_debug = 0;
+int default_timeout_ms = 0;
 
 static pthread_mutex_t broker_start_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t broker_start_cond = PTHREAD_COND_INITIALIZER;
@@ -72,6 +73,7 @@ void help() {
 " -Q <case>   turn on debugging output for just this test case (can be repeated)\n"
 " -I <case>   ignore the results of a single test case (can be repeated)\n"
 " -O <file>   send full log output to the specified file\n"
+" -i <ms>     specifies default timeout on waiting for events, useful for debugging\n"
 "");
 
 }
@@ -114,7 +116,7 @@ int main(int argc, char ** argv) {
 
     test_pause_callback = pause_callback;
 
-    while ((c = getopt(argc, argv, "hdt:T:Q:I:O:")) != -1) {
+    while ((c = getopt(argc, argv, "hdt:T:Q:I:O:i:")) != -1) {
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "missing_default_case"
@@ -158,6 +160,9 @@ int main(int argc, char ** argv) {
                     return 1;
                 }
                 output_file_log = f_strdup(optarg);
+                break;
+            case 'i':
+                default_timeout_ms = atoi(optarg);
                 break;
             default:
                 version(0);
@@ -218,9 +223,14 @@ int main(int argc, char ** argv) {
         version(output_log);
     }
 
+    if (!default_timeout_ms) {
+        default_timeout_ms = 10 * MILLIS_PER_SEC;
+    }
+
     CASE(hello_world);
     CASE(esync_4381);
     CASE(esync_4413);
+    CASE(esync_4417);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
@@ -628,7 +638,7 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
         struct timespec ts;
 
         if (timeout_ms <= 0) {
-            timeout_ms = 10 * MILLIS_PER_SEC;
+            timeout_ms = default_timeout_ms;
         }
 
         BOLT_SYS(clock_gettime(CLOCK_REALTIME, &ts), "");
@@ -745,6 +755,7 @@ void full_test_free_event(test_event_t * evt) {
 
     if (evt->msg) {
         xl4bus_free_address(evt->msg->address, 1);
+        xl4bus_free_address(evt->msg->source_address, 1);
         free((void*)evt->msg->content_type);
         free((void*)evt->msg->data);
         free(evt->msg);
@@ -826,6 +837,7 @@ void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg) {
     evt->msg->data = f_malloc(evt->msg->data_len = msg->data_len);
     memcpy((void*)evt->msg->data, msg->data, msg->data_len);
     xl4bus_copy_address(msg->address, 1, &evt->msg->address);
+    xl4bus_copy_address(msg->source_address, 1, &evt->msg->source_address);
     evt->msg->content_type = f_strdup(msg->content_type);
     submit_event(&t_clt->events, evt);
 

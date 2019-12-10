@@ -53,7 +53,10 @@ static int key_used_twice() {
         full_test_free_event(event1);
         full_test_free_event(event2);
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     full_test_client_stop(&client1, 1);
     full_test_client_stop(&client2, 1);
@@ -134,7 +137,10 @@ static int stream_reused() {
         TEST_CHR_N_EQUAL(event->msg->data, "boo", 3);
         full_test_free_event(event);
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     full_test_client_stop(&stream_reused_client1, 1);
     full_test_client_stop(&client2, 1);
@@ -151,10 +157,13 @@ int esync_4413() {
 
     do {
 
-        // TEST_SUB(key_used_twice());
+        TEST_SUB(key_used_twice());
         TEST_SUB(stream_reused());
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
+#pragma clang diagnostic pop
 
     return err;
 
