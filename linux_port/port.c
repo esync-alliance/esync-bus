@@ -352,8 +352,8 @@ void pf_close(int fd) {
 #if XL4_NEED_DGRAM
 ssize_t pf_recv_dgram(int sockfd, void ** addr, pf_malloc_fun _malloc) {
 
-    unsigned char test;
-    ssize_t s = recv(sockfd, &test, 1, MSG_PEEK|MSG_TRUNC);
+    unsigned char test[24];
+    ssize_t s = recv(sockfd, &test, sizeof(test), MSG_PEEK|MSG_TRUNC);
     if (s <= 0) {
         return s;
     }

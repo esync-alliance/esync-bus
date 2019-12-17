@@ -1,3 +1,6 @@
+# include directory
+include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/qnx_port/epoll)
+
 # json-c
 set(JSON_C_LIB ${JSON_C}/.libs/libjson-c.a)
 if (NOT EXISTS ${JSON_C_LIB})
@@ -19,7 +22,11 @@ if (NOT ${TEST})
 endif()
 
 # c-ares
-set(CARES_LIB ${QNX_TARGET}/armle-v7/usr/lib/libcares.so)
+set(CARES_LIB ${CARES}/.libs/libcares.a)
+exists_all(TEST ${CARES_LIB})
+if (NOT ${TEST})
+    message(FATAL_ERROR "You must build c-ares sources first!")
+endif()
 
 # jansson
 set(JANSSON_LIB ${JANSSON}/build/lib/libjansson.so)
@@ -37,5 +44,3 @@ if (BUILD_STATIC)
     file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o )
     set(STATIC_LIBS ${CARES_LIB} ${JANSSON_LIB} ${EXTRA_LIBS})
 endif()
-
-

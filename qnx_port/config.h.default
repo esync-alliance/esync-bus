@@ -12,4 +12,8 @@
 #include <stdio.h>
 #include <sys/time.h>
 
+#if XL4_HAVE_EPOLL
+#include "qepoll.h"
+#endif
+
 #endif

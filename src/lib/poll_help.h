@@ -1,12 +1,11 @@
 
-#if XL4_HAVE_EPOLL
-#include <sys/epoll.h>
-#else
+#if !XL4_HAVE_EPOLL
 #include <sys/resource.h>
+#else
+#include "config.h"
 #endif
 
 #include <poll.h>
-#include <errno.h>
 
 #if XL4_HAVE_EPOLL
 #if XL4_PROVIDE_EPOLL_CREATE1

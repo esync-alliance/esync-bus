@@ -1,0 +1,13 @@
+diff --git a/configure.ac b/configure.ac
+index 46c37dc..f6d9afc 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -75,7 +75,7 @@ AS_IF([test "x$ac_cv___thread" != xno],
+ AC_FUNC_VPRINTF
+ AC_FUNC_MEMCMP
+ AC_CHECK_FUNCS([realloc])
+-AC_CHECK_FUNCS(strcasecmp strdup strerror snprintf vsnprintf vasprintf open vsyslog strncasecmp setlocale)
++AC_CHECK_FUNCS(strcasecmp strdup strerror snprintf vsnprintf open vsyslog strncasecmp setlocale)
+ AC_CHECK_DECLS([INFINITY], [], [], [[#include <math.h>]])
+ AC_CHECK_DECLS([nan], [], [], [[#include <math.h>]])
+ AC_CHECK_DECLS([isnan], [], [], [[#include <math.h>]])

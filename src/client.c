@@ -1825,10 +1825,7 @@ int to_broker(xl4bus_client_t * clt, xl4bus_ll_message_t * msg, xl4bus_address_t
     void * signed_data = 0;
     char * ct = 0;
     size_t signed_data_len;
-    #ifdef XL4_FORCE_THREAD_SAFE
-    DBG("thread_safe: %d force to be 1", thread_safe);
-    thread_safe = 1;
-    #endif
+
     do {
 
         // $TODO: for messages bound to the broker, the address is always 0,

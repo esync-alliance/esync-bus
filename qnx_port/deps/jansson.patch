@@ -1,0 +1,15 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 16cf552..87126e3 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -363,6 +363,10 @@ else()
+       ${JANSSON_HDR_PUBLIC})
+ endif()
+ 
++if(${CMAKE_SYSTEM_NAME} STREQUAL "QNX")
++  target_link_libraries(jansson -lm)
++endif()
++
+ if (JANSSON_EXAMPLES)
+ 	add_executable(simple_parse "${PROJECT_SOURCE_DIR}/examples/simple_parse.c")
+ 	target_link_libraries(simple_parse jansson)
