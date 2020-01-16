@@ -1,0 +1,43 @@
+#!gbuild
+#component integrity_dynamic_download
+macro __LIB_MBEDTLS_BUILD_DIR=@LIB_MBEDTLS_BUILD_DIR@
+
+[INTEGRITY Application]
+        -dynamic
+        -c99 -g
+        -non_shared
+        -D__GHS__
+        -DNO_DECLTYPE
+        -DCLOCK_MONOTONIC_RAW=CLOCK_REALTIME
+        -Dclean_keyspec=broker_clean_keyspec
+        -Dmake_private_key=broker_make_private_key
+        -Dasn1_to_json=broker_asn1_to_json
+        -Dmpi2jwk=broker_mpi2jwk
+        -Df_asprintf=broker_f_asprintf
+        -include ../json-c-rename.h
+        -I$__BUILD_DIR/include
+        -I$__LIB_XL4BUS_BUILD_DIR
+        -I$__LIB_XL4BUS_BUILD_DIR/include
+        -I$__LIB_MBEDTLS_BUILD_DIR/include
+        -I$__LIB_XL4BUS_DIR/src
+        -I$__LIB_CARES_DIR
+        -I$__LIB_CARES_BUILD_DIR
+        -I$__LIB_CJOSE_BUILD_DIR/include
+        -I$__LIB_OPENSSL_DIR/include
+        -I$__LIB_XL4BUS_DIR
+        -I$__LIB_JSONC_DIR
+        -I$__LIB_JSONC_BUILD_DIR
+        -I$__LIB_GHS_MISC_DIR
+        -lsocket -lnet -livfs -lposix -lposix_authclient
+        -L$__LIB_JSONC_BUILD_DIR/dbg/bin -ljsonc
+        -L$__LIB_CJOSE_BUILD_DIR/dbg/bin -lcjose
+        -L$__LIB_CARES_BUILD_DIR/dbg/bin -lcares
+        -L$__LIB_MBEDTLS_BUILD_DIR/dbg/bin -lmbedtls
+        -L$__LIB_OPENSSL_BUILD_DIR/dbg/bin -lcrypto
+        -L$__LIB_JANSSON_BUILD_DIR/dbg/bin -ljansson
+        -L$__LIB_XL4BUS_BUILD_DIR/dbg/bin -lxl4bus
+        -L$__LIB_GHS_MISC_DIR/build/dbg/bin -lghs_misc
+        -L$__LIB_XL4BUS_BUILD_DIR/build/dbg/bin -lxl4bus
+
+xl4broker.int
+xl4broker_as0.gpj		[Program]

@@ -1,0 +1,4 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/mdc2/mdc2_one.c
+$__LIB_CRYPTO_DIR/mdc2/mdc2dgst.c

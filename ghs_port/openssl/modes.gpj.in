@@ -1,0 +1,13 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/modes/cbc128.c
+$__LIB_CRYPTO_DIR/modes/ccm128.c
+$__LIB_CRYPTO_DIR/modes/cfb128.c
+$__LIB_CRYPTO_DIR/modes/ctr128.c
+$__LIB_CRYPTO_DIR/modes/cts128.c
+$__LIB_CRYPTO_DIR/modes/gcm128.c
+$__LIB_CRYPTO_DIR/modes/modes.h
+$__LIB_CRYPTO_DIR/modes/modes_lcl.h
+$__LIB_CRYPTO_DIR/modes/ofb128.c
+$__LIB_CRYPTO_DIR/modes/wrap128.c
+$__LIB_CRYPTO_DIR/modes/xts128.c

@@ -1,0 +1,9 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/cast/c_cfb64.c
+$__LIB_CRYPTO_DIR/cast/c_ecb.c
+$__LIB_CRYPTO_DIR/cast/c_enc.c
+$__LIB_CRYPTO_DIR/cast/c_ofb64.c
+$__LIB_CRYPTO_DIR/cast/c_skey.c
+$__LIB_CRYPTO_DIR/cast/cast_local.h
+$__LIB_CRYPTO_DIR/cast/cast_s.h

@@ -1,0 +1,10 @@
+#!gbuild
+macro __LIB_GHS_MISC_DIR=@LIB_GHS_MISC_DIR@
+[Library]
+	-object_dir=objs/libghs_misc
+        -c99 -g
+	-DHAVE_STDLIB_H -DHAVE_STRING_H
+
+$__LIB_GHS_MISC_DIR/ghs_misc.h
+$__LIB_GHS_MISC_DIR/strcasestr.c
+$__LIB_GHS_MISC_DIR/vasprintf.c

@@ -1,0 +1,6 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/comp/c_zlib.c
+$__LIB_CRYPTO_DIR/comp/comp_err.c
+$__LIB_CRYPTO_DIR/comp/comp_lib.c
+$__LIB_CRYPTO_DIR/comp/comp_local.h

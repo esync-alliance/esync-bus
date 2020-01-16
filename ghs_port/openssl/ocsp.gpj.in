@@ -1,0 +1,12 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/ocsp/ocsp.h
+$__LIB_CRYPTO_DIR/ocsp/ocsp_asn.c
+$__LIB_CRYPTO_DIR/ocsp/ocsp_cl.c
+$__LIB_CRYPTO_DIR/ocsp/ocsp_err.c
+$__LIB_CRYPTO_DIR/ocsp/ocsp_ext.c
+$__LIB_CRYPTO_DIR/ocsp/ocsp_ht.c
+$__LIB_CRYPTO_DIR/ocsp/ocsp_lib.c
+$__LIB_CRYPTO_DIR/ocsp/ocsp_prn.c
+$__LIB_CRYPTO_DIR/ocsp/ocsp_srv.c
+$__LIB_CRYPTO_DIR/ocsp/ocsp_vfy.c

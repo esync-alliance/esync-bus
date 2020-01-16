@@ -1,0 +1,7 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/hmac/hm_ameth.c
+$__LIB_CRYPTO_DIR/hmac/hm_pmeth.c
+$__LIB_CRYPTO_DIR/hmac/hmac.c
+$__LIB_CRYPTO_DIR/hmac/hmac.h
+$__LIB_CRYPTO_DIR/hmac/hmactest.c

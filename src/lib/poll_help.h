@@ -1,10 +1,11 @@
 
 #if !XL4_HAVE_EPOLL
+#if !defined(__GHS__)
 #include <sys/resource.h>
+#endif
 #else
 #include "config.h"
 #endif
-
 #include <poll.h>
 
 #if XL4_HAVE_EPOLL

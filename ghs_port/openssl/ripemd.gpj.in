@@ -1,0 +1,6 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/ripemd/rmd_dgst.c
+$__LIB_CRYPTO_DIR/ripemd/rmd_local.h
+$__LIB_CRYPTO_DIR/ripemd/rmd_one.c
+$__LIB_CRYPTO_DIR/ripemd/rmdconst.h

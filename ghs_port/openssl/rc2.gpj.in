@@ -1,0 +1,8 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/rc2/rc2_cbc.c
+$__LIB_CRYPTO_DIR/rc2/rc2_ecb.c
+$__LIB_CRYPTO_DIR/rc2/rc2_local.h
+$__LIB_CRYPTO_DIR/rc2/rc2_skey.c
+$__LIB_CRYPTO_DIR/rc2/rc2cfb64.c
+$__LIB_CRYPTO_DIR/rc2/rc2ofb64.c

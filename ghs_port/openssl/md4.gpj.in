@@ -1,0 +1,5 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/md4/md4_dgst.c
+$__LIB_CRYPTO_DIR/md4/md4_local.h
+$__LIB_CRYPTO_DIR/md4/md4_one.c

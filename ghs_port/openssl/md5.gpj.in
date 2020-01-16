@@ -1,0 +1,8 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/md5/md5.c
+$__LIB_CRYPTO_DIR/md5/md5.h
+$__LIB_CRYPTO_DIR/md5/md5_dgst.c
+$__LIB_CRYPTO_DIR/md5/md5_locl.h
+$__LIB_CRYPTO_DIR/md5/md5_one.c
+$__LIB_CRYPTO_DIR/md5/md5test.c

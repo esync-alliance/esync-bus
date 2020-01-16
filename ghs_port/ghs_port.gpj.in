@@ -1,0 +1,4 @@
+#!gbuild
+[Subproject]
+
+$__LIB_XL4BUS_DIR/ghs_port/port.c

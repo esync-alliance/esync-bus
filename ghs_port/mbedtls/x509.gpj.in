@@ -1,0 +1,7 @@
+#!gbuild
+[Subproject]
+$__LIB_MBEDTLS_DIR/programs/x509/cert_app.c
+$__LIB_MBEDTLS_DIR/programs/x509/cert_req.c
+$__LIB_MBEDTLS_DIR/programs/x509/cert_write.c
+$__LIB_MBEDTLS_DIR/programs/x509/crl_app.c
+$__LIB_MBEDTLS_DIR/programs/x509/req_app.c

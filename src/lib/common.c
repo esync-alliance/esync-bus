@@ -311,7 +311,7 @@ xl4bus_asn1_t * load_pem(char *path) {
         }
 
         buf->buf.len = (size_t) (size + 1);
-        void * ptr = buf->buf.data = f_malloc(buf->buf.len);
+        uint8_t * ptr = buf->buf.data = f_malloc(buf->buf.len);
         while (size) {
             ssize_t rd = read(fd, ptr, (size_t) size);
             if (rd < 0) {
@@ -320,7 +320,7 @@ xl4bus_asn1_t * load_pem(char *path) {
             }
             if (!rd) {
                 DBG("Premature EOF reading %s, file declared %ld bytes, read %ld bytes, remaining %ld bytes",
-                        path, buf->buf.len-1, ptr-(void*)buf->buf.data, size);
+                        path, buf->buf.len-1, ptr - buf->buf.data, size);
                 break;
             }
             size -= rd;

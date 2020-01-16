@@ -1,0 +1,14 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/ts/ts_asn1.c
+$__LIB_CRYPTO_DIR/ts/ts_conf.c
+$__LIB_CRYPTO_DIR/ts/ts_err.c
+$__LIB_CRYPTO_DIR/ts/ts_lib.c
+$__LIB_CRYPTO_DIR/ts/ts_local.h
+$__LIB_CRYPTO_DIR/ts/ts_req_print.c
+$__LIB_CRYPTO_DIR/ts/ts_req_utils.c
+$__LIB_CRYPTO_DIR/ts/ts_rsp_print.c
+$__LIB_CRYPTO_DIR/ts/ts_rsp_sign.c
+$__LIB_CRYPTO_DIR/ts/ts_rsp_utils.c
+$__LIB_CRYPTO_DIR/ts/ts_rsp_verify.c
+$__LIB_CRYPTO_DIR/ts/ts_verify_ctx.c

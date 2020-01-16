@@ -1,0 +1,3 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/stack/stack.c

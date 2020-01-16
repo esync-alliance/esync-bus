@@ -1,0 +1,10 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/dso/dso.h
+$__LIB_CRYPTO_DIR/dso/dso_beos.c
+$__LIB_CRYPTO_DIR/dso/dso_dl.c
+$__LIB_CRYPTO_DIR/dso/dso_dlfcn.c
+$__LIB_CRYPTO_DIR/dso/dso_err.c
+$__LIB_CRYPTO_DIR/dso/dso_lib.c
+$__LIB_CRYPTO_DIR/dso/dso_null.c
+$__LIB_CRYPTO_DIR/dso/dso_openssl.c

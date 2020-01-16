@@ -1,0 +1,6 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/buffer/buf_err.c
+$__LIB_CRYPTO_DIR/buffer/buf_str.c
+$__LIB_CRYPTO_DIR/buffer/buffer.c
+$__LIB_CRYPTO_DIR/buffer/buffer.h

@@ -1,0 +1,12 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/camellia/camellia.c
+$__LIB_CRYPTO_DIR/camellia/camellia.h
+$__LIB_CRYPTO_DIR/camellia/cmll_cbc.c
+$__LIB_CRYPTO_DIR/camellia/cmll_cfb.c
+$__LIB_CRYPTO_DIR/camellia/cmll_ctr.c
+$__LIB_CRYPTO_DIR/camellia/cmll_ecb.c
+$__LIB_CRYPTO_DIR/camellia/cmll_locl.h
+$__LIB_CRYPTO_DIR/camellia/cmll_misc.c
+$__LIB_CRYPTO_DIR/camellia/cmll_ofb.c
+$__LIB_CRYPTO_DIR/camellia/cmll_utl.c

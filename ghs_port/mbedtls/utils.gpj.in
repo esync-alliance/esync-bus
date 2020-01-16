@@ -1,0 +1,4 @@
+#!gbuild
+[Subproject]
+$__LIB_MBEDTLS_DIR/programs/util/pem2der.c
+$__LIB_MBEDTLS_DIR/programs/util/strerror.c

@@ -1,0 +1,10 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/ecdh/ecdh.h
+$__LIB_CRYPTO_DIR/ecdh/ecdhtest.c
+$__LIB_CRYPTO_DIR/ecdh/ech_err.c
+$__LIB_CRYPTO_DIR/ecdh/ech_kdf.c
+$__LIB_CRYPTO_DIR/ecdh/ech_key.c
+$__LIB_CRYPTO_DIR/ecdh/ech_lib.c
+$__LIB_CRYPTO_DIR/ecdh/ech_locl.h
+$__LIB_CRYPTO_DIR/ecdh/ech_ossl.c

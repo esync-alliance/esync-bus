@@ -1,0 +1,110 @@
+#!gbuild
+macro __LIB_CRYPTO_DIR=$__LIB_OPENSSL_DIR/crypto
+
+[Library]
+	-object_dir=objs/crypto
+	-c99 -g
+	-I.
+	-I$__LIB_OPENSSL_DIR
+	-I$__LIB_OPENSSL_DIR/include
+	-I$__LIB_OPENSSL_DIR/providers/implementations/include
+	-I$__LIB_OPENSSL_DIR/providers/common/include
+        -I$__LIB_CRYPTO_DIR
+	-I$__LIB_CRYPTO_DIR/ec/curve448
+	-I$__LIB_CRYPTO_DIR/ec/curve448/arch_32
+	-I$__LIB_CRYPTO_DIR/asn1
+	-I$__LIB_CRYPTO_DIR/evp
+	-I$__LIB_CRYPTO_DIR/modes
+	-I$__LIB_CRYPTO_DIR/rc5
+        -DOPENSSL_SYS_GHS
+        -DNO_SYS_PARAM_H -DOPENSSL_NO_ASYNC -DOPENSSL_NO_SECURE_MEMORY
+	-DSIXTY_FOUR_BIT_LONG -DOPENSSL_NO_POLY1305 -DOPENSSL_NO_CHACHA -DOPENSSL_NO_ENGINE
+        -DNO_SYSLOG
+
+$__LIB_CRYPTO_DIR/arm_arch.h
+$__LIB_CRYPTO_DIR/armcap.c
+$__LIB_CRYPTO_DIR/buildinf.h
+$__LIB_CRYPTO_DIR/constant_time_locl.h
+$__LIB_CRYPTO_DIR/constant_time_test.c
+$__LIB_CRYPTO_DIR/cpt_err.c
+$__LIB_CRYPTO_DIR/cryptlib.c
+$__LIB_CRYPTO_DIR/cryptlib.h
+$__LIB_CRYPTO_DIR/crypto.h
+$__LIB_CRYPTO_DIR/cversion.c
+$__LIB_CRYPTO_DIR/ebcdic.c
+$__LIB_CRYPTO_DIR/ebcdic.h
+$__LIB_CRYPTO_DIR/ex_data.c
+$__LIB_CRYPTO_DIR/fips_err.h
+$__LIB_CRYPTO_DIR/fips_ers.c
+$__LIB_CRYPTO_DIR/md32_common.h
+$__LIB_CRYPTO_DIR/mem.c
+$__LIB_CRYPTO_DIR/mem_clr.c
+$__LIB_CRYPTO_DIR/mem_dbg.c
+$__LIB_CRYPTO_DIR/o_dir.c
+$__LIB_CRYPTO_DIR/o_dir.h
+$__LIB_CRYPTO_DIR/o_dir_test.c
+$__LIB_CRYPTO_DIR/o_fips.c
+$__LIB_CRYPTO_DIR/o_init.c
+$__LIB_CRYPTO_DIR/o_str.c
+$__LIB_CRYPTO_DIR/o_str.h
+$__LIB_CRYPTO_DIR/o_time.c
+$__LIB_CRYPTO_DIR/o_time.h
+$__LIB_CRYPTO_DIR/opensslconf.h
+$__LIB_CRYPTO_DIR/opensslv.h
+$__LIB_CRYPTO_DIR/ossl_typ.h
+$__LIB_CRYPTO_DIR/symhacks.h
+$__LIB_CRYPTO_DIR/uid.c
+$__LIB_CRYPTO_DIR/vms_rms.h
+ts.gpj
+err.gpj
+wrlpool.gpj
+md5.gpj
+stack.gpj
+srp.gpj
+aes.gpj
+rsa.gpj
+asn1.gpj
+buffer.gpj
+cms.gpj
+comp.gpj
+conf.gpj
+des.gpj
+dsa.gpj
+dso.gpj
+hmac.gpj
+idea.gpj
+lhash.gpj
+modes.gpj
+ocsp.gpj
+pem.gpj
+pkcs12.gpj
+rand.gpj
+rc2.gpj
+rc4.gpj
+ripemd.gpj
+seed.gpj
+bio.gpj
+x509.gpj
+objects.gpj
+bn.gpj
+pkcs7.gpj
+ui.gpj
+bf.gpj
+cast.gpj
+camellia.gpj
+mdc2.gpj
+cmac.gpj
+md4.gpj
+dh.gpj
+ec.gpj
+sha.gpj
+evp.gpj
+buffer.gpj
+ecdsa.gpj
+ecdh.gpj
+x509v3.gpj
+hmac.gpj
+cmac.gpj
+camellia.gpj
+pqueue.gpj
+txt_db.gpj

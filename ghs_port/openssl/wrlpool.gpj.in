@@ -1,0 +1,5 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/whrlpool/wp_block.c
+$__LIB_CRYPTO_DIR/whrlpool/wp_dgst.c
+$__LIB_CRYPTO_DIR/whrlpool/wp_local.h

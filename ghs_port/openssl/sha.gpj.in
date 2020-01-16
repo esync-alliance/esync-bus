@@ -1,0 +1,15 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/sha/sha.c
+$__LIB_CRYPTO_DIR/sha/sha.h
+$__LIB_CRYPTO_DIR/sha/sha1.c
+$__LIB_CRYPTO_DIR/sha/sha1_one.c
+$__LIB_CRYPTO_DIR/sha/sha1dgst.c
+$__LIB_CRYPTO_DIR/sha/sha1test.c
+$__LIB_CRYPTO_DIR/sha/sha256.c
+$__LIB_CRYPTO_DIR/sha/sha256t.c
+$__LIB_CRYPTO_DIR/sha/sha512.c
+$__LIB_CRYPTO_DIR/sha/sha512t.c
+$__LIB_CRYPTO_DIR/sha/sha_dgst.c
+$__LIB_CRYPTO_DIR/sha/sha_locl.h
+$__LIB_CRYPTO_DIR/sha/sha_one.c

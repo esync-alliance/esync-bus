@@ -92,3 +92,17 @@ QNX
   - cd qnx_port && ./build_deps.sh all clean && ./build_deps.sh all
 * Build library and application
   - cd qnx_port && ./build.sh clean && ./build.sh
+
+GHS
+===
+* Integrity compiler version 7.16. Integrity OS: 11.78
+* Initialize submodules  
+  - git submodule init 
+  - git submodule update  
+* Set folling path variables in the config.cmk.default located in the ghs_port  
+  - GHS_OS_DIR path of INTEGRITY OS has been installed in your host 
+  - GHS_BSP_NAME name of BSP package 
+  - BUILD_TOOL_DIR path of GreenHill compiler 
+  - GHS_TGT_DIR  path of GreenHill linker configuration which is generated when you creating a sample project in MULTI IDE. 
+* Execute the following script located in ghs_port to build all dependencies, libxl4bus.a and xl4bus-broker for GreenHill INTEGRITY 
+  $./build_all_ghs.sh 

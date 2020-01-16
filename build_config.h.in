@@ -125,6 +125,11 @@
  */
 #cmakedefine01 XL4_SUPPORT_RESOLVER
 
+/**
+ * Whether it's possible to define symbol visibility
+ */
+#cmakedefine01 XL4_SYMBOL_VISIBILITY_SUPPORTED
+
 #ifndef XL4_MAX_UA_PATHS
 #define XL4_MAX_UA_PATHS 10
 #endif

@@ -1,0 +1,1 @@
+set(NEED_PTHREADS FALSE)

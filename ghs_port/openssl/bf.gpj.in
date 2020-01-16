@@ -1,0 +1,9 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/bf/bf_cfb64.c
+$__LIB_CRYPTO_DIR/bf/bf_ecb.c
+$__LIB_CRYPTO_DIR/bf/bf_enc.c
+$__LIB_CRYPTO_DIR/bf/bf_local.h
+$__LIB_CRYPTO_DIR/bf/bf_ofb64.c
+$__LIB_CRYPTO_DIR/bf/bf_pi.h
+$__LIB_CRYPTO_DIR/bf/bf_skey.c

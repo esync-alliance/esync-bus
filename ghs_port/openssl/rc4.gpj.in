@@ -1,0 +1,9 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/rc4/rc4.h
+$__LIB_CRYPTO_DIR/rc4/rc4_enc.c
+$__LIB_CRYPTO_DIR/rc4/rc4_locl.h
+$__LIB_CRYPTO_DIR/rc4/rc4_skey.c
+$__LIB_CRYPTO_DIR/rc4/rc4_utl.c
+$__LIB_CRYPTO_DIR/rc4/rc4speed.c
+$__LIB_CRYPTO_DIR/rc4/rc4test.c

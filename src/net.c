@@ -190,7 +190,7 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
         int _stop = 0; \
         delta = i_conn->current_frame.total_read - (pos); \
         _len = _len - delta; \
-        void * ptr = (where) + delta; \
+        uint8_t * ptr = (where) + delta; \
         while (_len) { \
             ssize_t res = pf_recv(fd, ptr, _len); \
             if (res < 0) { \
@@ -224,7 +224,7 @@ do {} while(0)
 #define frm (i_conn->current_frame)
 
                 RDP(0, &frm.byte0, 1, "byte 0");
-                RDP(1, &frm.len_bytes, 3, "length");
+                RDP(1, frm.len_bytes, 3, "length");
                 if (!frm.len_converted) {
                     crcFast(&frm.byte0, 1, &frm.crc);
                     crcFast(&frm.len_bytes, 3, &frm.crc);
@@ -292,10 +292,7 @@ do {} while(0)
         release_timed_out_streams(conn);
         BOLT_SUB(check_conn_io(conn));
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
-#pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
         shutdown_connection_ts(conn, "failed to process incoming data");

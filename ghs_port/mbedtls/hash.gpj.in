@@ -1,0 +1,4 @@
+#!gbuild
+[Subproject]
+$__LIB_MBEDTLS_DIR/programs/hash/generic_sum.c
+$__LIB_MBEDTLS_DIR/programs/hash/hello.c

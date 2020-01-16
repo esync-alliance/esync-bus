@@ -1,0 +1,5 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/lhash/lh_stats.c
+$__LIB_CRYPTO_DIR/lhash/lhash.c
+$__LIB_CRYPTO_DIR/lhash/lhash_local.h

@@ -1,0 +1,12 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/conf/conf.h
+$__LIB_CRYPTO_DIR/conf/conf_api.c
+$__LIB_CRYPTO_DIR/conf/conf_api.h
+$__LIB_CRYPTO_DIR/conf/conf_def.c
+$__LIB_CRYPTO_DIR/conf/conf_def.h
+$__LIB_CRYPTO_DIR/conf/conf_err.c
+$__LIB_CRYPTO_DIR/conf/conf_lib.c
+$__LIB_CRYPTO_DIR/conf/conf_mall.c
+$__LIB_CRYPTO_DIR/conf/conf_mod.c
+$__LIB_CRYPTO_DIR/conf/conf_sap.c

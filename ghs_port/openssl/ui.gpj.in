@@ -1,0 +1,10 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/ui/ui.h
+$__LIB_CRYPTO_DIR/ui/ui_compat.c
+$__LIB_CRYPTO_DIR/ui/ui_compat.h
+$__LIB_CRYPTO_DIR/ui/ui_err.c
+$__LIB_CRYPTO_DIR/ui/ui_lib.c
+$__LIB_CRYPTO_DIR/ui/ui_locl.h
+$__LIB_CRYPTO_DIR/ui/ui_openssl.c
+$__LIB_CRYPTO_DIR/ui/ui_util.c

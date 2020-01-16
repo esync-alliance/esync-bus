@@ -1,0 +1,5 @@
+#!gbuild
+[Subproject]
+$__LIB_MBEDTLS_DIR/programs/random/gen_entropy.c
+$__LIB_MBEDTLS_DIR/programs/random/gen_random_ctr_drbg.c
+$__LIB_MBEDTLS_DIR/programs/random/gen_random_havege.c

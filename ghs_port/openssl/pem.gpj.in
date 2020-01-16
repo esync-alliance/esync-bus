@@ -1,0 +1,14 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/pem/pem_all.c
+$__LIB_CRYPTO_DIR/pem/pem_err.c
+$__LIB_CRYPTO_DIR/pem/pem_info.c
+$__LIB_CRYPTO_DIR/pem/pem_lib.c
+$__LIB_CRYPTO_DIR/pem/pem_local.h
+$__LIB_CRYPTO_DIR/pem/pem_oth.c
+$__LIB_CRYPTO_DIR/pem/pem_pk8.c
+$__LIB_CRYPTO_DIR/pem/pem_pkey.c
+$__LIB_CRYPTO_DIR/pem/pem_sign.c
+$__LIB_CRYPTO_DIR/pem/pem_x509.c
+$__LIB_CRYPTO_DIR/pem/pem_xaux.c
+$__LIB_CRYPTO_DIR/pem/pvkfmt.c

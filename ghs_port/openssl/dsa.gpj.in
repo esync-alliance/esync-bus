@@ -1,0 +1,16 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/dsa/dsa.h
+$__LIB_CRYPTO_DIR/dsa/dsa_ameth.c
+$__LIB_CRYPTO_DIR/dsa/dsa_asn1.c
+$__LIB_CRYPTO_DIR/dsa/dsa_depr.c
+$__LIB_CRYPTO_DIR/dsa/dsa_err.c
+$__LIB_CRYPTO_DIR/dsa/dsa_gen.c
+$__LIB_CRYPTO_DIR/dsa/dsa_key.c
+$__LIB_CRYPTO_DIR/dsa/dsa_lib.c
+$__LIB_CRYPTO_DIR/dsa/dsa_locl.h
+$__LIB_CRYPTO_DIR/dsa/dsa_ossl.c
+$__LIB_CRYPTO_DIR/dsa/dsa_pmeth.c
+$__LIB_CRYPTO_DIR/dsa/dsa_prn.c
+$__LIB_CRYPTO_DIR/dsa/dsa_sign.c
+$__LIB_CRYPTO_DIR/dsa/dsa_vrf.c

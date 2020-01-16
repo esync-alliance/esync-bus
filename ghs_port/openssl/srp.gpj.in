@@ -1,0 +1,4 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/srp/srp_lib.c
+$__LIB_CRYPTO_DIR/srp/srp_vfy.c

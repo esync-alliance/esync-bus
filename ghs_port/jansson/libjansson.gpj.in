@@ -1,0 +1,28 @@
+#!gbuild
+
+macro __LIB_JANSSON_DIR=@LIB_JANSSON_DIR@
+[Library]
+	-object_dir=objs/libjansson
+	-I$__LIB_JANSSON_DIR
+	-I$__LIB_JANSSON_DIR/build
+	-I$__LIB_JANSSON_DIR/src
+	-c99 -g
+	-DHAVE_STDINT_H -g
+
+$__LIB_JANSSON_DIR/src/dump.c
+$__LIB_JANSSON_DIR/src/error.c
+$__LIB_JANSSON_DIR/src/hashtable.c
+$__LIB_JANSSON_DIR/src/hashtable.h
+$__LIB_JANSSON_DIR/src/hashtable_seed.c
+$__LIB_JANSSON_DIR/src/jansson.h
+$__LIB_JANSSON_DIR/src/jansson_private.h
+$__LIB_JANSSON_DIR/src/load.c
+$__LIB_JANSSON_DIR/src/lookup3.h
+$__LIB_JANSSON_DIR/src/memory.c
+$__LIB_JANSSON_DIR/src/pack_unpack.c
+$__LIB_JANSSON_DIR/src/strbuffer.c
+$__LIB_JANSSON_DIR/src/strbuffer.h
+$__LIB_JANSSON_DIR/src/strconv.c
+$__LIB_JANSSON_DIR/src/utf.c
+$__LIB_JANSSON_DIR/src/utf.h
+$__LIB_JANSSON_DIR/src/value.c

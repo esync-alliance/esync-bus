@@ -1,0 +1,8 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/idea/i_cbc.c
+$__LIB_CRYPTO_DIR/idea/i_cfb64.c
+$__LIB_CRYPTO_DIR/idea/i_ecb.c
+$__LIB_CRYPTO_DIR/idea/i_ofb64.c
+$__LIB_CRYPTO_DIR/idea/i_skey.c
+$__LIB_CRYPTO_DIR/idea/idea_local.h

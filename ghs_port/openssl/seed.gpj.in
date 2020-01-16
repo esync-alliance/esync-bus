@@ -1,0 +1,8 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/seed/seed.c
+$__LIB_CRYPTO_DIR/seed/seed_cbc.c
+$__LIB_CRYPTO_DIR/seed/seed_cfb.c
+$__LIB_CRYPTO_DIR/seed/seed_ecb.c
+$__LIB_CRYPTO_DIR/seed/seed_local.h
+$__LIB_CRYPTO_DIR/seed/seed_ofb.c

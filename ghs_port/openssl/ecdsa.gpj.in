@@ -1,0 +1,11 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/ecdsa/ecdsa.h
+$__LIB_CRYPTO_DIR/ecdsa/ecdsatest.c
+$__LIB_CRYPTO_DIR/ecdsa/ecs_asn1.c
+$__LIB_CRYPTO_DIR/ecdsa/ecs_err.c
+$__LIB_CRYPTO_DIR/ecdsa/ecs_lib.c
+$__LIB_CRYPTO_DIR/ecdsa/ecs_locl.h
+$__LIB_CRYPTO_DIR/ecdsa/ecs_ossl.c
+$__LIB_CRYPTO_DIR/ecdsa/ecs_sign.c
+$__LIB_CRYPTO_DIR/ecdsa/ecs_vrf.c

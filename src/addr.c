@@ -75,10 +75,6 @@ void xl4bus_free_address(xl4bus_address_t * addr, int chain) {
         } else {
             next = 0;
         }
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wswitch"
-
         switch (addr->type) {
             // case XL4BAT_SPECIAL:break;
             case XL4BAT_UPDATE_AGENT:
@@ -91,9 +87,6 @@ void xl4bus_free_address(xl4bus_address_t * addr, int chain) {
                 cfg.free(addr->x5ts256);
                 break;
         }
-
-#pragma clang diagnostic pop
-
         cfg.free(addr);
 
         addr = next;
@@ -344,7 +337,7 @@ int xl4bus_require_address(xl4bus_address_t * needle, xl4bus_address_t * haystac
         return E_XL4BUS_OK;
 
     }
-
+    return E_XL4BUS_INTERNAL;
 }
 
 int xl4bus_require_special(xl4bus_address_special_t special, xl4bus_address_t * haystack) {

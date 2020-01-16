@@ -1,0 +1,17 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/cms/cms_asn1.c
+$__LIB_CRYPTO_DIR/cms/cms_att.c
+$__LIB_CRYPTO_DIR/cms/cms_cd.c
+$__LIB_CRYPTO_DIR/cms/cms_dd.c
+$__LIB_CRYPTO_DIR/cms/cms_enc.c
+$__LIB_CRYPTO_DIR/cms/cms_env.c
+$__LIB_CRYPTO_DIR/cms/cms_err.c
+$__LIB_CRYPTO_DIR/cms/cms_ess.c
+$__LIB_CRYPTO_DIR/cms/cms_io.c
+$__LIB_CRYPTO_DIR/cms/cms_kari.c
+$__LIB_CRYPTO_DIR/cms/cms_lib.c
+$__LIB_CRYPTO_DIR/cms/cms_local.h
+$__LIB_CRYPTO_DIR/cms/cms_pwri.c
+$__LIB_CRYPTO_DIR/cms/cms_sd.c
+$__LIB_CRYPTO_DIR/cms/cms_smime.c

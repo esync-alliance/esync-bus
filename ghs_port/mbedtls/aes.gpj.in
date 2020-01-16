@@ -1,0 +1,4 @@
+#!gbuild
+[Subproject]
+$__LIB_MBEDTLS_DIR/programs/aes/aescrypt2.c
+$__LIB_MBEDTLS_DIR/programs/aes/crypt_and_hash.c

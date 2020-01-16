@@ -1,0 +1,10 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/objects/o_names.c
+$__LIB_CRYPTO_DIR/objects/obj_dat.c
+$__LIB_CRYPTO_DIR/objects/obj_dat.h
+$__LIB_CRYPTO_DIR/objects/obj_err.c
+$__LIB_CRYPTO_DIR/objects/obj_lib.c
+$__LIB_CRYPTO_DIR/objects/obj_local.h
+$__LIB_CRYPTO_DIR/objects/obj_xref.c
+$__LIB_CRYPTO_DIR/objects/obj_xref.h

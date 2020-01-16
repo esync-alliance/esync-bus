@@ -1,0 +1,12 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/aes/aes_cbc.c
+$__LIB_CRYPTO_DIR/aes/aes_cfb.c
+$__LIB_CRYPTO_DIR/aes/aes_core.c
+$__LIB_CRYPTO_DIR/aes/aes_ecb.c
+$__LIB_CRYPTO_DIR/aes/aes_ige.c
+$__LIB_CRYPTO_DIR/aes/aes_local.h
+$__LIB_CRYPTO_DIR/aes/aes_misc.c
+$__LIB_CRYPTO_DIR/aes/aes_ofb.c
+$__LIB_CRYPTO_DIR/aes/aes_wrap.c
+$__LIB_CRYPTO_DIR/aes/aes_x86core.c

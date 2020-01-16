@@ -38,7 +38,11 @@
 /**
  * Used to indicate that the library symbol is properly exported.
  */
+#if XL4_SYMBOL_VISIBILITY_SUPPORTED
 #define XL4_PUB __attribute__((visibility ("default")))
+#else
+#define XL4_PUB
+#endif
 #endif
 
 XL4_PUB

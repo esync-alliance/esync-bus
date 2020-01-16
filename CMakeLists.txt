@@ -167,6 +167,7 @@ set_empty(XL4_SUPPORT_UNIX_DGRAM_PAIR 1)
 set_empty(XL4_HAVE_GETTIMEOFDAY 1)
 set_empty(XL4_HAVE_STD_MALLOC 1)
 set_empty(XL4_HAVE_EPOLL 1)
+set_empty(XL4_SYMBOL_VISIBILITY_SUPPORTED 1)
 
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES build_config.h)
 
@@ -244,8 +245,11 @@ endif()
 include(${DEPS_CFG})
 
 if (XL4_PROVIDE_THREADS)
-    set(THREADS_PREFER_PTHREAD_FLAG TRUE)
-    find_package(Threads MODULE REQUIRED)
+    set_empty(NEED_PTHREADS TRUE)
+    if (NEED_PTHREADS)
+        set_empty(THREADS_PREFER_PTHREAD_FLAG TRUE)
+        find_package(Threads MODULE REQUIRED)
+    endif()
 endif()
 
 if (BUILD_SHARED)

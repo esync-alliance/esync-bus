@@ -9,7 +9,11 @@
 #include <libxl4bus/types.h>
 
 #ifndef XL4_PUB
+#if XL4_SYMBOL_VISIBILITY_SUPPORTED
 #define XL4_PUB __attribute__((visibility ("default")))
+#else
+#define XL4_PUB
+#endif
 #endif
 
 XL4_PUB

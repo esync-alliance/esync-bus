@@ -1,0 +1,6 @@
+#!gbuild
+[Subproject]
+$__LIB_CRYPTO_DIR/err/err.c
+$__LIB_CRYPTO_DIR/err/err.h
+$__LIB_CRYPTO_DIR/err/err_all.c
+$__LIB_CRYPTO_DIR/err/err_prn.c

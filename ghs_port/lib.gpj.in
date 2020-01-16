@@ -1,0 +1,9 @@
+#!gbuild
+[Subproject]
+$__LIB_XL4BUS_DIR/src/lib/common.c
+$__LIB_XL4BUS_DIR/src/lib/common.h
+$__LIB_XL4BUS_DIR/src/lib/debug.c
+$__LIB_XL4BUS_DIR/src/lib/debug.h
+$__LIB_XL4BUS_DIR/src/lib/poll_help.h
+$__LIB_XL4BUS_DIR/src/lib/rb_tree.c
+$__LIB_XL4BUS_DIR/src/lib/rb_tree.h
