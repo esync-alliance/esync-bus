@@ -344,7 +344,7 @@ int start_broker(broker_context_t * bc) {
         FATAL_SYS("Can't create epoll socket");
     }
 
-    struct epoll_event ev;
+    struct epoll_event ev = {0};
     ev.events = POLLIN;
     ev.data.ptr = &bc->main_pit;
 

@@ -345,7 +345,7 @@ int full_test_client_pause_receive(test_client_t * clt, int pause) {
 
     test_event_type_t need_event = pause ? TET_CLT_PAUSED : TET_CLT_UNPAUSED;
     xl4bus_pause_client_receive(&clt->bus_client, pause);
-    full_test_client_expect(0, clt, 0, need_event, TET_NONE);
+    full_test_client_expect(0, clt, 0, need_event, TET_NONE, TET_NONE);
 
 }
 
@@ -353,7 +353,7 @@ void full_test_client_stop(test_client_t * clt, int release) {
 
     if (clt->started) {
         xl4bus_stop_client(&clt->bus_client);
-        if (full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE) != E_XL4BUS_OK) {
+        if (full_test_client_expect(0, clt, 0, TET_CLT_QUIT, TET_NONE, TET_NONE) != E_XL4BUS_OK) {
             release = 0;
         } else {
             release_identity(&clt->bus_client.identity);
@@ -434,7 +434,9 @@ int full_test_broker_stop(test_broker_t * brk, int release) {
         FATAL_SYS("problem sending BCC message");
     }
 
-    if (full_test_broker_expect(0, brk, 0, TET_BRK_QUIT, TET_NONE) == E_XL4BUS_OK) {
+    close(fd);
+
+    if (full_test_broker_expect(0, brk, 0, TET_BRK_QUIT, TET_NONE, TET_NONE) == E_XL4BUS_OK) {
         pthread_join(brk->thread, 0);
 
         if (release) {
@@ -585,9 +587,6 @@ int full_test_broker_expect(int timeout_ms, test_broker_t * brk, test_event_t **
 static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** event,
         test_event_type_t first, va_list other) {
 
-    va_list use_other;
-    va_copy(use_other, other);
-
     test_event_type_t * success = 0;
     test_event_type_t * failure = 0;
     int success_count = 0;
@@ -606,7 +605,7 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
             consider = first;
             is_first = 0;
         } else {
-            consider = va_arg(use_other, int);
+            consider = va_arg(other, int);
         }
 
         if (consider == TET_NONE) {
@@ -623,7 +622,7 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
         TEST_DBG("Considering event %d for %s", consider, in_success ? "SUCCESS":"FAILURE");
 
         *target = realloc(*target, (*target_count+1) * sizeof(test_event_type_t));
-        *target[*target_count] = consider;
+        (*target)[*target_count] = consider;
         (*target_count)++;
 
     }
