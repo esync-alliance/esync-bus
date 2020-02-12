@@ -267,7 +267,9 @@ int main(int argc, char ** argv) {
     fclose(stderr);
 
     free(output_file_log);
-    fclose(output_log);
+    if (output_log) {
+        fclose(output_log);
+    }
 
     {
         // $TODO: It's bonkers that I have to do all this,
