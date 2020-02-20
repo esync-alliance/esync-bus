@@ -279,14 +279,13 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 // first need we need to do is to resolve our broker address.
                 i_clt->state = CS_RESOLVING;
                 DBG("Resolving host %s, family %d", i_clt->host, family);
-                ares_gethostbyname(i_clt->ares, i_clt->host,
-                        family, ares_gethostbyname_cb, clt);
 
 #if XL4_SUPPORT_IPV6 && XL4_SUPPORT_IPV4
                 // if we need both addresses
                 i_clt->dual_ip = 1;
 #endif
-
+                ares_gethostbyname(i_clt->ares, i_clt->host,
+                        family, ares_gethostbyname_cb, clt);
 
             }
 
@@ -465,6 +464,9 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 // socket has not been established, or we have failed.
                 // try next address, or go down.
                 ip_addr_t * addr = 0;
+
+                DBG("Connecting to address #%d", i_clt->net_addr_current);
+
                 if (i_clt->addresses) {
                     addr = &i_clt->addresses[i_clt->net_addr_current++];
                 }
@@ -488,6 +490,9 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                     ip_len = 4;
                 }
 #endif
+
+                DBG("Address family: %d", addr->family);
+
                 int async;
                 i_clt->tcp_fd = pf_connect_tcp(ip_addr, ip_len, (uint16_t) i_clt->port, &async);
 
@@ -710,7 +715,7 @@ void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent*
 
     do {
 
-        DBG("ARES reported status %d, hent at %p", status, hent);
+        DBG("ARES reported status %d, hostent at %p, dual IP:%s", status, hent, BOOL_STR(i_clt->dual_ip));
         if (status != ARES_SUCCESS) {
             DBG("ARES query failed");
             break;
@@ -774,6 +779,7 @@ void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent*
                     memcpy(ip->ipv6, hent->h_addr_list[i], 16);
                 }
 #endif
+
             }
         }
 
@@ -783,6 +789,7 @@ void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent*
 #pragma clang diagnostic pop
 
     if (err != E_XL4BUS_OK) {
+        // realistically, this only happens if we ran out of memory
         drop_client(clt, XL4BCC_RESOLUTION_FAILED);
         return;
     }
@@ -798,11 +805,18 @@ void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent*
     }
 #endif
 
+    // we are switching to the connecting state unconditionally,
+    // but it's possible that we haven't received any names
+    // post resolution. If there are no addresses known, then
+    // connecting phase will fail rather quickly.
     i_clt->state = CS_CONNECTING;
 
 }
 
 void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
+
+    DBG("Disconnecting client %p : %d", clt, how);
+
     client_internal_t * i_clt = clt->_private;
     i_clt->down_target = pf_ms_value() + XL4_CLIENT_RECONNECT_INTERVAL_MS;
     i_clt->state = CS_DOWN;
