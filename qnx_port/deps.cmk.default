@@ -22,10 +22,12 @@ if (NOT ${TEST})
 endif()
 
 # c-ares
-set(CARES_LIB ${CARES}/.libs/libcares.a)
-exists_all(TEST ${CARES_LIB})
-if (NOT ${TEST})
-    message(FATAL_ERROR "You must build c-ares sources first!")
+if (XL4_SUPPORT_RESOLVER)
+    set(CARES_LIB ${CARES}/.libs/libcares.a)
+    exists_all(TEST ${CARES_LIB})
+    if (NOT ${TEST})
+        message(FATAL_ERROR "You must build c-ares sources first!")
+    endif()
 endif()
 
 # jansson

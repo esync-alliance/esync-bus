@@ -12,11 +12,11 @@
 
 /*
  * XL4_PROVIDE_XXX - the library will compile the code
- * to provide a specific function.
+ * to provide a specific function or functionality.
  * XL4_SUPPORT_XXX - the library can use a specific functionality
  * that is otherwise provided by the platform (directly or through porting layer)
  * XL4_HAVE_XXX - the library can use a specific functionality if it is available
- * but if it is not, an alternative will not be used.
+ * but when it is not (i.e. HAVE_XXX is 0), an alternative will not be used.
  */
 
 /**
@@ -110,7 +110,20 @@
  */
 #cmakedefine XL4_HL_KEY_USE_EXPIRATION_MS @XL4_HL_KEY_USE_EXPIRATION_MS@
 
+/**
+ * If true, the library will debug reference counts for objects
+ * that use reference counts for its lifecycle management
+ */
 #cmakedefine01 XL4_DEBUG_REFS
+
+/**
+ * Whether the client will use a resolver (ARES) library.
+ * If set to FALSE, then only system getaddrinfo(3) will be
+ * used to fill in socket addresses. This will only work if
+ * provided addresses are already IP addresses, otherwise getaddrinfo(3)
+ * will block and cause performance issues.
+ */
+#cmakedefine01 XL4_SUPPORT_RESOLVER
 
 #ifndef XL4_MAX_UA_PATHS
 #define XL4_MAX_UA_PATHS 10

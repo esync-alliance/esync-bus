@@ -174,7 +174,9 @@ int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
     }
 
     cjose_set_alloc_funcs(cfg.malloc, cfg.realloc, cfg.free);
+#if XL4_SUPPORT_RESOLVER
     ares_library_init_mem(ARES_LIB_INIT_ALL, cfg.malloc, cfg.free, cfg.realloc);
+#endif
     mbedtls_platform_set_calloc_free(f_calloc, cfg.free);
 
 #endif

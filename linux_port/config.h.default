@@ -9,7 +9,9 @@
 #include <arpa/inet.h>
 #include <cjose/cjose.h>
 #include <sys/select.h>
+#if XL4_SUPPORT_RESOLVER
 #include <ares.h>
+#endif
 #include <stdio.h>
 #include <sys/time.h>
 

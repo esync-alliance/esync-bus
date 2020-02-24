@@ -14,6 +14,38 @@ ALL
   (Use "cmake -DCMAKE_BUILD_TYPE=Debug .." for debug config)
 * Run make to build the libraries, broker and sample clients
 
+CONFIGURING
+===========
+
+The following options can be used in config.cmk file in the port directory.
+If file doesn't exist, config.cmk.default will be used instead.
+To customize the configuration, copy config.cmk.defaults to config.cmk first.
+
+Supported options:
+* BUILD_SHARED (default TRUE)
+  Build shared version of the xl4bus client library
+* BUILD_STATIC (default TRUE)
+  Build static version of the xl4bus client library
+* BUILD_BINS (default TRUE)
+  Build xl4bus binaries - broker and the test clients
+* XL4_PROVIDE_THREADS (default TRUE, see build_config.h.in)
+* XL4_PROVIDE_DEBUG (default 0, see build_config.h.in)
+* XL4_PROVIDE_PRINTF (default 0, see build_config.h.in)
+* XL4_PROVIDE_PERF (default TRUE, see build_config.h.in)
+* XL4_PROVIDE_EPOLL_CREATE1 (default TRUE, see build_config.h.in)
+* XL4_SUPPORT_IPV6 (default TRUE, see build_config.h.in)
+* XL4_SUPPORT_IPV4 (default TRUE, see build_config.h.in)
+* XL4_SUPPORT_THREADS (default TRUE, see build_config.h.in)
+* XL4_SUPPORT_RESOLVER (default TRUE, see build_config.h.in)
+* XL4_SUPPORT_DGRAM_PAIR (default TRUE, see build_config.h.in)
+* XL4_HAVE_GETTIMEOFDAY (default TRUE, see build_config.h.in)
+* XL4_HAVE_STD_MALLOC (default TRUE, see build_config.h.in)
+* XL4_HAVE_EPOLL (default TRUE, see build_config.h.in)
+* XL4_MAX_UA_PATHS (default 10, see build_config.h.in)
+* XL4_HL_KEY_EXPIRATION_MS (default 24 hours, see build_config.h.in)
+* XL4_HL_KEY_USE_EXPIRATION_MS (default 1 hour, see build_config.h.in)
+* XL4_DEBUG_REFS (default FALSE, see build_config.h.in)
+
 LINUX
 =====
 

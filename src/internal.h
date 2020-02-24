@@ -384,7 +384,10 @@ typedef struct client_internal {
     pending_fd_t * pending;
     int pending_len;
     int pending_cap;
+
+#if XL4_SUPPORT_RESOLVER
     ares_channel ares;
+#endif
 
     ip_addr_t * addresses;
     int net_addr_current;

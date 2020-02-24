@@ -57,7 +57,11 @@ static char * state_str(client_state_t);
 #define SEND_LL(a,b,c,d) xl4bus_send_ll_message(a,b,c)
 #endif
 
+#if XL4_SUPPORT_RESOLVER
 static void ares_gethostbyname_cb(void *, int, int __unused, struct hostent*);
+#endif
+
+static int accept_resolved_address(xl4bus_client_t * clt, struct hostent*);
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
 static int ll_poll_cb(struct xl4bus_connection*, int, int);
 static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
@@ -160,7 +164,9 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
         i_clt->state = CS_DOWN;
         i_clt->tcp_fd = -1;
 
+#if XL4_SUPPORT_RESOLVER
         BOLT_ARES(ares_init(&i_clt->ares));
+#endif
 
 #if XL4_PROVIDE_THREADS
         BOLT_SYS(pf_init_lock(&i_clt->hash_lock), "");
@@ -197,9 +203,11 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
         }
 #endif
 
+#if XL4_SUPPORT_RESOLVER
         if (i_clt) {
             ares_destroy(i_clt->ares);
         }
+#endif
         cfg.free(i_clt);
         free(url_copy);
     }
@@ -284,8 +292,66 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 // if we need both addresses
                 i_clt->dual_ip = 1;
 #endif
+
+#if XL4_SUPPORT_RESOLVER
                 ares_gethostbyname(i_clt->ares, i_clt->host,
                         family, ares_gethostbyname_cb, clt);
+#else
+                struct addrinfo * addrs = 0;
+                int ga_res = getaddrinfo(i_clt->host, 0, 0, &addrs);
+                if (ga_res) {
+                    DBG("getaddrinfo() failed: %s", gai_strerror(ga_res));
+                    drop_client(clt, XL4BCC_RESOLUTION_FAILED);
+                    continue;
+                }
+
+                struct addrinfo * next = addrs;
+                int addr_count = 0;
+                while (next) {
+                    char * addr_list[2] = { 0, 0};
+                    struct hostent ent = {
+                            .h_addrtype = next->ai_family,
+                            .h_addr_list = addr_list,
+                    };
+
+                    int addr_ok = 0;
+
+#if XL4_SUPPORT_IPV4
+                    if (next->ai_family == AF_INET) {
+                        addr_ok = 1;
+                        ent.h_length = 4;
+                        addr_list[0] = (char*)&((struct sockaddr_in*)next->ai_addr)->sin_addr;
+                    }
+#endif
+#if XL4_SUPPORT_IPV6
+                    if (next->ai_family == AF_INET6) {
+                        addr_ok = 1;
+                        ent.h_length = 16;
+                        addr_list[0] = (char*)&((struct sockaddr_in6*)next->ai_addr)->sin6_addr;
+                    }
+#endif
+
+                    if (!addr_ok) {
+                        DBG("Unsupported address family %d", next->ai_family);
+                    }
+
+                    if (addr_ok && accept_resolved_address(clt, &ent) == E_XL4BUS_OK) {
+                        addr_count++;
+                    }
+                    next = next->ai_next;
+                }
+
+                freeaddrinfo(addrs);
+
+                if (!addr_count) {
+                    DBG("No addresses could be used");
+                    drop_client(clt, XL4BCC_RESOLUTION_FAILED);
+                    continue;
+                }
+
+                i_clt->state = CS_CONNECTING;
+                continue;
+#endif
 
             }
 
@@ -384,7 +450,9 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
         BOLT_SUB(err);
 
+#if XL4_SUPPORT_RESOLVER
         ares_process(i_clt->ares, &read, &write);
+#endif
 
         // reset any polled events.
         i_clt->pending_len = 0;
@@ -392,7 +460,9 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
         FD_ZERO(&read);
         FD_ZERO(&write);
 
+#if XL4_SUPPORT_RESOLVER
         int mfd = ares_fds(i_clt->ares, &read, &write);
+#endif
 
         known_fd_t * aux;
 
@@ -426,6 +496,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             }
         }
 
+#if XL4_SUPPORT_RESOLVER
         // now make sure we add all C-ARES pollers.
         for (int i=0; i<mfd; i++) {
             int reason = 0;
@@ -457,6 +528,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             }
 
         }
+#endif
 
         if (i_clt->state == CS_CONNECTING) {
 
@@ -704,29 +776,19 @@ int internal_set_poll(xl4bus_client_t *clt, int fd, int modes) {
 
 #endif
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-parameter"
-void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent* hent) {
-#pragma clang diagnostic pop
+int  accept_resolved_address(xl4bus_client_t * clt, struct hostent* hent) {
 
-    xl4bus_client_t * clt = arg;
     client_internal_t * i_clt = clt->_private;
     int err = E_XL4BUS_OK;
 
     do {
-
-        DBG("ARES reported status %d, hostent at %p, dual IP:%s", status, hent, BOOL_STR(i_clt->dual_ip));
-        if (status != ARES_SUCCESS) {
-            DBG("ARES query failed");
-            break;
-        }
 
         int addr_count;
         int addr_start;
         for (addr_count = 0; hent && hent->h_addr_list[addr_count]; addr_count++);
 
         if (!addr_count) {
-            DBG("Ares hostent result has 0 addresses?");
+            DBG("Hostent result has 0 addresses?");
             break;
         }
 
@@ -783,6 +845,34 @@ void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent*
             }
         }
 
+
+    } while (0);
+
+    return err;
+
+}
+
+#if XL4_SUPPORT_RESOLVER
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
+void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent* hent) {
+#pragma clang diagnostic pop
+
+    xl4bus_client_t * clt = arg;
+    client_internal_t * i_clt = clt->_private;
+    int err = E_XL4BUS_OK;
+
+    do {
+
+        DBG("ARES reported status %d, hostent at %p, dual IP:%s", status, hent, BOOL_STR(i_clt->dual_ip));
+        if (status != ARES_SUCCESS) {
+            DBG("ARES query failed");
+            break;
+        }
+
+        err = accept_resolved_address(clt, hent);
+
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
@@ -812,6 +902,8 @@ void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent*
     i_clt->state = CS_CONNECTING;
 
 }
+
+#endif
 
 void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
 
@@ -1822,7 +1914,12 @@ void stop_client_ts(xl4bus_client_t * clt) {
 #endif
 
     if (i_clt) {
+
+#if XL4_SUPPORT_RESOLVER
         ares_destroy(i_clt->ares);
+#endif
+
+
         // $TODO: should we hold cache lock?
 
         xl4bus_release_cache(&i_clt->cache);
