@@ -2,6 +2,8 @@
 #ifndef _XL4BUS_CONFIG_H_
 #define _XL4BUS_CONFIG_H_
 
+#include <libxl4bus/build_config.h>
+
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>

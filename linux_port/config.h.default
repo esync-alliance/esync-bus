@@ -2,6 +2,8 @@
 #ifndef _XL4BUS_CONFIG_H_
 #define _XL4BUS_CONFIG_H_
 
+#include <libxl4bus/build_config.h>
+
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
@@ -9,9 +11,11 @@
 #include <arpa/inet.h>
 #include <cjose/cjose.h>
 #include <sys/select.h>
+
 #if XL4_SUPPORT_RESOLVER
 #include <ares.h>
 #endif
+
 #include <stdio.h>
 #include <sys/time.h>
 
