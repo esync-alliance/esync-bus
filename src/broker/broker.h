@@ -49,7 +49,7 @@ typedef struct poll_info {
 
 typedef struct conn_info {
 
-    int reg_req;
+    int registered;
 
     int is_dm_client;
     int ua_count;

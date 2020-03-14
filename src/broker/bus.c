@@ -166,9 +166,9 @@ int process_incoming_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * m
 
                 xl4bus_set_session_key(conn, &session_key, 1);
 
-                if (!ci->reg_req) {
+                if (!ci->registered) {
 
-                    ci->reg_req = 1;
+                    ci->registered = 1;
 
                     BOLT_MEM(connected = json_object_new_array());
 
@@ -284,7 +284,7 @@ int process_incoming_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * m
 
                 }
 
-                if ((err = send_json_message(ci, "xl4bus.presence", json_object_get(body), msg->stream_id, 1, 1)) != E_XL4BUS_OK) {
+                if ((err = send_json_message(ci, MSG_TYPE_PRESENCE, json_object_get(body), msg->stream_id, 1, 1)) != E_XL4BUS_OK) {
                     ERR("failed to send a message : %s", xl4bus_strerr(err));
                     xl4bus_shutdown_connection(conn);
                 } else {
@@ -325,7 +325,7 @@ int process_incoming_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * m
 
                 int has_dest = x5t && (json_object_array_length(x5t) > 0);
 
-                send_json_message(ci, "xl4bus.destination-info", body, msg->stream_id, 1, !has_dest);
+                send_json_message(ci, MSG_TYPE_DESTINATION_INFO, body, msg->stream_id, 1, !has_dest);
 
                 if (!has_dest) {
                     E900(ci->ctx, f_asprintf("%p-%04x has no viable destinations for %s", conn, msg->stream_id, req_dest), conn->remote_address_list, 0);
@@ -485,7 +485,7 @@ int process_incoming_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * m
             }
 
             if (!msg->is_final) {
-                send_json_message(ci, "xl4bus.message-confirm", 0, stream_id, 1, 1);
+                send_json_message(ci, MSG_TYPE_MESSAGE_CONFIRM, 0, stream_id, 1, 1);
             }
 
         }

@@ -171,12 +171,12 @@ void send_presence(broker_context_t * bc, json_object * connected, json_object *
     DBG("Broadcasting presence change %s", json_object_get_string(body));
 
     DL_FOREACH_SAFE(bc->connections, ci, aux) {
-        if (ci == except) { continue; }
+        if (ci == except || !ci->registered) { continue; }
         uint16_t stream_id;
         if (xl4bus_get_next_outgoing_stream(ci->conn, &stream_id)) {
             continue;
         }
-        send_json_message(ci, "xl4bus.presence", json_object_get(body), stream_id, 0, 1);
+        send_json_message(ci, MSG_TYPE_PRESENCE, json_object_get(body), stream_id, 0, 1);
     }
 
     json_object_put(body);
@@ -504,7 +504,7 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
 
                     uint16_t stream_id;
                     err = xl4bus_get_next_outgoing_stream(ci->conn, &stream_id) ||
-                          send_json_message(ci, "xl4bus.alg-supported", body, stream_id, 0, 0);
+                          send_json_message(ci, MSG_TYPE_ALG_SUPPORTED, body, stream_id, 0, 0);
                     bc->timeout = pick_timeout(bc->timeout, ci->ll_poll_timeout);
                     // DBG("timeout adjusted to %d (new conn %p)", timeout, ci);
 
@@ -651,7 +651,7 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
 
                         uint16_t stream_id;
                         err = xl4bus_get_next_outgoing_stream(ci->conn, &stream_id) ||
-                              send_json_message(ci, "xl4bus.alg-supported", body, stream_id, 0, 0);
+                              send_json_message(ci, MSG_TYPE_ALG_SUPPORTED, body, stream_id, 0, 0);
                         timeout = pick_timeout(timeout, ci->ll_poll_timeout);
                         // DBG("timeout adjusted to %d (new conn %p)", timeout, ci);
 

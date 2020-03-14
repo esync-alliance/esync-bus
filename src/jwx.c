@@ -185,6 +185,8 @@ int decrypt_and_verify(decrypt_and_verify_data_t * dav) {
 
             BOLT_IF(!bin_len || bin[--bin_len], E_XL4BUS_DATA, "Serialization is not ASCIIZ");
 
+            // DBG("Incoming: %s", bin);
+
             if (dav->in_ct == CT_JOSE_COMPACT) {
                 BOLT_CJOSE(jwe = cjose_jwe_import(bin, bin_len, &c_err));
             } else {

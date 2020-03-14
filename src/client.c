@@ -1310,7 +1310,7 @@ int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * 
 
                     DBG("System message from broker : %s", json_object_get_string(root));
 
-                    if (!strcmp(type, "xl4bus.presence")) {
+                    if (!strcmp(type, MSG_TYPE_PRESENCE)) {
 
                         handle_presence(clt, root);
 
@@ -1336,7 +1336,7 @@ int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * 
 
         BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
 
-        if (i_clt->state == CS_EXPECTING_ALGO && !strcmp(type, "xl4bus.alg-supported")) {
+        if (i_clt->state == CS_EXPECTING_ALGO && !strcmp(type, MSG_TYPE_ALG_SUPPORTED)) {
 
             // $TODO: check the algorithms!
 
@@ -1372,7 +1372,7 @@ int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * 
                 // send registration request.
                 // https://gitlab.excelfore.com/schema/json/xl4bus/registration-request.json
                 BOLT_SUB(send_json_message(clt, 0, 1, 0, msg->stream_id,
-                        "xl4bus.registration-request", body, 1));
+                        MSG_TYPE_REG_REQUEST, body, 1));
 
             } while (0);
 
@@ -1382,7 +1382,7 @@ int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * 
             BOLT_NEST();
 
         } else if (i_clt->state == CS_EXPECTING_CONFIRM &&
-                   !strcmp(type, "xl4bus.presence") && msg->is_final) {
+                   !strcmp(type, MSG_TYPE_PRESENCE) && msg->is_final) {
 
             BOLT_IF(!msg->uses_session_key || !msg->uses_validation,
                     E_XL4BUS_DATA, "Presence message must use session key");
@@ -1543,7 +1543,7 @@ int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn,
                 BOLT_MEM(!json_object_array_add(bux, aux));
                 json_object_object_add(root, "x5t#S256", bux);
                 BOLT_SUB(send_json_message(clt, 1, 1, 0, msg->stream_id,
-                        "xl4bus.request-cert", root, 1));
+                        MSG_TYPE_REQUEST_CERT, root, 1));
 
                 record_mint(clt, mint, 1, 1, 1, 0);
 
@@ -1636,7 +1636,7 @@ int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn,
     if (err == E_XL4BUS_OK && confirm_message) {
         // tell broker we are done
         send_json_message(clt, 1, 1, 1, msg->stream_id,
-                "xl4bus.message-confirm", 0, 1);
+                MSG_TYPE_MESSAGE_CONFIRM, 0, 1);
     }
 
     return err;
@@ -1980,7 +1980,7 @@ void process_message_out(xl4bus_client_t * clt, message_internal_t * mint, int t
         json_object_object_add(json, "destinations", json_object_get(mint->addr));
 
         CHANGE_MIS(mint, MIS_WAIT_DESTINATIONS, "virgin message out on stream %05x", mint->stream_id);
-        send_json_message(clt, 1, 0, 0, mint->stream_id, "xl4bus.request-destinations", json, thread_safe);
+        send_json_message(clt, 1, 0, 0, mint->stream_id, MSG_TYPE_REQ_DESTINATIONS, json, thread_safe);
         break;
 
     }
@@ -2693,7 +2693,7 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
 
         DBG("mint %p state %d, received %s", mint, mint->mis, json_object_get_string(in_root));
 
-        if (mint->mis == MIS_NEED_REMOTE && !strcmp("xl4bus.cert-details", in_type)) {
+        if (mint->mis == MIS_NEED_REMOTE && !strcmp(MSG_TYPE_CERT_DETAILS, in_type)) {
 
             record_mint(clt, mint, 0, 1, 1, 0);
 
@@ -2703,7 +2703,7 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
 
             BOLT_NEST();
 
-        } else if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp("xl4bus.destination-info", in_type)) {
+        } else if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp(MSG_TYPE_DESTINATION_INFO, in_type)) {
 
             if (msg->is_final) {
 
@@ -2765,7 +2765,7 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
                     CHANGE_MIS(mint, MIS_WAIT_DETAILS, "requested certificates");
 
                     BOLT_SUB(send_json_message(clt, 1, 1, 0, mint->stream_id,
-                            "xl4bus.request-cert", body, 1));
+                            MSG_TYPE_REQ_CERT, body, 1));
 
                 } while (0);
 
@@ -2779,13 +2779,13 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
 
             }
 
-        } else if (mint->mis == MIS_WAIT_DETAILS && !strcmp("xl4bus.cert-details", in_type)) {
+        } else if (mint->mis == MIS_WAIT_DETAILS && !strcmp(MSG_TYPE_CERT_DETAILS, in_type)) {
 
             DBG("XCHG: %05x got certificate details", mint->stream_id);
 
             BOLT_SUB(receive_cert_details(clt, mint, msg, in_root));
 
-        } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp("xl4bus.message-confirm", in_type)) {
+        } else if (mint->mis == MIS_WAIT_CONFIRM && !strcmp(MSG_TYPE_MESSAGE_CONFIRM, in_type)) {
 
             DBG("XCHG: %05x got confirmation", mint->stream_id);
 
