@@ -12,6 +12,11 @@
 #endif
 
 #pragma pack(push,1)
+// if we don't pack that structure, the padding bytes
+// are not initialized if we use a structure initializer,
+// which raises valgrind warnings. Even though warnings
+// are benign (i.e. we are not actually using any of the
+// uninitialized memory), it's just easier to pack it.
 typedef struct itc_message {
     uint32_t magic;
 

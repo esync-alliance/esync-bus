@@ -37,7 +37,6 @@ typedef struct ll_message_container {
 
 static void client_thread(void *);
 static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
-static int internal_set_poll2(poll_info_t * poll_info, xl4bus_client_t *, int fd, int modes);
 static int apply_timeouts(xl4bus_client_t *, int need_timeout);
 static void clean_expired_things(xl4bus_client_t *);
 
