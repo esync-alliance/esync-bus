@@ -113,12 +113,19 @@ int xl4bus_process_connection(xl4bus_connection_t * conn, int fd, int flags) {
                 BOLT_SYS(1, "recv() EOF/error");
             }
 
-            if (buf_read == sizeof(itc_message_t) && ((itc_message_t*)ctl_buf)->magic == ITC_MESSAGE_MAGIC) {
-                BOLT_SUB(send_message_ts(conn, ((itc_message_t *) ctl_buf)->msg, ((itc_message_t *) ctl_buf)->ref));
-            } else if (buf_read == sizeof(itc_shutdown_t) && ((itc_shutdown_t*)ctl_buf)->magic == ITC_SHUTDOWN_MAGIC) {
+            if (buf_read != sizeof(itc_message_t)) {
+                BOLT_SAY(E_XL4BUS_INTERNAL, "Expected internal message size %d, got %d",
+                        sizeof(itc_message_t), (int)buf_read);
+            }
+
+            itc_message_t  * itc = ctl_buf;
+
+            if (itc->magic == ITC_MESSAGE_MAGIC) {
+                BOLT_SUB(send_message_ts(conn, itc->msg.msg, itc->msg.ref));
+            } else if (itc->magic == ITC_SHUTDOWN_MAGIC) {
                 BOLT_SAY(E_XL4BUS_CLIENT, "Shutdown message received");
-            } else if (conn->on_mt_message) {
-                BOLT_SUB(conn->on_mt_message(conn, ctl_buf, (size_t) buf_read));
+            } else {
+                BOLT_SAY(E_XL4BUS_INTERNAL, "Unknown ITC message %"PRIx32 "received", itc->magic);
             }
 
         }
@@ -389,13 +396,16 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
             break;
         }
 
-        itc_message_t itc;
-        memset(&itc, 0, sizeof(itc));
-        itc.msg = msg;
-        itc.ref = ref;
-        itc.magic = ITC_MESSAGE_MAGIC;
+        itc_message_t itc = {
+                .magic = ITC_MESSAGE_MAGIC,
+                .msg = {
+                        .msg = msg,
+                        .ref = ref
+                }
+        };
 
-        BOLT_SYS(pf_send(conn->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
+        connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+        BOLT_SYS(pf_send(i_conn->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"

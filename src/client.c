@@ -16,11 +16,6 @@ control_message_interceptor test_control_message_interceptor = 0;
 
 #if XL4_PROVIDE_THREADS
 
-typedef struct poll_info {
-    pf_poll_t * polls;
-    int polls_len;
-} poll_info_t;
-
 typedef struct aes_search_data {
     char * missing_kid;
     char * missing_x5t;
@@ -42,6 +37,7 @@ typedef struct ll_message_container {
 
 static void client_thread(void *);
 static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
+static int internal_set_poll2(poll_info_t * poll_info, xl4bus_client_t *, int fd, int modes);
 static int apply_timeouts(xl4bus_client_t *, int need_timeout);
 static void clean_expired_things(xl4bus_client_t *);
 
@@ -81,7 +77,7 @@ static int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remot
         int is_reply, int is_final, uint16_t stream_id, const char * type, /* copies */ json_object * body);
 static const cjose_jwk_t * rsa_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *data);
 static const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void *data);
-static void stop_client_ts(xl4bus_client_t * clt);
+static void stop_client_ts(xl4bus_client_t * clt, xl4bus_client_condition_t how);
 static int to_broker(xl4bus_client_t *, ll_message_container_t * msg, xl4bus_address_t * addr, int, int);
 static void free_outgoing_message(ll_message_container_t *);
 static int receive_cert_details(xl4bus_client_t *, message_internal_t *, xl4bus_ll_message_t *, json_object *);
@@ -102,10 +98,6 @@ static int is_mint_incoming(message_internal_t *mint);
 static int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg);
 static int get_xl4bus_message_msg(xl4bus_ll_message_t const *, json_object **, char const **);
 static int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t *, decrypt_and_verify_data_t  *, json_object *, char const * type);
-#endif
-
-#if XL4_SUPPORT_THREADS
-static int handle_mt_message(struct xl4bus_connection *, void *, size_t);
 #endif
 
 static hash_list_t * mint_by_kid = 0;
@@ -171,20 +163,20 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 #if XL4_PROVIDE_THREADS
         BOLT_SYS(pf_init_lock(&i_clt->hash_lock), "");
         if (clt->use_internal_thread) {
-            BOLT_SYS(pf_init_lock(&i_clt->run_lock), "");
-            BOLT_SYS(pf_lock(&i_clt->run_lock), "");
-            i_clt->run_locked = 1;
+            int pair[2];
+            BOLT_SYS(pf_dgram_pair(pair), "creating DGRAM pair");
+            BOLT_SYS(pf_set_nonblocking(i_clt->mt_read_socket = pair[0]), "setting non-blocking");
+            i_clt->mt_write_socket = pair[1];
+            BOLT_SUB(internal_set_poll(clt, i_clt->mt_read_socket, XL4BUS_POLL_READ));
             clt->set_poll = internal_set_poll;
             clt->mt_support = 1;
             BOLT_SYS(pf_start_thread(client_thread, clt), "starting client thread");
         } else {
+#endif
             if (clt->on_status) {
                 clt->on_status(clt, XL4BCC_CLIENT_START);
             }
-        }
-#else
-        if (clt->on_status) {
-            clt->on_status(clt, XL4BCC_CLIENT_START);
+#if XL4_PROVIDE_THREADS
         }
 #endif
 
@@ -196,12 +188,6 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
     // note, the caller must call process_client right away.
 
     if (err != E_XL4BUS_OK) {
-
-#if XL4_PROVIDE_THREADS
-        if (i_clt->run_locked) {
-            pf_unlock(&i_clt->run_lock);
-        }
-#endif
 
 #if XL4_SUPPORT_RESOLVER
         if (i_clt) {
@@ -417,7 +403,71 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
                 }
 
-            } else {
+#if XL4_SUPPORT_THREADS
+
+            } else if (pfd->fd == i_clt->mt_read_socket) {
+
+                int abort = 0;
+
+                if (pfd->flags & XL4BUS_POLL_ERR) {
+                    int sock_err = pf_get_socket_error(pfd->fd);
+                    pf_set_errno(sock_err);
+                    DBG_SYS("error on internal datagram socket, aborting client");
+                    abort = 1;
+                } else if (pfd->flags & XL4BUS_POLL_WRITE) {
+                    DBG("write event on read-only internal socket");
+                    abort = 1;
+                }
+
+                if (!abort) {
+
+                    void *ctl_buf = 0;
+
+                    ssize_t buf_read = pf_recv_dgram(pfd->fd, &ctl_buf, f_malloc);
+                    if (buf_read <= 0) {
+                        DBG_SYS("recv() EOF/error");
+                        abort = 1;
+                    } else if (buf_read != sizeof(itc_message_t)) {
+                        DBG("Invalid IT message size, needed %d, got %d",
+                                sizeof(itc_message_t), (int) buf_read);
+                        abort = 1;
+
+                    } else {
+
+                        itc_message_t *itc = ctl_buf;
+
+                        if (itc->magic == ITC_STOP_CLIENT_MAGIC) {
+                            ((client_internal_t *) ((itc->client))->_private)->stop = 1;
+                        } else
+
+#if WITH_UNIT_TEST
+
+                            if (itc->magic == ITC_PAUSE_RCV_MAGIC) {
+                                xl4bus_client_t * clt = itc->pause.client;
+                                ((client_internal_t *) clt->_private)->rcv_paused = itc->pause.pause;
+                                if (test_pause_callback) {
+                                    test_pause_callback(clt, itc->pause.pause);
+                                }
+                            } else
+#endif
+
+                            do {
+                                DBG("Unknown ITC message %"PRIx32, itc->magic);
+                                abort = 1;
+                            } while (0);
+                    }
+
+                    if (abort) {
+                        stop_client_ts(clt, XL4BCC_CONNECTION_ABORTED);
+                        break;
+                    }
+
+                }
+
+            }
+
+#endif
+            else {
 
                 // this is ARES socket then.
 
@@ -642,10 +692,8 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
 void client_thread(void * arg) {
 
-    poll_info_t poll_info = { .polls = 0, .polls_len = 0};
     xl4bus_client_t * clt = arg;
     client_internal_t * i_clt = clt->_private;
-    i_clt->xl4_thread_space = &poll_info;
 
     if (clt->on_status) {
         clt->on_status(clt, XL4BCC_CLIENT_START);
@@ -661,38 +709,32 @@ void client_thread(void * arg) {
                 poll_info.polls_len);
         */
 
-        pf_unlock(&i_clt->run_lock);
-        i_clt->run_locked = 0;
-
 #if WITH_UNIT_TEST
         if (i_clt->rcv_paused) {
             // if the reception is paused, we can just not poll the corresponding
             // file descriptor for data
-            for (int i=0; i<poll_info.polls_len; i++) {
-                if (poll_info.polls[i].fd == i_clt->ll->fd) {
-                    poll_info.polls[i].events &= ~XL4BUS_POLL_READ;
+            for (int i=0; i<i_clt->poll_info.polls_len; i++) {
+                if (i_clt->poll_info.polls[i].fd == i_clt->ll->fd) {
+                    i_clt->poll_info.polls[i].events &= ~XL4BUS_POLL_READ;
                 }
             }
         }
 #endif
 
-        int res = pf_poll(poll_info.polls, poll_info.polls_len, timeout);
+        int res = pf_poll(i_clt->poll_info.polls, i_clt->poll_info.polls_len, timeout);
         if (res < 0) {
             break;
         }
-        if (pf_lock(&i_clt->run_lock)) {
-            break;
-        }
-        i_clt->run_locked = 1;
 
         // it's possible that while we were polling, we got an
         // instruction to stop.
+        // $TODO: is it really possible, though?
         if (i_clt->stop) { break; }
 
         int poll_flag_failure = 0;
 
-        for (int i=0; res && i<poll_info.polls_len; i++) {
-            pf_poll_t * pp = poll_info.polls + i;
+        for (int i=0; res && i<i_clt->poll_info.polls_len; i++) {
+            pf_poll_t * pp = i_clt->poll_info.polls + i;
             if (pp->revents) {
                 res--;
                 // DBG("Clt %p : flagging %x for fd %d", clt, pp->revents, pp->fd);
@@ -707,24 +749,22 @@ void client_thread(void * arg) {
 
         xl4bus_run_client(clt, &timeout);
 
-        // xl4bus_run_client may have called handle_mt_message, that could have raised stop flag.
-
         if (i_clt->stop) {
             break;
         }
 
     }
 
-    free(poll_info.polls);
+    free(i_clt->poll_info.polls);
 
-    stop_client_ts(clt);
+    stop_client_ts(clt, XL4BCC_CLIENT_STOPPED);
 
 }
 
 int internal_set_poll(xl4bus_client_t *clt, int fd, int modes) {
 
     client_internal_t * i_clt = clt->_private;
-    poll_info_t * poll_info = i_clt->xl4_thread_space;
+    poll_info_t * poll_info = &i_clt->poll_info;
 
     // DBG("Clt %p requested to set poll %x for fd %d", clt, modes, fd);
 
@@ -1031,7 +1071,6 @@ int create_ll_connection(xl4bus_client_t * clt) {
 #if XL4_SUPPORT_THREADS
 
         i_clt->ll->mt_support = clt->mt_support;
-        i_clt->ll->on_mt_message = handle_mt_message;
 
 #endif
 
@@ -1588,9 +1627,9 @@ int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn,
 
 #if WITH_UNIT_TEST
             if (test_control_message_interceptor) {
-                                BOLT_SUB(test_control_message_interceptor(clt, msg, &dav, root, type));
-                                break;
-                            }
+                BOLT_SUB(test_control_message_interceptor(clt, msg, &dav, root, type));
+                break;
+            }
 #endif
 
             BOLT_SUB(xl4bus_process_client_message(clt, msg, &dav, root, type));
@@ -1835,22 +1874,10 @@ int xl4bus_stop_client(xl4bus_client_t *clt) {
         int err = E_XL4BUS_OK;
         do {
 
-            BOLT_SYS(pf_lock(&i_clt->run_lock), "");
-
-            if (i_clt->state == CS_RUNNING) {
-                do {
-                    itc_message_t itc = {0};
-                    itc.magic = ITC_STOP_CLIENT_MAGIC;
-                    itc.ref = clt;
-                    BOLT_SYS(pf_send(i_clt->ll->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
-                } while (0);
-            } else {
-                i_clt->stop = 1;
-            }
-
-            pf_unlock(&i_clt->run_lock);
-
-            BOLT_NEST();
+            itc_message_t itc = {0};
+            itc.magic = ITC_STOP_CLIENT_MAGIC;
+            itc.client = clt;
+            BOLT_SYS(pf_send(i_clt->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -1862,7 +1889,7 @@ int xl4bus_stop_client(xl4bus_client_t *clt) {
     }
 #endif
 
-    stop_client_ts(clt);
+    stop_client_ts(clt, XL4BCC_CLIENT_STOPPED);
     return E_XL4BUS_OK;
 
 }
@@ -1879,19 +1906,22 @@ void xl4bus_pause_client_receive(xl4bus_client_t *clt, int is_pause) {
 
     client_internal_t *i_clt = clt->_private;
 
-    itc_message_t itc = {0};
-    itc.magic = ITC_PAUSE_RCV_MAGIC;
-    itc.ref = clt;
-    itc.pause = is_pause;
-    pf_send(i_clt->ll->mt_write_socket, &itc, sizeof(itc));
+    itc_message_t itc = {
+            .magic = ITC_PAUSE_RCV_MAGIC,
+            .pause = {
+                    .pause = is_pause,
+                    .client = clt
+            }
+    };
+    pf_send(i_clt->mt_write_socket, &itc, sizeof(itc));
 
 }
 
 #endif
 
-void stop_client_ts(xl4bus_client_t * clt) {
+void stop_client_ts(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
 
-    drop_client(clt, XL4BCC_CLIENT_STOPPED);
+    drop_client(clt, how);
 
     // $TODO: we must clean up a ton of stuff
     // that's attached to this client, if it is stopped!!!
@@ -1901,14 +1931,9 @@ void stop_client_ts(xl4bus_client_t * clt) {
 #if XL4_PROVIDE_THREADS
 
     if (i_clt) { // that's probably always so
-        if (i_clt->run_locked) {
-            pf_unlock(&i_clt->run_lock);
-            i_clt->run_locked = 0; // useless
-        }
-
         pf_release_lock(i_clt->hash_lock);
-        pf_release_lock(i_clt->run_lock);
-
+        pf_close(i_clt->mt_read_socket);
+        pf_close(i_clt->mt_write_socket);
     }
 
 #endif
@@ -1918,7 +1943,6 @@ void stop_client_ts(xl4bus_client_t * clt) {
 #if XL4_SUPPORT_RESOLVER
         ares_destroy(i_clt->ares);
 #endif
-
 
         // $TODO: should we hold cache lock?
 
@@ -2395,36 +2419,6 @@ void free_outgoing_message(ll_message_container_t * msg) {
     cfg.free(msg);
 
 }
-
-#if XL4_SUPPORT_THREADS
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-parameter"
-int handle_mt_message(struct xl4bus_connection * conn, void * buf, size_t buf_size) {
-#pragma clang diagnostic pop
-
-    itc_message_t * itc = buf;
-
-    if (buf_size == sizeof(itc_message_t) && itc->magic == ITC_STOP_CLIENT_MAGIC) {
-        ((client_internal_t *) ((xl4bus_client_t *) (itc->ref))->_private)->stop = 1;
-    }
-
-#if WITH_UNIT_TEST
-
-    if (buf_size == sizeof(itc_message_t) && itc->magic == ITC_PAUSE_RCV_MAGIC) {
-        xl4bus_client_t * clt = itc->ref;
-        ((client_internal_t *) clt->_private)->rcv_paused = itc->pause;
-        if (test_pause_callback) {
-            test_pause_callback(clt, itc->pause);
-        }
-    }
-
-#endif
-
-    return E_XL4BUS_OK;
-
-}
-#endif
-
 
 int receive_cert_details(xl4bus_client_t * clt, message_internal_t * mint, xl4bus_ll_message_t * msg, json_object * root) {
 

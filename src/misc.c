@@ -333,7 +333,7 @@ int xl4bus_init_connection(xl4bus_connection_t * conn) {
             int pair[2];
             BOLT_SYS(pf_dgram_pair(pair), "creating DGRAM pair");
             BOLT_SYS(pf_set_nonblocking(i_conn->mt_read_socket = pair[0]), "setting non-blocking");
-            conn->mt_write_socket = pair[1];
+            i_conn->mt_write_socket = pair[1];
             BOLT_SUB(conn->set_poll(conn, i_conn->mt_read_socket, XL4BUS_POLL_READ));
         } else {
             i_conn->mt_read_socket = -1;
@@ -425,27 +425,6 @@ void clear_dbuf(xl4bus_buf_t * buf) {
 
 void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
 
-#if 0
-
-#if XL4_SUPPORT_THREADS
-
-    itc_shutdown_t itc;
-    itc.magic = ITC_SHUTDOWN_MAGIC;
-
-    if (pf_send(conn->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc)) {
-        return E_XL4BUS_SYS;
-    }
-
-#else
-
-    shutdown_connection_ts(conn);
-
-#endif
-
-    return E_XL4BUS_OK;
-
-#else
-
     if (conn->_init_magic != MAGIC_INIT) {
         return;
     }
@@ -454,8 +433,6 @@ void xl4bus_shutdown_connection(xl4bus_connection_t * conn) {
         i_conn->err = E_XL4BUS_CLIENT;
     }
     conn->set_poll(conn, XL4BUS_POLL_TIMEOUT_MS, 0);
-
-#endif
 
 }
 
@@ -494,7 +471,7 @@ void shutdown_connection_ts(xl4bus_connection_t * conn, char const * reason) {
     if (conn->mt_support) {
         conn->set_poll(conn, i_conn->mt_read_socket, XL4BUS_POLL_REMOVE);
         pf_close(i_conn->mt_read_socket);
-        pf_close(conn->mt_write_socket);
+        pf_close(i_conn->mt_write_socket);
     }
 #endif
 

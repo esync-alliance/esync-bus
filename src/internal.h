@@ -229,6 +229,7 @@ typedef struct connection_internal {
 
 #if XL4_SUPPORT_THREADS
     int mt_read_socket;
+    int mt_write_socket;
     void * hash_lock;
 #endif
 
@@ -377,6 +378,11 @@ typedef struct message_internal {
 
 } message_internal_t;
 
+typedef struct poll_info {
+    pf_poll_t * polls;
+    int polls_len;
+} poll_info_t;
+
 typedef struct client_internal {
 
     client_state_t state;
@@ -409,19 +415,16 @@ typedef struct client_internal {
     cjose_jwk_t * private_key;
 
 #if XL4_PROVIDE_THREADS
-    void * xl4_thread_space;
+    poll_info_t poll_info;
     int stop;
+    int mt_write_socket;
+    int mt_read_socket;
 
 #if WITH_UNIT_TEST
     int rcv_paused;
 #endif
 
     void * hash_lock;
-    /* run_lock is used to control client start/stop when low-level connection
-     * does not exist, and we can't exchange control messages yet
-     */
-    void * run_lock;
-    int run_locked;
 #endif
 
 #if XL4_SUPPORT_IPV4 && XL4_SUPPORT_IPV6
@@ -503,7 +506,7 @@ extern const mbedtls_md_info_t * hash_sha256;
 
 int check_conn_io(xl4bus_connection_t*);
 
-MAKE_REF_UNREF(stream);
+MAKE_REF_UNREF(stream)
 
 void release_stream(xl4bus_connection_t *, stream_t *, xl4bus_stream_close_reason_t);
 

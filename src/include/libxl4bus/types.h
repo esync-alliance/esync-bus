@@ -620,10 +620,11 @@ typedef struct xl4bus_connection {
     };
 
 #if XL4_SUPPORT_THREADS
+    /**
+     * If set to `!0`, indicates that the connection can be
+     * accessed from multiple thread, and corresponding support must be provided.
+     */
     int mt_support;
-    int mt_write_socket;
-    // int mt_read_socket;
-    xl4bus_mt_message_callback on_mt_message;
 #endif
 
     int stream_count;
@@ -696,6 +697,12 @@ typedef enum xl4bus_client_condition {
      * The previously established connection failed.
      */
     XL4BCC_CONNECTION_BROKE,
+
+    /**
+     * The client was aborted because of an internal condition that
+     * requires it to cease operations.
+     */
+    XL4BCC_CONNECTION_ABORTED,
 
     /**
      * The connection was explicitly stopped. This only delivered
