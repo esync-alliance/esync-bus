@@ -11,6 +11,7 @@
 #define ITC_PAUSE_RCV_MAGIC    0xf99291db
 #endif
 
+#pragma pack(push,1)
 typedef struct itc_message {
     uint32_t magic;
 
@@ -33,5 +34,6 @@ typedef struct itc_message {
 };
 
 } itc_message_t;
+#pragma pack(pop)
 
 #endif

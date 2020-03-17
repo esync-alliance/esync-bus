@@ -457,6 +457,8 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                             } while (0);
                     }
 
+                    free(ctl_buf);
+
                     if (abort) {
                         stop_client_ts(clt, XL4BCC_CONNECTION_ABORTED);
                         break;
