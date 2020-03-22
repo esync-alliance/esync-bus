@@ -186,6 +186,7 @@ int main(int argc, char ** argv) {
         test_name = #n; \
         check_loud_mode(#n); \
         if (n()) { \
+            TEST_ERR("FAILED UNIT TEST " #n); \
             if (ignore_failure(#n)) {\
                 i_count ++; \
             } else {\
