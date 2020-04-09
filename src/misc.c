@@ -561,25 +561,7 @@ char * f_asprintf(char * fmt, ...) {
 
 const char * xl4bus_version() {
 
-#if XL4_DISABLE_ENCRYPTION
-#define __ENC "<NO_ENC>"
-#elif XL4_FAKE_ENCRYPTION
-#define __ENC "<FAKE_ENC>"
-#endif
-#if XL4_DISABLE_JWS
-#define __JWS "<NO_JWS>"
-#endif
-#ifndef __ENC
-#define __ENC ""
-#endif
-#ifndef __JWS
-#define __JWS ""
-#endif
-
-    return BUILD_VERSION __JWS __ENC;
-
-#undef __ENC
-#undef __JWS
+    return BUILD_VERSION;
 
 }
 
