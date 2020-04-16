@@ -7,6 +7,7 @@
 #include "basics.h"
 #include "lib/hash_list.h"
 #include "bus-test-support.h"
+#include "itc.h"
 
 #if WITH_UNIT_TEST
 xl4bus_pause_callback test_pause_callback = 0;
@@ -437,6 +438,11 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
                         if (itc->magic == ITC_STOP_CLIENT_MAGIC) {
                             ((client_internal_t *) ((itc->client))->_private)->stop = 1;
+                        } else if (itc->magic == ITC_CLIENT_MESSAGE_MAGIC) {
+
+                            process_message_out(itc->client_msg.client, itc->client_msg.mint, 1);
+                            unref_message_internal(itc->client_msg.mint);
+
                         } else
 
 #if WITH_UNIT_TEST
@@ -1986,29 +1992,56 @@ char * state_str(client_state_t state) {
 
 void process_message_out(xl4bus_client_t * clt, message_internal_t * mint, int thread_safe) {
 
-    client_internal_t * i_clt = clt->_private;
-
-    if (i_clt->state != CS_RUNNING) {
-        return;
-    }
-
     int err = E_XL4BUS_OK;
-    json_object * json = 0;
 
-    while (mint->mis == MIS_VIRGIN) {
+    client_internal_t * i_clt = clt->_private;
+    json_object *json = 0;
 
-        BOLT_SUB(xl4bus_get_next_outgoing_stream(i_clt->ll, &mint->stream_id));
-        mint->msg->tracking_id = mint->stream_id;
-        BOLT_SUB(record_mint(clt, mint, 1, 0, 1, 0));
+    do {
 
-        BOLT_MEM(json = json_object_new_object());
-        json_object_object_add(json, "destinations", json_object_get(mint->addr));
+        if (!thread_safe) {
+#if XL4_PROVIDE_THREADS
 
-        CHANGE_MIS(mint, MIS_WAIT_DESTINATIONS, "virgin message out on stream %05x", mint->stream_id);
-        send_json_message(clt, 1, 0, 0, mint->stream_id, MSG_TYPE_REQ_DESTINATIONS, json, thread_safe);
-        break;
+            if (clt->use_internal_thread) {
 
-    }
+                do {
+                    itc_message_t itc = {0};
+                    itc.magic = ITC_CLIENT_MESSAGE_MAGIC;
+                    itc.client_msg.client = clt;
+                    itc.client_msg.mint = ref_message_internal(mint);
+                    BOLT_SYS(pf_send(i_clt->mt_write_socket, &itc, sizeof(itc)) != sizeof(itc), "pf_send");
+                    return;
+                } while (0);
+            }
+#endif
+
+            // if we are here, it's either because there was
+            // an error, or because we couldn't even schedule the message
+
+            BOLT_IF(err != E_XL4BUS_OK, E_XL4BUS_ARG, "Can support external thread messages");
+
+        }
+
+        if (i_clt->state != CS_RUNNING) {
+            // once connection is established, the message will be attempted delivery
+            // so we can just return.
+            return;
+        }
+
+        if (mint->mis == MIS_VIRGIN) {
+
+            BOLT_SUB(xl4bus_get_next_outgoing_stream(i_clt->ll, &mint->stream_id));
+            mint->msg->tracking_id = mint->stream_id;
+            BOLT_SUB(record_mint(clt, mint, 1, 0, 1, 0));
+
+            BOLT_MEM(json = json_object_new_object());
+            json_object_object_add(json, "destinations", json_object_get(mint->addr));
+
+            CHANGE_MIS(mint, MIS_WAIT_DESTINATIONS, "virgin message out on stream %05x", mint->stream_id);
+            send_json_message(clt, 1, 0, 0, mint->stream_id, MSG_TYPE_REQ_DESTINATIONS, json, 1);
+        }
+
+    } while (0);
 
     json_object_put(json);
 

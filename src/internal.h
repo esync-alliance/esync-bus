@@ -3,7 +3,6 @@
 
 #include "config.h"
 #include "porting.h"
-#include "itc.h"
 #include <libxl4bus/low_level.h>
 #include <libxl4bus/high_level.h>
 

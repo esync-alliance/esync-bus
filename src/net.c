@@ -4,6 +4,7 @@
 #include "misc.h"
 #include "debug.h"
 #include "basics.h"
+#include "itc.h"
 
 static int send_connectivity_test(xl4bus_connection_t* conn, int is_reply, uint8_t * value_32_bytes);
 static void set_frame_size(void *, uint32_t);

@@ -2,10 +2,12 @@
 #define _XL4BUS_ITC_H_
 
 #include <libxl4bus/low_level.h>
+#include "internal.h"
 
 #define ITC_MESSAGE_MAGIC      0xda8de347
 #define ITC_SHUTDOWN_MAGIC     0x947b67d3
 #define ITC_STOP_CLIENT_MAGIC  0x829fde1e
+#define ITC_CLIENT_MESSAGE_MAGIC     0xdea56459
 
 #if WITH_UNIT_TEST
 #define ITC_PAUSE_RCV_MAGIC    0xf99291db
@@ -29,6 +31,11 @@ typedef struct itc_message {
 
         xl4bus_client_t * client; // ITC_STOP_CLIENT_MAGIC
 
+        struct {
+            xl4bus_client_t * client;
+            message_internal_t * mint;
+        } client_msg; // ITC_CLIENT_MESSAGE_MAGIC
+
 #if WITH_UNIT_TEST
         struct {
             int pause;
@@ -36,7 +43,7 @@ typedef struct itc_message {
         } pause; // ITC_PAUSE_RCV_MAGIC
 #endif
 
-};
+    };
 
 } itc_message_t;
 #pragma pack(pop)
