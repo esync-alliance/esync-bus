@@ -116,7 +116,9 @@ XL4_PUB
  * library takes ownership of the message, and no associated data can be freed
  * until the message is returned back through the ::xl4bus_client_t.on_delivered.
  * In case when an error is returned, the library does not hold on to any references,
- * and the message can be disposed of right away.
+ * and the message can be disposed of right away. Note that sending message
+ * from application thread is only permitted if ::xl4bus_client_t.mt_support is
+ * `!0`.
  * @param clt client structure
  * @param msg message to send
  * @param arg argument, will be reported into the ::xl4bus_client_t.on_delivered.
@@ -132,9 +134,9 @@ int xl4bus_send_message2(xl4bus_client_t * clt, xl4bus_message_t * msg, void * a
 XL4_PUB
 /**
  * Older version of ::xl4bus_send_message2, simply calls
- * {@code xl4bus_send_message2(..., clt->use_internal_thread)}. Use the newer
- * function to make sure you properly specify whether the you are currently calling
- * from xl4bus callback, or from an application thread.
+ * {@code xl4bus_send_message2(..., 1)}. Newer function should be used to properly specify
+ * whether the call is coming from xl4bus client thread (typically executed from the message
+ * callback, or the polling thread used by the application), or some other (application) thread.
  */
 int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg);
 

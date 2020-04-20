@@ -621,8 +621,7 @@ typedef struct xl4bus_connection {
 
 #if XL4_SUPPORT_THREADS
     /**
-     * If set to `!0`, indicates that the connection can be
-     * accessed from multiple thread, and corresponding support must be provided.
+     * If '!0`, then connection supports multi-threading operations.
      */
     int mt_support;
 #endif
@@ -837,7 +836,11 @@ typedef struct xl4bus_client {
 
 #if XL4_SUPPORT_THREADS
     /**
-     * If the caller implements their own poll loop (and not use internal threads)
+     * The client shall support multi-threaded environment, meaning that the messages
+     * can be sent from a different thread that runs the poll loop. This is used for both
+     * cases when the polling loop thread is managed by the library or by the application.
+     * If the polling thread is managed by the library, this flag is automatically set to `!0`,
+     * and should not be changed by the application.
      */
     int mt_support;
 #endif

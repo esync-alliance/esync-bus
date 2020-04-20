@@ -64,7 +64,7 @@ static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 static void ll_shutdown_cb(xl4bus_connection_t *);
 static int create_ll_connection(xl4bus_client_t *);
-static void process_message_out(xl4bus_client_t *, message_internal_t *, int);
+static void process_message_out(xl4bus_client_t *, message_internal_t *, int on_internal_thread);
 static int get_xl4bus_message_dav(decrypt_and_verify_data_t * dav, json_object **, char const **);
 static int get_xl4bus_message(char const * data, size_t data_len, char const * ct, json_object **, char const **);
 static void release_message(xl4bus_client_t *, message_internal_t *, int);
@@ -81,7 +81,7 @@ static void stop_client_ts(xl4bus_client_t * clt, xl4bus_client_condition_t how)
 static int to_broker(xl4bus_client_t *, ll_message_container_t * msg, xl4bus_address_t * addr, int, int);
 static void free_outgoing_message(ll_message_container_t *);
 static int receive_cert_details(xl4bus_client_t *, message_internal_t *, xl4bus_ll_message_t *, json_object *);
-static int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int app_thread, int sure);
+static int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int on_internal_thread);
 static int record_mint(xl4bus_client_t * clt, message_internal_t * mint, int is_add, int with_list,
         int with_hash, int with_kid_hash_list);
 static void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add, int with_list,
@@ -163,13 +163,17 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 #if XL4_PROVIDE_THREADS
         BOLT_SYS(pf_init_lock(&i_clt->hash_lock), "");
         if (clt->use_internal_thread) {
+            clt->mt_support = 1;
+            clt->set_poll = internal_set_poll;
+        }
+        if (clt->mt_support) {
             int pair[2];
             BOLT_SYS(pf_dgram_pair(pair), "creating DGRAM pair");
             BOLT_SYS(pf_set_nonblocking(i_clt->mt_read_socket = pair[0]), "setting non-blocking");
             i_clt->mt_write_socket = pair[1];
-            BOLT_SUB(internal_set_poll(clt, i_clt->mt_read_socket, XL4BUS_POLL_READ));
-            clt->set_poll = internal_set_poll;
-            clt->mt_support = 1;
+            BOLT_SUB(clt->set_poll(clt, i_clt->mt_read_socket, XL4BUS_POLL_READ));
+        }
+        if (clt->use_internal_thread) {
             BOLT_SYS(pf_start_thread(client_thread, clt), "starting client thread");
         } else {
 #endif
@@ -1823,17 +1827,17 @@ int ll_msg_cb(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
 int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg) {
 
-    return send_message(clt, msg, arg, clt->use_internal_thread, 0);
+    return send_message(clt, msg, arg, 0);
 
 }
 
 int xl4bus_send_message2(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int app_thread) {
 
-    return send_message(clt, msg, arg, app_thread, 1);
+    return send_message(clt, msg, arg, !app_thread);
 
 }
 
-int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int app_thread, int sure) {
+int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int on_internal_thread) {
 
     int err /* = E_XL4BUS_OK */;
     message_internal_t * mint = 0;
@@ -1859,7 +1863,7 @@ int send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * arg, int 
     if (err != E_XL4BUS_OK) {
         dispose_message(clt, mint);
     } else {
-        process_message_out(clt, mint, !app_thread && sure);
+        process_message_out(clt, mint, on_internal_thread);
     }
 
     unref_message_internal(mint);
@@ -1876,7 +1880,7 @@ int xl4bus_stop_client(xl4bus_client_t *clt) {
     client_internal_t *i_clt = clt->_private;
 
 #if XL4_PROVIDE_THREADS
-    if (clt->use_internal_thread) {
+    if (clt->mt_support) {
 
         int err = E_XL4BUS_OK;
         do {
@@ -1990,7 +1994,7 @@ char * state_str(client_state_t state) {
 }
 #endif
 
-void process_message_out(xl4bus_client_t * clt, message_internal_t * mint, int thread_safe) {
+void process_message_out(xl4bus_client_t * clt, message_internal_t * mint, int on_internal_thread) {
 
     int err = E_XL4BUS_OK;
 
@@ -1999,11 +2003,9 @@ void process_message_out(xl4bus_client_t * clt, message_internal_t * mint, int t
 
     do {
 
-        if (!thread_safe) {
+        if (!on_internal_thread) {
 #if XL4_PROVIDE_THREADS
-
-            if (clt->use_internal_thread) {
-
+            if (clt->mt_support) {
                 do {
                     itc_message_t itc = {0};
                     itc.magic = ITC_CLIENT_MESSAGE_MAGIC;
@@ -2025,7 +2027,7 @@ void process_message_out(xl4bus_client_t * clt, message_internal_t * mint, int t
         if (i_clt->state != CS_RUNNING) {
             // once connection is established, the message will be attempted delivery
             // so we can just return.
-            return;
+            break;
         }
 
         if (mint->mis == MIS_VIRGIN) {
