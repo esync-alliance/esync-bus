@@ -1663,6 +1663,8 @@ int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn,
             BOLT_IF(!dav.remote, E_XL4BUS_INTERNAL, "No remote determined when doing DAV");
 
             message.source_address = dav.remote->addresses;
+            message.sender_data = dav.remote->sender_data;
+            message.sender_data_count = dav.remote->sender_data_count;
             message.address = to_addr;
 
             clt->on_message(clt, &message);

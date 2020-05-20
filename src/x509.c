@@ -9,6 +9,9 @@ static int define_symmetric_key(void const * key_data, size_t key_data_len, char
 
 static int expiration_cmp(rb_node_t * node, void * val_ptr);
 
+static xl4bus_sender_data_t * make_sender_el(xl4bus_sender_data_t ** sender_data, size_t * sender_data_count,
+        mbedtls_asn1_buf * oid);
+
 #if 0
 
 static void print_time(char *, mbedtls_x509_time *);
@@ -189,7 +192,7 @@ int accept_x5c(global_cache_t * cache, json_object * x5c, mbedtls_x509_crt * tru
             *ku_flags |= KU_FLAG_ENCRYPT;
         }
 
-        BOLT_SUB(address_from_cert(&entry->crt, &entry->addresses));
+        BOLT_SUB(data_from_cert(&entry->crt, &entry->addresses, &entry->sender_data, &entry->sender_data_count));
 
         BOLT_SYS(LOCK(cache->cert_cache_lock), "");
 
@@ -281,6 +284,8 @@ MAKE_UNREF_FUNCTION(remote_info) {
     cjose_jwk_release(obj->to_key);
     cjose_jwk_release(obj->old_to_key);
     xl4bus_free_address(obj->addresses, 1);
+    xl4bus_free_sender_data(obj->sender_data, obj->sender_data_count);
+
     cfg.free(obj);
 
 }
@@ -540,9 +545,15 @@ void release_remote_key_nl(global_cache_t * cache, remote_key_t * key) {
 
 }
 
-int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses) {
+int data_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses,
+        xl4bus_sender_data_t ** sender_data, size_t * sender_data_count) {
 
     int err = E_XL4BUS_OK;
+
+    if (sender_data) {
+        *sender_data = 0;
+        *sender_data_count = 0;
+    }
 
     do {
 
@@ -581,11 +592,12 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
                 }
 
                 cfg.free(x_oid);
-                x_oid = make_chr_oid(&oid);
-                // DBG("extension oid %s", NULL_STR(x_oid));
+                BOLT_MEM(x_oid = make_chr_oid(&oid));
+                DBG("extension oid %s", NULL_STR(x_oid));
 
                 int is_xl4bus_addr =  !z_strcmp(x_oid, "1.3.6.1.4.1.45473.1.6");
                 int is_xl4bus_group = !z_strcmp(x_oid, "1.3.6.1.4.1.45473.1.7");
+                int is_xl4bus_custom = !z_strcmp(x_oid, "1.3.6.1.4.1.45473.1.12");
 
                 // NOTE: we don't expect critical value because we always issue our certs
                 // marking out extensions as not critical, which is default, and therefore
@@ -594,10 +606,12 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
 
                 if (is_xl4bus_group) {
 
+                    if (!cert_addresses) { continue; }
+
                     size_t inner_len;
 
                     if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
-                        DBG("xl4group attr : not octet string");
+                        DBG("xl4group attr : not an octet string");
                         continue;
                     }
                     end = start + inner_len;
@@ -636,10 +650,12 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
 
                 if (is_xl4bus_addr) {
 
+                    if (!cert_addresses) { continue; }
+
                     size_t inner_len;
 
                     if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
-                        DBG("Addr attribute is not octet string");
+                        DBG("Addr attribute is not an octet string");
                         continue;
                     }
                     end = start + inner_len;
@@ -667,7 +683,7 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
                             }
 
                             cfg.free(x_oid);
-                            x_oid = make_chr_oid(&oid);
+                            BOLT_MEM(x_oid = make_chr_oid(&oid));
                             // DBG("extension oid %s", NULL_STR(x_oid));
 
                             if (!z_strcmp(x_oid, "1.3.6.1.4.1.45473.2.1")) {
@@ -716,6 +732,70 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
 
                 }
 
+                if (is_xl4bus_custom) {
+
+                    if (!sender_data) { continue; }
+
+                    size_t inner_len;
+
+                    if (mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
+                        DBG("Custom attribute is not an octet string");
+                        continue;
+                    }
+                    end = start + inner_len;
+
+                    // the extracted octet string should contain Xl4-Bus-Customs
+
+                    mbedtls_asn1_sequence addr;
+                    addr.next = 0;
+
+                    if (!mbedtls_asn1_get_sequence_of(&start, end, &addr,
+                            MBEDTLS_ASN1_SEQUENCE | MBEDTLS_ASN1_CONSTRUCTED)) {
+
+                        for (mbedtls_asn1_sequence *p_addr = &addr; p_addr; p_addr = p_addr->next) {
+
+                            // ok, customization contains of an OID, followed by a parameter.
+
+                            start = p_addr->buf.p;
+                            end = start + p_addr->buf.len;
+
+                            if (get_oid(&start, end, &oid)) {
+                                DBG("Address doesn't start with an OID");
+                                continue;
+                            }
+
+                            if (!mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_OCTET_STRING)) {
+
+                                xl4bus_sender_data_t * el = make_sender_el(sender_data, sender_data_count, &oid);
+                                BOLT_MEM(el);
+                                BOLT_MEM(el->data = cfg.malloc(inner_len));
+                                el->data_size = inner_len;
+                                memcpy((void*)el->data, start, inner_len);
+
+                            } else if (!mbedtls_asn1_get_tag(&start, end, &inner_len, MBEDTLS_ASN1_NULL)) {
+
+                                BOLT_MEM(make_sender_el(sender_data, sender_data_count, &oid));
+
+                            }
+
+                        }
+
+                        BOLT_NEST();
+
+                    } else {
+                        DBG("Custom attribute contents are not a sequence");
+                    }
+
+                    for (mbedtls_asn1_sequence *f_seq = addr.next; f_seq;) {
+                        void *ptr = f_seq;
+                        f_seq = f_seq->next;
+                        cfg.free(ptr);
+                    }
+
+                    BOLT_NEST();
+
+                }
+
             }
 
         }
@@ -734,5 +814,21 @@ int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses
 #pragma clang diagnostic pop
 
     return err;
+
+}
+
+xl4bus_sender_data_t * make_sender_el(xl4bus_sender_data_t ** sender_data, size_t * sender_data_count,
+        mbedtls_asn1_buf * oid) {
+
+    int err;
+
+    do {
+        BOLT_REALLOC_NS(*sender_data, xl4bus_sender_data_t, ++(*sender_data_count));
+        xl4bus_sender_data_t * el = &((*sender_data)[(*sender_data_count)-1]);
+        BOLT_MEM(el->oid = make_chr_oid(oid));
+        return el;
+    } while (0);
+
+    return 0;
 
 }

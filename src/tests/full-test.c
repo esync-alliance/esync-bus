@@ -232,6 +232,7 @@ int main(int argc, char ** argv) {
     CASE(esync_4381);
     CASE(esync_4413);
     CASE(esync_4417);
+    CASE(esync_4799);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
@@ -758,6 +759,7 @@ void full_test_free_event(test_event_t * evt) {
     if (evt->msg) {
         xl4bus_free_address(evt->msg->address, 1);
         xl4bus_free_address(evt->msg->source_address, 1);
+        xl4bus_free_sender_data((xl4bus_sender_data_t*)evt->msg->sender_data, evt->msg->sender_data_count);
         free((void*)evt->msg->content_type);
         free((void*)evt->msg->data);
         free(evt->msg);
@@ -841,6 +843,16 @@ void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg) {
     xl4bus_copy_address(msg->address, 1, &evt->msg->address);
     xl4bus_copy_address(msg->source_address, 1, &evt->msg->source_address);
     evt->msg->content_type = f_strdup(msg->content_type);
+
+    evt->msg->sender_data_count = msg->sender_data_count;
+    evt->msg->sender_data = f_malloc(msg->sender_data_count * sizeof(xl4bus_sender_data_t));
+    for (int i=0; i<evt->msg->sender_data_count; i++) {
+        *(char**)(&evt->msg->sender_data[i].oid) = f_strdup(msg->sender_data[i].oid);
+        *(void**)(&evt->msg->sender_data[i].data) = f_malloc(msg->sender_data[i].data_size);
+        *(size_t*)(&evt->msg->sender_data[i].data_size) = msg->sender_data[i].data_size;
+        memcpy((void*)evt->msg->sender_data[i].data, msg->sender_data[i].data, msg->sender_data[i].data_size);
+    }
+
     submit_event(&t_clt->events, evt);
 
 }

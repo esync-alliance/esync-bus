@@ -6,6 +6,7 @@
     <mapping directory="$PROJECT_DIR$/c-ares-build" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cjose" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cjose-build" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/ghs_port/openssl/openssl" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/jansson" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/json-c" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/json-c-build" vcs="Git" />

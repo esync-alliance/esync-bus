@@ -45,9 +45,13 @@ mkdir "$cdir" || {
 # is_broker=0
 
 has_addresses="1.3.6.1.4.1.45473.1.6=ASN1:SEQUENCE:bus_addresses"
+has_custom="1.3.6.1.4.1.45473.1.12=ASN1:SEQUENCE:custom_fields"
 bus_address_details=
 bus_addresses=
+custom_fields=
+custom_fields_details=
 addresses=""
+custom=""
 count=1
 
 read -rp "Include DMClient privileges [y/N]? " ans
@@ -77,14 +81,6 @@ while true; do
 
 done
 
-test -z "$addresses" && {
-    # if no addresses were provided, create a "general listener" address, so there is at least something.
-    addresses="$has_addresses"
-    seq="$count"
-    bus_addresses="${bus_addresses}|f$((count++))=SEQUENCE:address_seq_$seq"
-    bus_address_details="${bus_address_details}|[address_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.2.4|f$((count++))=NULL"
-}
-
 while true; do
 
     read -rp "Add group name [empty to end]: " ans
@@ -94,6 +90,31 @@ while true; do
     bus_groups="${bus_groups}|f$((count++))=UTF8String:$ans"
 
 done
+
+while true; do
+
+    read -rp "Specify eSync server endpoint allowed for execution [empty to end]: " ans
+    test -z "$ans" && break;
+
+    echo "$ans" | awk '{ if (substr($0,0,1) != "/") { exit 1; } split($0,e,"/"); for (i in e) { if (e[i] == "..") { exit 1; } }}' || {
+      echo "Value must start with '/' and not contain any .. path elements"
+      continue
+    }
+
+    custom="$has_custom"
+    seq="$count"
+    custom_fields="${custom_fields}|f$((count++))=SEQUENCE:custom_seq_$seq"
+    custom_fields_details="${custom_fields_details}|[custom_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.5.1|f$((count++))=OCTWRAP,UTF8String:$ans"
+
+done
+
+test -z "$addresses" && {
+    # if no addresses were provided, create a "general listener" address, so there is at least something.
+    addresses="$has_addresses"
+    seq="$count"
+    bus_addresses="${bus_addresses}|f$((count++))=SEQUENCE:address_seq_$seq"
+    bus_address_details="${bus_address_details}|[address_seq_$seq]|f$((count++))=OID:1.3.6.1.4.1.45473.2.4|f$((count++))=NULL"
+}
 
 cat > "$cdir/ca.conf" << _EOF_
 
@@ -259,6 +280,12 @@ authorityKeyIdentifier=keyid,issuer
 
 $addresses
 $groups
+$custom
+
+[ custom_fields ]
+$(echo $custom_fields | tr '|' '\n')
+
+$(echo $custom_fields_details | tr '|' '\n')
 
 [ bus_addresses ]
 $(echo $bus_addresses | tr '|' '\n')

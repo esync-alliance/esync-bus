@@ -63,8 +63,25 @@ XL4_PUB
  * @param addresses pointer to the tip of the address chain where the addresses will be stored.
  * @return ::E_XL4BUS_OK for success, or an error code if there was a problem extracting or
  * allocating address information.
+ * @deprecated Use ::xl4bus_get_identity_data instead.
  */
 int xl4bus_get_identity_addresses(xl4bus_identity_t * identity, xl4bus_address_t ** addresses);
+
+XL4_PUB
+/**
+ * Extracts addresses that this identity represents.
+ * @param conn connection to extract addresses from.
+ * @param addresses pointer to the tip of the address chain where the addresses will be stored. Can be `0`, so
+ * no addresses are extracted.
+ * @param sender_data pointer to the sender_data pointer that will be set to point to custom data associated
+ * with the certificate (if any). Can be `0` to not extract such data.
+ * @param sender_data_count pointer to a size_t that will be set with the length of sender data. Must be set to
+ * valid memory address if `sender_data` is `!0`.
+ * @return ::E_XL4BUS_OK for success, or an error code if there was a problem extracting or
+ * allocating address information.
+ */
+int xl4bus_get_identity_data(xl4bus_identity_t * identity, xl4bus_address_t ** addresses,
+        xl4bus_sender_data_t ** sender_data, size_t * sender_data_count);
 
 XL4_PUB
 /**
@@ -159,6 +176,14 @@ XL4_PUB
  * should be freed as well.
  */
 void xl4bus_free_address(xl4bus_address_t * addr, int chain);
+
+XL4_PUB
+/**
+ * Frees previously allocated custom data.
+ * @param data data to free
+ * @param count element count in the data object, as was reported when it was allocated.
+ */
+void xl4bus_free_sender_data(xl4bus_sender_data_t * data, size_t count);
 
 XL4_PUB
 /**

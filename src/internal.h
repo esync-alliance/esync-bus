@@ -310,6 +310,10 @@ typedef struct remote_info {
     // parsed xl4 bus addresses declared in the cert from the remote
     xl4bus_address_t * addresses;
 
+    // sender data declared in the cert from the remote
+    xl4bus_sender_data_t * sender_data;
+    size_t sender_data_count;
+
     cjose_jwk_t * to_key;
     char const * to_kid;
     // if that time is reached, make a new key
@@ -666,7 +670,7 @@ json_object * xl4json_make_obj_v(json_object *obj, va_list ap2);
 #define base64url_hash XI(base64url_hash)
 #define update_remote_symmetric_key XI(update_remote_symmetric_key)
 
-#define address_from_cert XI(address_from_cert)
+#define data_from_cert XI(data_from_cert)
 
 // finds the cjose key object for the specified tag.
 remote_info_t * find_by_x5t(global_cache_t *, const char * x5t);
@@ -681,7 +685,8 @@ int accept_remote_x5c(json_object * x5c, xl4bus_connection_t * conn, remote_info
 int process_remote_key(global_cache_t *, json_object*, char const * local_x5t, remote_info_t * source, char const ** kid);
 int update_remote_symmetric_key(char const * local_x5t, remote_info_t * remote);
 
-int address_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses);
+int data_from_cert(mbedtls_x509_crt * crt, xl4bus_address_t ** cert_addresses,
+        xl4bus_sender_data_t ** sender_data, size_t * sender_data_count);
 
 /**
  * Hash the specified data (SHA-256), and convert the result into base64url value.

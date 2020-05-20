@@ -375,6 +375,13 @@ int xl4bus_require_update_agent(const char * name, xl4bus_address_t * haystack) 
 
 int xl4bus_get_identity_addresses(xl4bus_identity_t * identity, xl4bus_address_t ** addresses) {
 
+    return xl4bus_get_identity_data(identity, addresses, 0, 0);
+
+}
+
+int xl4bus_get_identity_data(xl4bus_identity_t * identity, xl4bus_address_t ** addresses,
+        xl4bus_sender_data_t ** sender_data, size_t * sender_data_count) {
+
     int err = E_XL4BUS_OK;
 
     mbedtls_x509_crt crt;
@@ -383,6 +390,7 @@ int xl4bus_get_identity_addresses(xl4bus_identity_t * identity, xl4bus_address_t
     do {
 
         BOLT_IF(!identity, E_XL4BUS_ARG, "");
+        BOLT_IF(sender_data && !sender_data_count, E_XL4BUS_ARG, "Sender_data_count must be set if sender_data is set");
         switch (identity->type) {
             case XL4BIT_X509:
             {
@@ -395,7 +403,7 @@ int xl4bus_get_identity_addresses(xl4bus_identity_t * identity, xl4bus_address_t
                 } else {
                     BOLT_SAY(E_XL4BUS_ARG, "Unknown encoding %d", top->enc);
                 }
-                BOLT_SUB(address_from_cert(&crt, addresses));
+                BOLT_SUB(data_from_cert(&crt, addresses, sender_data, sender_data_count));
             }
                 break;
             default:
@@ -407,5 +415,15 @@ int xl4bus_get_identity_addresses(xl4bus_identity_t * identity, xl4bus_address_t
     mbedtls_x509_crt_free(&crt);
 
     return err;
+
+}
+
+void xl4bus_free_sender_data(xl4bus_sender_data_t * data, size_t count) {
+
+    for (size_t i=0; i<count; i++) {
+        cfg.free((void*)(data[i].oid));
+        cfg.free((void*)(data[i].data));
+    }
+    cfg.free(data);
 
 }

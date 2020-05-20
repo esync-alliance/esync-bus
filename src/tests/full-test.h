@@ -100,6 +100,8 @@ void full_test_submit_event(test_event_t ** event_queue, test_event_type_t type,
 
 #define TEST_CHR_EQUAL(chr1, chr2) BOLT_IF(z_strcmp(chr1, chr2), E_XL4BUS_INTERNAL, "String %s was expected to be equal to %s", chr2, chr1)
 #define TEST_CHR_N_EQUAL(chr1, chr2, len) BOLT_IF(z_strncmp(chr1, chr2, len), E_XL4BUS_INTERNAL, "String %.*s was expected to be equal to %.*s", len, chr2, len, chr1)
+#define TEST_INT_EQUAL(int1, int2) BOLT_IF(int1 != int2, E_XL4BUS_INTERNAL, "Value %d was expected to be equal to %d", int2, int1)
+#define TEST_MEM_EQUAL(addr1, addr2, len) BOLT_IF(memcmp(addr1, addr2, len), E_XL4BUS_INTERNAL, "Memory at %p did not match memory at %p for %zu", addr1, addr2, len)
 
 extern FILE * output_log;
 extern int show_debug;

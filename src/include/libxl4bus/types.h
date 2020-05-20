@@ -192,6 +192,28 @@ typedef struct xl4bus_address {
 } xl4bus_address_t;
 
 /**
+ * Custom sender data element representation.
+ */
+typedef struct xl4bus_sender_data {
+
+    /**
+     * OID of the data, in full form using numeric representation only.
+     */
+    char const * oid;
+
+    /**
+     * Data associated with the element, can be `0`.
+     */
+    void const * data;
+
+    /**
+     * Size of the data in ::data.
+     */
+    size_t data_size;
+
+} xl4bus_sender_data_t;
+
+/**
  * Message object, wraps actual message payload
  * exchanged by the clients.
  */
@@ -214,6 +236,16 @@ typedef struct xl4bus_message {
      * not be delivered.
      */
     xl4bus_address_t * source_address;
+
+    /**
+     * Any custom identity data that was found in the sender's certificate.
+     */
+    xl4bus_sender_data_t const * sender_data;
+
+    /**
+     * Number of the custom identity data entries in ::sender_data.
+     */
+    size_t sender_data_count;
 
     /**
      * Payload data
@@ -466,45 +498,6 @@ typedef struct xl4bus_X509v3_Identity {
 } xl4bus_X509v3_Identity_t;
 
 /**
- * Trust-based identity. No verification of identity
- * claims are performed. Used for insecure environments only.
- * The caller can either identify as a DM Client
- * (set ::xl4bus_Trust_Identity.is_dm_client), a Broker
- * (set ::xl4bus_Trust_Identity.is_broker), or
- * an Update Agent (set ::xl4bus_Trust_Identity.update_agent).
- * Only one field must be set.
- */
-typedef struct xl4bus_Trust_Identity {
-
-    /**
-     * If !0, then the caller identifies as a DM Client.
-     */
-    int is_dm_client;
-
-    /**
-     * If !0, then the caller identifies as a broker.
-     */
-    int is_broker;
-
-    /**
-     * Update agent name.
-     */
-    char * update_agent;
-
-    /**
-     * Number of group entries.
-     */
-    int group_cnt;
-
-    /**
-     * Array of pointers to group names. The length of the array is
-     * ::xl4bus_Trust_Identity.group_cnt.
-     */
-    char ** groups;
-
-} xl4bus_Trust_Identity;
-
-/**
  * Identity type enumeration.
  */
 typedef enum xl4bus_identity_type {
@@ -517,12 +510,11 @@ typedef enum xl4bus_identity_type {
      * identity details.
      */
     XL4BIT_X509 = 1,
+
     /**
-     * Trust identity, used for unsecure environments only.
-     * Use ::xl4bus_identity.trust to specify
-     * identity details.
+     * Placeholder for deprecated identity, should not be removed
      */
-    XL4BIT_TRUST
+    UNUSED0
 } xl4bus_identity_type_t;
 
 /**
@@ -542,10 +534,6 @@ typedef struct xl4bus_identity {
          * X.509 identity details, if type is ::XL4BIT_X509.
          */
         xl4bus_X509v3_Identity_t x509;
-        /**
-         * Trust identity details, if type is ::XL4BIT_TRUST
-         */
-        xl4bus_Trust_Identity trust;
     };
 
 } xl4bus_identity_t;
@@ -621,7 +609,8 @@ typedef struct xl4bus_connection {
 
 #if XL4_SUPPORT_THREADS
     /**
-     * If '!0`, then connection supports multi-threading operations.
+     * If set to `!0`, indicates that the connection can be
+     * accessed from multiple threads, and corresponding support must be provided.
      */
     int mt_support;
 #endif
