@@ -54,7 +54,7 @@ static char * state_str(client_state_t);
 #endif
 
 #if XL4_SUPPORT_RESOLVER
-static void ares_gethostbyname_cb(void *, int, int __unused, struct hostent*);
+static void ares_gethostbyname_cb(void *, int, int unused0, struct hostent*);
 #endif
 
 static int accept_resolved_address(xl4bus_client_t * clt, struct hostent*);
@@ -907,7 +907,7 @@ int  accept_resolved_address(xl4bus_client_t * clt, struct hostent* hent) {
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
-void ares_gethostbyname_cb(void * arg, int status, int __unused, struct hostent* hent) {
+void ares_gethostbyname_cb(void * arg, int status, int unused0, struct hostent* hent) {
 #pragma clang diagnostic pop
 
     xl4bus_client_t * clt = arg;
