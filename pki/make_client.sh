@@ -96,11 +96,6 @@ while true; do
     read -rp "Specify eSync server endpoint allowed for execution [empty to end]: " ans
     test -z "$ans" && break;
 
-    echo "$ans" | awk '{ if (substr($0,0,1) != "/") { exit 1; } split($0,e,"/"); for (i in e) { if (e[i] == "..") { exit 1; } }}' || {
-      echo "Value must start with '/' and not contain any .. path elements"
-      continue
-    }
-
     custom="$has_custom"
     seq="$count"
     custom_fields="${custom_fields}|f$((count++))=SEQUENCE:custom_seq_$seq"
