@@ -320,7 +320,7 @@ if (BUILD_BINS)
             ${BROKER_SRC}
             src/broker/broker_main.c )
 
-    add_executable(esyncbusr ${BROKER_BIN_SRC})
+    add_executable(esyncbus ${BROKER_BIN_SRC})
 
     if (RUN_TESTS)
         add_executable(esyncbus-untested ${BROKER_BIN_SRC})
