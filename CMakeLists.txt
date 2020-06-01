@@ -102,9 +102,6 @@ if((NOT IS_DIRECTORY "${PORT}") OR ("${PORT}" STREQUAL "${ROOT_DIR}"))
 endif()
 
 set(RUN_TESTS TRUE)
-if (CMAKE_CROSSCOMPILING)
-    set(RUN_TESTS FALSE)
-endif()
 
 set(LOAD_CFG ${PORT}/config.cmk)
 if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
@@ -173,6 +170,12 @@ set_empty(XL4_HAVE_GETTIMEOFDAY 1)
 set_empty(XL4_HAVE_STD_MALLOC 1)
 set_empty(XL4_HAVE_EPOLL 1)
 set_empty(XL4_SYMBOL_VISIBILITY_SUPPORTED 1)
+
+if (CMAKE_CROSSCOMPILING)
+    set(RUN_TESTS FALSE)
+    set(THREADS_PTHREAD_ARG 2)
+endif()
+
 
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES build_config.h)
 
