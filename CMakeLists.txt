@@ -1,5 +1,4 @@
-
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.4)
 project(libxl4bus)
 
 set(CMAKE_C_STANDARD 11)
