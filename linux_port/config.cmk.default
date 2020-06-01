@@ -11,3 +11,5 @@ set(EXTRA_LIBS -lm)
 set(LIB_SOURCE ${LIB_SOURCE} linux_port/config.h linux_port/port.c)
 
 set(XL4_FULL_TEST 1)
+set(ESYNC_ALLIANCE false)
+set(binName esyncbus)

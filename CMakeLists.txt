@@ -150,6 +150,11 @@ if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
     endif()
 endif()
 
+if(ESYNC_ALLIANCE)
+	set(BrokerBinName "${binName}") 
+else()
+	set(BrokerBinName "xl4bus-broker")
+endif()
 set_empty(BUILD_SHARED TRUE)
 set_empty(BUILD_STATIC TRUE)
 set_empty(BUILD_BINS TRUE)
@@ -320,10 +325,10 @@ if (BUILD_BINS)
             ${BROKER_SRC}
             src/broker/broker_main.c )
 
-    add_executable(esyncbus ${BROKER_BIN_SRC})
+    add_executable(${BrokerBinName} ${BROKER_BIN_SRC})
 
     if (RUN_TESTS)
-        add_executable(esyncbus-untested ${BROKER_BIN_SRC})
+        add_executable(${BrokerBinName}-untested ${BROKER_BIN_SRC})
     endif()
 
     add_executable(tree-test
@@ -341,7 +346,7 @@ if (BUILD_BINS)
         set(TEST_BINARIES ${TEST_BINARIES} "timeout-test")
     endif()
 
-    set(NORMAL_BINARIES "ll-client" "esyncbus" "esyncbus-untested")
+    set(NORMAL_BINARIES "ll-client" "${BrokerBinName}" "${BrokerBinName}-untested")
 
     if (XL4_PROVIDE_THREADS)
 
@@ -396,9 +401,9 @@ if (BUILD_BINS)
 
     set(BINARIES ${NORMAL_BINARIES} ${TEST_BINARIES})
 
-    install(TARGETS esyncbus RUNTIME DESTINATION bin)
+    install(TARGETS ${BrokerBinName} RUNTIME DESTINATION bin)
     
-    target_link_libraries(esyncbus ${JSON_C_LIB})
+    target_link_libraries(${BrokerBinName} ${JSON_C_LIB})
     
     if (WITH_EFENCE)
         targets_link_libraries(${BINARIES} LIBRARIES -lefence)
@@ -457,7 +462,7 @@ if (RUN_TESTS)
             set_tests_properties(unit-full-test PROPERTIES DEPENDS "unit-full-prepare")
         endif()
         add_custom_command(
-            TARGET esyncbus
+            TARGET ${BrokerBinName}
             DEPENDS ${TEST_BINARIES}
             COMMENT "Run tests"
             POST_BUILD
@@ -465,7 +470,7 @@ if (RUN_TESTS)
             COMMAND ${CMAKE_CTEST_COMMAND} -C $<CONFIGURATION> -V -R "^unit-"
         )
 
-        add_dependencies(esyncbus ${TEST_BINARIES})
+        add_dependencies(${BrokerBinName} ${TEST_BINARIES})
 
     endif()
 else()
