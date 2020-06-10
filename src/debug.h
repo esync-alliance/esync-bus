@@ -22,7 +22,7 @@
         usec_to_msec(&__tv); \
         localtime_r(&__tv.tv_sec, &__tmnow); \
         strftime(__now, 20, "[%m-%d:%H:%M:%S.", &__tmnow); \
-        sprintf(__now+15, "%03d] ", (int)(__tv.tv_usec)); \
+        sprintf(__now+16, "%03d] ", (int)(__tv.tv_usec)); \
     } else { \
         __now[0] = 0; \
     }
