@@ -13,8 +13,7 @@
 #include <mbedtls/pk.h>
 #include <mbedtls/x509_crt.h>
 
-#include "json-c-rename.h"
-#include <json.h>
+#include "renamed_json.h"
 #include "utarray.h"
 #include "uthash.h"
 

@@ -10,6 +10,7 @@
 #include "itc.h"
 
 #if WITH_UNIT_TEST
+
 xl4bus_pause_callback test_pause_callback = 0;
 xl4bus_handle_ll_message test_message_interceptor = 0;
 control_message_interceptor test_control_message_interceptor = 0;
@@ -979,10 +980,6 @@ void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
         i_clt->addresses = 0;
     }
 
-    if (clt->on_status) {
-        clt->on_status(clt, how);
-    }
-
     cjose_jwk_release(i_clt->private_key);
     i_clt->private_key = 0;
 
@@ -1018,7 +1015,13 @@ void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
                     mint->expired_count++;
                 }
             } else {
-                record_mint_nl(clt, mint, 0, 0, 1, 0);
+                // ESYNC-4841 this code here used to preserve those messages
+                // and attempt to process them when connection is re-established.
+                // It's a bad idea because that requires messages to be sent on
+                // the original stream the message came on, and that stream is not
+                // available anymore.
+                // record_mint_nl(clt, mint, 0, 0, 1, 0);
+                FOR_DISPOSAL(mint, "incomplete incoming message");
             }
 
         }
@@ -1049,6 +1052,10 @@ void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
         xl4bus_shutdown_connection(i_clt->ll);
         // $TODO: Is this safe to do from this (any) thread at this point?
         xl4bus_process_connection(i_clt->ll, -1, 0);
+    }
+
+    if (clt->on_status) {
+        clt->on_status(clt, how);
     }
 
 }
@@ -1468,10 +1475,7 @@ int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * 
 
             for (i=0; i < msg_count; i++) {
                 if (is_mint_incoming(mints[i])) {
-                    // note that we use 0 for mint here, to let the process fully restart,
-                    // otherwise there will be an expectation that previous request for
-                    // whatever data was missing, was successful.
-                    handle_client_message(0, conn, &mints[i]->ll_msg);
+                    DBG("Found incoming message state %p after (re)connect, please file a bug", mints[i]);
                     dispose_message(clt, mints[i]);
                 } else {
                     process_message_out(clt, mints[i], 1);
@@ -1561,8 +1565,8 @@ int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn,
                 mis = MIS_WAITING_KEY;
             }
 
-            // $TODO: the check below doesn't account for cirular issues, i.e.
-            // requesting cert is OK, but no key, thent here is key, but no cert,
+            // $TODO: the check below doesn't account for circular issues, i.e.
+            // requesting cert is OK, but no key, then here is key, but no cert,
             // this state will keep requesting forever...
             BOLT_IF(mint && mis == mint->mis, E_XL4BUS_DATA,
                     "Remote request %d already made, still can not decrypt, dumping message", mis);
@@ -2611,7 +2615,7 @@ int record_mint(xl4bus_client_t * clt, message_internal_t * mint, int is_add, in
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
-#pragma clang diagnostic pop
+#pragma clang diagnostic pop1
 
 #if XL4_SUPPORT_THREADS
     if (locked) {
@@ -2705,7 +2709,6 @@ void clean_expired_things(xl4bus_client_t * clt) {
         UNLOCK(cache->cert_cache_lock);
 
     }
-
 
 }
 
@@ -2850,3 +2853,11 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
     return err;
 
 }
+
+#if WITH_UNIT_TEST
+
+int e_test_is_mint_incoming(message_internal_t *mint) {
+    return is_mint_incoming(mint);
+}
+
+#endif

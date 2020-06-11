@@ -232,6 +232,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/basics.h
     src/basics.c
     src/lib/hash_list.h
+    src/renamed_json.h
 )
 
 set(DEPS_CFG ${PORT}/deps.cmk)
@@ -357,9 +358,11 @@ if (BUILD_BINS)
 
         if (XL4_FULL_TEST AND BUILD_SHARED)
 
+            aux_source_directory(src/tests/embedded EMBEDDED_TEST_CODE)
+
             # let's build our own version of the shared library,
             # because we'll have some testing code built into it.
-            add_library(xl4bus-shared-test SHARED ${LIB_SOURCE})
+            add_library(xl4bus-shared-test SHARED ${LIB_SOURCE} ${EMBEDDED_TEST_CODE})
             set_target_properties(xl4bus-shared-test PROPERTIES OUTPUT_NAME xl4bus-test CLEAN_DIRECT_OUTPUT 1)
             set(THREADED_BINARIES ${THREADED_BINARIES} xl4bus-shared-test)
             target_link_libraries(xl4bus-shared-test ${SHARED_LIBS})

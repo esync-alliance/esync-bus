@@ -4,6 +4,9 @@
 #ifndef _XL4BUS_BUS_TEST_SUPPORT_H_
 #define _XL4BUS_BUS_TEST_SUPPORT_H_
 
+#include <libxl4bus/types.h>
+#include "renamed_json.h"
+
 #ifndef XL4_PUB
 /**
  * Used to indicate that the library symbol is properly exported.
@@ -16,7 +19,7 @@
 struct decrypt_and_verify_data;
 
 typedef void (*xl4bus_pause_callback)(struct xl4bus_client *, int is_pause);
-typedef int (*control_message_interceptor)(xl4bus_client_t * clt, xl4bus_ll_message_t *,
+typedef int (*control_message_interceptor)(struct xl4bus_client * clt, xl4bus_ll_message_t *,
         struct decrypt_and_verify_data * dav, json_object * msg, char const * type);
 XL4_PUB void xl4bus_pause_client_receive(xl4bus_client_t * clt, int is_pause);
 XL4_PUB int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg);

@@ -1,8 +1,7 @@
 #ifndef _XL4BUS_BASICS_H_
 #define _XL4BUS_BASICS_H_
 
-#include "json-c-rename.h"
-#include <json.h>
+#include "renamed_json.h"
 
 // whatever is defined in this header file can be used by both the library and our own clients.
 // this header, therefore, must not defined any functions, unless they are inline, or can execute

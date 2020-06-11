@@ -8,8 +8,7 @@
 
 #include "lib/rb_tree.h"
 
-#include "json-c-rename.h"
-#include <json.h>
+#include "renamed_json.h"
 
 #include <mbedtls/x509.h>
 #include <mbedtls/x509_crt.h>

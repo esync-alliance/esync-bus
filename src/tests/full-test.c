@@ -233,6 +233,7 @@ int main(int argc, char ** argv) {
     CASE(esync_4413);
     CASE(esync_4417);
     CASE(esync_4799);
+    CASE(esync_4841);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
