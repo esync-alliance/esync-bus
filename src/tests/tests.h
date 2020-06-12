@@ -34,7 +34,7 @@ static inline const char * test_chop_path(const char * path) {
 } while(0)
 
 #define iERR(f, x...) do { \
-    fprintf(stderr, "%s:%d: " f "\n", test_chop_path(__FILE__), __LINE__ , ## x); \
+    fprintf(stderr, "(TEST ERROR, ABORTING) %s:%d: " f "\n", test_chop_path(__FILE__), __LINE__ , ## x); \
     _exit(1); \
     } while(0)
 

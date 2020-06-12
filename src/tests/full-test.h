@@ -94,6 +94,7 @@ int full_test_broker_expect(int timeout_ms, test_broker_t *, test_event_t ** eve
 void full_test_print_out(char const * msg);
 void full_test_print_out_d(int, int, char const * msg);
 int full_test_send_message(test_client_t * from, test_client_t * to, char * str);
+int full_test_send_message2(test_client_t * from, xl4bus_address_t * to, char * str);
 extern char const * test_name;
 int full_test_if_bus_message(const xl4bus_ll_message_t *, char const *);
 void full_test_submit_event(test_event_t ** event_queue, test_event_type_t type, ...);

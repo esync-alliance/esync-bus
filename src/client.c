@@ -90,15 +90,15 @@ static void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int
 static void dispose_message(xl4bus_client_t *clt, message_internal_t *mint);
 static void release_remotes(message_internal_t * mint);
 static int is_expired(message_internal_t *);
-static void reattempt_pending_message(xl4bus_connection_t *, message_internal_t *);
-static int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, message_internal_t * mint);
-int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn, xl4bus_ll_message_t * msg);
+static void reattempt_pending_message(xl4bus_connection_t *, message_internal_t *, int * need_reconnect);
+static int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, message_internal_t * mint, int * need_reconnect);
+int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, int * need_reconnect);
 static int is_mint_incoming(message_internal_t *mint);
 
 #if !WITH_UNIT_TEST
 static int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg);
 static int get_xl4bus_message_msg(xl4bus_ll_message_t const *, json_object **, char const **);
-static int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t *, decrypt_and_verify_data_t  *, json_object *, char const * type);
+static int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t *, decrypt_and_verify_data_t  *, json_object *, char const * type, int * need_reconnect);
 #endif
 
 static hash_list_t * mint_by_kid = 0;
@@ -453,10 +453,10 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 #if WITH_UNIT_TEST
 
                             if (itc->magic == ITC_PAUSE_RCV_MAGIC) {
-                                xl4bus_client_t * clt = itc->pause.client;
-                                ((client_internal_t *) clt->_private)->rcv_paused = itc->pause.pause;
+                                xl4bus_client_t * clt2 = itc->pause.client;
+                                ((client_internal_t *) clt2->_private)->rcv_paused = itc->pause.pause;
                                 if (test_pause_callback) {
-                                    test_pause_callback(clt, itc->pause.pause);
+                                    test_pause_callback(clt2, itc->pause.pause);
                                 }
                             } else
 #endif
@@ -1100,7 +1100,7 @@ int create_ll_connection(xl4bus_client_t * clt) {
         BOLT_SUB(make_private_key(&i_clt->ll->identity, 0, &i_clt->private_key));
 
         BOLT_SUB(xl4bus_init_connection(i_clt->ll));
-        DBG("LLC created %p in %p", i_clt->ll, clt);
+        DBG("LLC created %p in %p, my x5t is %s", i_clt->ll, clt, i_clt->ll->my_x5t);
 
         i_clt->state = CS_EXPECTING_ALGO;
 
@@ -1268,9 +1268,9 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
             recipients[i].jwk = mint->remotes[i]->to_key;
         }
 
-        json_object_object_add(bus_object, "destinations", json_object_get(mint->addr));
-
         BOLT_NEST();
+
+        json_object_object_add(bus_object, "destinations", json_object_get(mint->addr));
 
         BOLT_CJOSE(hdr = cjose_header_new(&c_err));
 
@@ -1317,7 +1317,7 @@ int send_main_message(xl4bus_client_t * clt, message_internal_t * mint) {
 
 int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
 
-    int err/* = E_XL4BUS_OK*/;
+    int err = E_XL4BUS_OK;
     json_object * root = 0;
     cjose_err c_err;
 
@@ -1328,63 +1328,83 @@ int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * 
 
     do {
 
-        // $TODO: a lot of errors here will lead to client dropping the connection
-        // all together. In most of the cases, this should be just dropping a stream
-
         xl4bus_client_t * clt = conn->custom;
         client_internal_t * i_clt = clt->_private;
         char const * type;
 
+        // every time this method returns not OK, the connection is dropped (and then re-established).
+        // we should be careful about when we drop or don't drop the connection, otherwise we can be
+        // easily DoSed by our own bugs.
+
+        // it's OK to reconnect for this, since this means we can't trust broker message(s), something
+        // must be really wrong (with the broker), but essentially we can't function as a client anymore.
         BOLT_IF(!msg->uses_validation, E_XL4BUS_DATA, "Incoming message is not validated, refusing to process");
 
         if (i_clt->state == CS_RUNNING) {
 
+            int need_reconnect = 0;
+
+            do {
+
+                // this block generally doesn't cause returning non-OK, except for the cases when used
+                // functions asked for that explicitly. The reason to drop a connection if the problem
+                // is related to being able to send a message back, i.e. it's actually a network problem
+                // of some kind.
+
 #if XL4_SUPPORT_THREADS
-            BOLT_SYS(pf_lock(&i_clt->hash_lock), "");
+                BOLT_SYS(pf_lock(&i_clt->hash_lock), "");
 #endif
 
-            HASH_FIND(hh, i_clt->stream_hash, &msg->stream_id, 2, mint);
-            mint = ref_message_internal(mint);
+                HASH_FIND(hh, i_clt->stream_hash, &msg->stream_id, 2, mint);
+                mint = ref_message_internal(mint);
 
 #if XL4_SUPPORT_THREADS
-            pf_unlock(&i_clt->hash_lock);
+                pf_unlock(&i_clt->hash_lock);
 #endif
 
-            DBG("XCHG: %05x Incoming stream, mint %p", msg->stream_id, mint);
+                DBG("XCHG: %05x Incoming stream, mint %p", msg->stream_id, mint);
 
-            if (mint) {
+                if (mint) {
 
-                BOLT_SUB(handle_state_message(conn, msg, mint));
-
-            } else {
-
-                if (!z_strcmp(msg->content_type, FCT_BUS_MESSAGE)) {
-
-                    BOLT_IF(!msg->uses_validation || !msg->uses_encryption, E_XL4BUS_DATA,
-                            "System messages must be signed and encrypted");
-
-                    BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
-
-                    DBG("System message from broker : %s", json_object_get_string(root));
-
-                    if (!strcmp(type, MSG_TYPE_PRESENCE)) {
-
-                        handle_presence(clt, root);
-
-                    } else {
-
-                        DBG("Unknown message type %s received : %s", type, json_object_get_string(root));
-
-                    }
+                    BOLT_SUB(handle_state_message(conn, msg, mint, &need_reconnect));
 
                 } else {
 
-                    DBG("Incoming message, expecting client encryption");
+                    if (!z_strcmp(msg->content_type, FCT_BUS_MESSAGE)) {
 
-                    BOLT_SUB(handle_client_message(0, conn, msg));
+                        BOLT_IF(!msg->uses_validation || !msg->uses_encryption, E_XL4BUS_DATA,
+                                "System messages must be signed and encrypted");
+
+                        BOLT_SUB(get_xl4bus_message_msg(msg, &root, &type));
+
+                        DBG("System message from broker : %s", json_object_get_string(root));
+
+                        if (!strcmp(type, MSG_TYPE_PRESENCE)) {
+
+                            handle_presence(clt, root);
+
+                        } else {
+
+                            DBG("Unknown message type %s received : %s", type, json_object_get_string(root));
+
+                        }
+
+                    } else {
+                        DBG("Incoming message, expecting client encryption");
+                        handle_client_message(0, conn, msg, &need_reconnect);
+                    }
 
                 }
 
+            } while (0);
+
+            if (err != E_XL4BUS_OK) {
+                DBG("Message on stream %04x could not be processed, will reconnect: %s",
+                        msg->stream_id, BOOL_STR(need_reconnect));
+                if (!need_reconnect) {
+                    xl4bus_abort_stream(conn, msg->stream_id);
+                    err = E_XL4BUS_OK;
+                }
             }
 
             break;
@@ -1512,7 +1532,8 @@ int xl4bus_process_ll_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * 
 
 }
 
-int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
+int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn, xl4bus_ll_message_t * msg,
+        int * need_reconnect) {
 
     int err /*= E_XL4BUS_OK*/;
 
@@ -1610,15 +1631,15 @@ int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn,
                         "S", "kid", asd.missing_kid,
                         NULL));
 
-                /*
-                 * that should not be possible because we always create a new mint above.
-                record_mint(clt, mint, 0, 0, 0, 1);
-                free(mint->needs_kid);
-                */
-
                 BOLT_MEM(mint->needs_kid = f_strdup(asd.missing_kid));
 
-                send_client_json_message(clt, asd.remote, 0, 1, stream_id, MSG_TYPE_REQ_KEY, root);
+                if ((err = send_client_json_message(clt, asd.remote, 0, 1, stream_id,
+                        MSG_TYPE_REQ_KEY, root)) != E_XL4BUS_OK) {
+
+                    *need_reconnect = 1;
+                    BOLT_NEST();
+
+                }
 
                 record_mint(clt, mint, 1, 1, 0, 1);
 
@@ -1642,12 +1663,12 @@ int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn,
 
 #if WITH_UNIT_TEST
             if (test_control_message_interceptor) {
-                BOLT_SUB(test_control_message_interceptor(clt, msg, &dav, root, type));
+                BOLT_SUB(test_control_message_interceptor(clt, msg, &dav, root, type, need_reconnect));
                 break;
             }
 #endif
 
-            BOLT_SUB(xl4bus_process_client_message(clt, msg, &dav, root, type));
+            BOLT_SUB(xl4bus_process_client_message(clt, msg, &dav, root, type, need_reconnect));
 
         } else {
 
@@ -1700,7 +1721,7 @@ int handle_client_message(message_internal_t * mint, xl4bus_connection_t * conn,
 }
 
 int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t * msg, decrypt_and_verify_data_t * dav,
-        json_object * root, char const * type) {
+        json_object * root, char const * type, int * need_reconnect) {
 
     int err = E_XL4BUS_OK;
 
@@ -1736,7 +1757,7 @@ int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t * m
                 for (size_t i = 0; i<len; i++) {
                     message_internal_t * mint = ref_message_internal(*(message_internal_t**)utarray_eltptr(&pending->items, i));
                     copy[i] = mint;
-                    reattempt_pending_message(conn, mint);
+                    reattempt_pending_message(conn, mint, need_reconnect);
                 }
 
                 for (size_t i = 0; i<len; i++) {
@@ -1790,8 +1811,12 @@ int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t * m
 
                 BOLT_MEM(body);
                 // $TODO: body must be disposed of securely somehow.
-                send_client_json_message(clt, dav->remote, 1, 1,
-                        msg->stream_id, MSG_TYPE_KEY_INFO, body);
+
+                if ((err = send_client_json_message(clt, dav->remote, 1, 1,
+                        msg->stream_id, MSG_TYPE_KEY_INFO, body)) != E_XL4BUS_OK) {
+                    *need_reconnect = 1;
+                    BOLT_NEST();
+                }
 
             } else {
                 DBG("Requested KID %s does not match neither recent KID %s nor old KID %s",
@@ -2341,6 +2366,7 @@ const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void 
         cjose_jwk_release(asd->key);
         asd->key = cjose_jwk_retain(rmi->from_key, 0);
         DBG("Found symmetric key %p, ri %p, for %s", rmi->from_key, rmi->remote_info, kid);
+        unref_remote_info(asd->remote);
         asd->remote = ref_remote_info(rmi->remote_info);
         unref_remote_key(rmi);
         return asd->key;
@@ -2377,13 +2403,17 @@ const cjose_jwk_t * aes_key_locator(cjose_jwe_t *jwe, cjose_header_t *hdr, void 
         BOLT_CJOSE(cjose_base64url_encode(kid_raw, hash_len, &remote_x5t, &remote_x5t_len, &c_err));
         remote = find_by_x5t(asd->conn->cache, remote_x5t);
         if (!remote) {
-            DBG("X5T %s is unknown, requesting discovery", remote_x5t);
-            asd->missing_x5t = remote_x5t;
-            remote_x5t = 0;
+            if (!asd->missing_x5t) {
+                DBG("X5T %s is unknown, requesting discovery", remote_x5t);
+                asd->missing_x5t = remote_x5t;
+                remote_x5t = 0;
+            }
         } else {
-            DBG("X5T %s is recognized", remote_x5t);
-            asd->remote = remote;
-            remote = 0;
+            if (!asd->remote) {
+                DBG("X5T %s is recognized", remote_x5t);
+                asd->remote = remote;
+                remote = 0;
+            }
         }
 
 #pragma clang diagnostic push
@@ -2627,10 +2657,10 @@ int record_mint(xl4bus_client_t * clt, message_internal_t * mint, int is_add, in
 
 }
 
-void reattempt_pending_message(xl4bus_connection_t * conn, message_internal_t * mint) {
+void reattempt_pending_message(xl4bus_connection_t * conn, message_internal_t * mint, int * need_reconnect) {
 
     // int err = ll_msg_cb(conn, &mint->ll_msg);
-    int err = handle_client_message(mint, conn, &mint->ll_msg);
+    int err = handle_client_message(mint, conn, &mint->ll_msg, need_reconnect);
     if (err != E_XL4BUS_OK) {
         xl4bus_abort_stream(conn, mint->stream_id);
     }
@@ -2712,7 +2742,8 @@ void clean_expired_things(xl4bus_client_t * clt) {
 
 }
 
-int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, message_internal_t * mint) {
+int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, message_internal_t * mint,
+        int * need_reconnect) {
 
     int err /*= E_XL4BUS_OK*/;
     json_object * in_root = 0;
@@ -2730,13 +2761,13 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
 
         if (mint->mis == MIS_NEED_REMOTE && !strcmp(MSG_TYPE_CERT_DETAILS, in_type)) {
 
+            DBG("XCHG: %05x got remote certificate details", mint->stream_id);
+
             record_mint(clt, mint, 0, 1, 1, 0);
 
             // we think we got the certificate for a message pending delivery.
             receive_cert_details(clt, mint, msg, in_root);
-            reattempt_pending_message(conn, mint);
-
-            BOLT_NEST();
+            reattempt_pending_message(conn, mint, need_reconnect);
 
         } else if (mint->mis == MIS_WAIT_DESTINATIONS && !strcmp(MSG_TYPE_DESTINATION_INFO, in_type)) {
 
@@ -2799,8 +2830,13 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
 
                     CHANGE_MIS(mint, MIS_WAIT_DETAILS, "requested certificates");
 
-                    BOLT_SUB(send_json_message(clt, 1, 1, 0, mint->stream_id,
-                            MSG_TYPE_REQ_CERT, body, 1));
+                    if ((err = send_json_message(clt, 1, 1, 0, mint->stream_id,
+                            MSG_TYPE_REQ_CERT, body, 1)) != E_XL4BUS_OK) {
+
+                        *need_reconnect = 1;
+                        BOLT_NEST();
+
+                    }
 
                 } while (0);
 
@@ -2809,9 +2845,10 @@ int handle_state_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
                 BOLT_NEST();
 
             } else {
-
-                BOLT_SUB(send_main_message(clt, mint));
-
+                if ((err = send_main_message(clt, mint)) != E_XL4BUS_OK) {
+                    *need_reconnect = 1;
+                    BOLT_NEST();
+                }
             }
 
         } else if (mint->mis == MIS_WAIT_DETAILS && !strcmp(MSG_TYPE_CERT_DETAILS, in_type)) {

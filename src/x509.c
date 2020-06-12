@@ -325,7 +325,7 @@ int process_remote_key(global_cache_t * cache, json_object * body, char const * 
 
         BOLT_SUB(define_symmetric_key(bin, bin_len, source->x5t, local_x5t, &key, kid));
 
-        // $TODO: may be limit the amount of keys a remote can register, otherwise we let us being DDoSed, by
+        // $TODO: may be limit the amount of keys a remote can register, otherwise we let us being DoSed, by
         // exhausting our memory with different keys.
 
         LOCK(cache->cert_cache_lock);

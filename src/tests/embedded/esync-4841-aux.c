@@ -14,7 +14,7 @@ int esync_4841_intercept(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
 
     client_internal_t * i_clt = clt->_private;
 
-    // we want to prevent the client to receive cert-details message, this will collapse
+    // we want to prevent the client to receive cert-details message. We return 1 (error) that will collapse
     // the connection and leave an internal message object in an unhandled state.
 
     if (i_clt->state == CS_RUNNING) {

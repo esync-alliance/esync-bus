@@ -234,6 +234,7 @@ int main(int argc, char ** argv) {
     CASE(esync_4417);
     CASE(esync_4799);
     CASE(esync_4841);
+    CASE(esync_4843);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
@@ -959,6 +960,22 @@ void end_loud_mode(const char * name) {
 
 int full_test_send_message(test_client_t * from, test_client_t * to, char * str) {
 
+    int err = E_XL4BUS_OK;
+    xl4bus_address_t * addr = 0;
+
+    do {
+
+        BOLT_SUB(xl4bus_get_identity_addresses(&to->bus_client.identity, &addr));
+        BOLT_SUB(full_test_send_message2(from, addr, str));
+
+    } while (0);
+
+    xl4bus_free_address(addr, 1);
+
+}
+
+int full_test_send_message2(test_client_t * from, xl4bus_address_t * to, char * str) {
+
     xl4bus_message_t * msg = 0;
 
     int err = E_XL4BUS_OK;
@@ -969,10 +986,11 @@ int full_test_send_message(test_client_t * from, test_client_t * to, char * str)
     do {
 
         msg = f_malloc(sizeof(xl4bus_message_t));
-        BOLT_SUB(xl4bus_get_identity_addresses(&to->bus_client.identity, &msg->address));
+
         msg->data = str;
         msg->data_len = strlen(str);
         str = 0; // consume
+        xl4bus_copy_address(to, 1, &msg->address);
         BOLT_SUB(xl4bus_send_message2(&from->bus_client, msg, 0, 1));
 
     } while (0);

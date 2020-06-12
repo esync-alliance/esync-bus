@@ -21,7 +21,6 @@ int esync_4841() {
 
     int err = E_XL4BUS_OK;
 
-
     test_client_t client1 = {0, .label = f_strdup("client-grp1")};
     test_client_t client2 = {0, .label = f_strdup("client-grp2")};
     test_broker_t broker = {0};

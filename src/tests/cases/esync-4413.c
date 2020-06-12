@@ -70,7 +70,7 @@ test_client_t stream_reused_client1 = {0};
 
 
 static int stream_reused_message_handler(xl4bus_client_t * clt, xl4bus_ll_message_t * msg,
-        struct decrypt_and_verify_data * dav, json_object * root, char const * type) {
+        struct decrypt_and_verify_data * dav, json_object * root, char const * type, int * need_reconnect) {
 
     test_client_t * t_clt = (test_client_t*)clt;
 
@@ -85,7 +85,7 @@ static int stream_reused_message_handler(xl4bus_client_t * clt, xl4bus_ll_messag
 
     }
 
-    return xl4bus_process_client_message(clt, msg, dav, root, type);
+    return xl4bus_process_client_message(clt, msg, dav, root, type, need_reconnect);
 
 }
 

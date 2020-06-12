@@ -76,7 +76,12 @@ int check_remote_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, 
                 free(json_addr);
             }
 
-            E900(ci->ctx, f_asprintf("Connection %p identified", conn), conn->remote_address_list, 0);
+            xl4bus_address_t x_addr = {
+                    .type = XL4BAT_X5T_S256,
+                    .x5ts256 = conn->remote_x5t
+            };
+
+            E900(ci->ctx, f_asprintf("Connection %p identified", conn), conn->remote_address_list, &x_addr);
 
         }
 
