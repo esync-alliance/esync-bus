@@ -6,6 +6,9 @@
 #include "tests/cases.h"
 #include "lib/debug.h"
 
+#define TET_INCOMING_CORRUPTED (TET_TEST+1)
+#define TET_CT_CORRUPTED (TET_TEST+2)
+
 int multi_dest_mem_leak() {
 
     // this all here is just to make sure it doesn't leak, as
@@ -55,12 +58,28 @@ int multi_dest_mem_leak() {
 
 }
 
-static xl4bus_client_t * rcv_client;
+static test_client_t * rcv_client;
 
 static int intercept_ll(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg) {
-    if (!esync_4843_corrupt(conn, msg, rcv_client)) {
-        return xl4bus_process_ll_message(conn, msg);
+
+    int rc = E_XL4BUS_INTERNAL;
+
+    int was_incoming_corrupted = esync_4843_corrupted_incoming;
+    int was_details_corrupted = esync_4843_corrupted_cert_details;
+
+    if (!esync_4843_corrupt(conn, msg, &rcv_client->bus_client)) {
+        rc = xl4bus_process_ll_message(conn, msg);
     }
+
+    if (!was_incoming_corrupted && esync_4843_corrupted_incoming) {
+        full_test_submit_event(&rcv_client->events, TET_INCOMING_CORRUPTED);
+    }
+    if (!was_details_corrupted && esync_4843_corrupted_cert_details) {
+        full_test_submit_event(&rcv_client->events, TET_CT_CORRUPTED);
+    }
+
+    return rc;
+
 }
 
 int disconnect_on_malformed() {
@@ -69,7 +88,7 @@ int disconnect_on_malformed() {
 
     test_client_t client1 = {0, .label = f_strdup("client-grp1")};
     test_client_t client2 = {0, .label = f_strdup("client-grp2")};
-    test_broker_t broker = { 0};
+    test_broker_t broker = {0};
 
     do {
 
@@ -77,14 +96,22 @@ int disconnect_on_malformed() {
         BOLT_SUB(full_test_client_start(&client1, &broker, 1));
         BOLT_SUB(full_test_client_start(&client2, &broker, 1));
 
-        rcv_client = &client2.bus_client;
+        rcv_client = &client2;
         test_message_interceptor = intercept_ll;
 
         BOLT_SUB(full_test_send_message(&client1, &client2, f_strdup("will fail")));
-        BOLT_SUB(full_test_send_message(&client1, &client2, f_strdup("will fail too")));
-        BOLT_SUB(full_test_send_message(&client1, &client2, f_strdup("ok")));
 
         test_event_t * event;
+        BOLT_SUB(full_test_client_expect_single(0, &client2, &event, TET_INCOMING_CORRUPTED));
+        full_test_free_event(event);
+
+        BOLT_SUB(full_test_send_message(&client1, &client2, f_strdup("will fail too")));
+
+        BOLT_SUB(full_test_client_expect_single(0, &client2, &event, TET_CT_CORRUPTED));
+        full_test_free_event(event);
+
+        BOLT_SUB(full_test_send_message(&client1, &client2, f_strdup("ok")));
+
         BOLT_SUB(full_test_client_expect_single(0, &client2, &event, TET_CLT_MSG_RECEIVE));
         TEST_ERR("msg rcv: %.*s", (int)event->msg->data_len, event->msg->data);
         TEST_CHR_N_EQUAL(event->msg->data, "ok", 2);

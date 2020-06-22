@@ -86,6 +86,8 @@ int esync_4843_corrupt(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, xl
 
             if (obj && !xl4json_get_pointer(obj, "/type", json_type_string, &type) && !z_strcmp(type, MSG_TYPE_CERT_DETAILS)) {
 
+                DBG("replacing content type to simulate failure");
+
                 // OK, we want to corrupt that. It's enough to just both the content-type, though.
                 msg->content_type = FCT_APPLICATION_OCTET_STREAM;
                 esync_4843_corrupted_cert_details = 1;
