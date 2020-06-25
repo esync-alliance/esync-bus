@@ -382,6 +382,7 @@ int full_test_broker_start(test_broker_t * brk) {
         BOLT_IF(brk->started, E_XL4BUS_ARG, "Broker context already started");
 
         init_broker_context(&brk->context);
+        brk->context.stream_timeout_ms = 60000;
         brk->context.init_ll = 0;
         brk->context.key_path = f_strdup("./testdata/pki/broker/private.pem");
         add_to_str_array(&brk->context.cert_path, "./testdata/pki/broker/cert.pem");
