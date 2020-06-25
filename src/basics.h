@@ -79,7 +79,7 @@
 #define XI(a) a
 #endif
 
-#define Z(op, p) do { op(p); p = 0; } while (0)
+#define Z(op, p, n...) do { op(p, ##n); p = 0; } while (0)
 
 #define xl4json_get_pointer XI(xl4json_get_pointer)
 int xl4json_get_pointer(json_object *, char const *, json_type, void *);

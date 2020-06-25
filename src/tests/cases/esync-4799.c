@@ -17,6 +17,26 @@ static unsigned char b_b[4] = {
         0x0C, 0x02, 0x2F, 0x62
 };
 
+static int test_sender_data(xl4bus_sender_data_t const * sender_data, size_t sender_data_count) {
+
+    int err = E_XL4BUS_OK;
+
+    do {
+
+        TEST_INT_EQUAL(2, sender_data_count);
+        TEST_CHR_EQUAL(sender_data[0].oid, DMC_OID);
+        TEST_INT_EQUAL(sizeof(b_a), sender_data[0].data_size);
+        TEST_MEM_EQUAL(b_a, sender_data[0].data, sizeof(b_a));
+        TEST_CHR_EQUAL(sender_data[1].oid, DMC_OID);
+        TEST_INT_EQUAL(sizeof(b_b), sender_data[1].data_size);
+        TEST_MEM_EQUAL(b_b, sender_data[1].data, sizeof(b_b));
+
+    } while (0);
+
+    return err;
+
+}
+
 int esync_4799() {
 
     int err = E_XL4BUS_OK;
@@ -39,13 +59,7 @@ int esync_4799() {
         BOLT_SUB(full_test_client_expect_single(0, &client2, &event, TET_CLT_MSG_RECEIVE));
         TEST_CHR_N_EQUAL(event->msg->data, MSG1, strlen(MSG1));
 
-        TEST_INT_EQUAL(2, event->msg->sender_data_count);
-        TEST_CHR_EQUAL(event->msg->sender_data[0].oid, DMC_OID);
-        TEST_INT_EQUAL(sizeof(b_a), event->msg->sender_data[0].data_size);
-        TEST_MEM_EQUAL(b_a, event->msg->sender_data[0].data, sizeof(b_a));
-        TEST_CHR_EQUAL(event->msg->sender_data[1].oid, DMC_OID);
-        TEST_INT_EQUAL(sizeof(b_b), event->msg->sender_data[1].data_size);
-        TEST_MEM_EQUAL(b_b, event->msg->sender_data[1].data, sizeof(b_b));
+        BOLT_SUB(test_sender_data(event->msg->sender_data, event->msg->sender_data_count));
 
         full_test_free_event(event);
 
@@ -63,13 +77,25 @@ int esync_4799() {
         size_t data_count;
 
         BOLT_SUB(xl4bus_get_identity_data(&client1.bus_client.identity, 0, &data, &data_count));
+        BOLT_SUB(test_sender_data(data, data_count));
+
+        xl4bus_sender_data_t * data2;
+        BOLT_SUB(xl4bus_copy_sender_data(data, data_count, &data2));
+        BOLT_SUB(test_sender_data(data2, data_count));
+
+        /*
         TEST_INT_EQUAL(2, data_count);
         TEST_INT_EQUAL(sizeof(b_a), data[0].data_size);
         TEST_MEM_EQUAL(b_a, data[0].data, sizeof(b_a));
         TEST_INT_EQUAL(sizeof(b_b), data[1].data_size);
-        TEST_MEM_EQUAL(b_b, data[1].data, sizeof(b_b));
+        TET_MEM_EQUAL(b_b, data[1].data, sizeof(b_b));
+         */
 
         xl4bus_free_sender_data(data, data_count);
+        xl4bus_free_sender_data(data2, data_count);
+
+        // make sure we handle 0s well:
+        xl4bus_copy_sender_data(0, 0, &data2);
 
         BOLT_SUB(xl4bus_get_identity_data(&client2.bus_client.identity, 0, &data, &data_count));
         TEST_INT_EQUAL(0, 0);

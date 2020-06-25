@@ -187,6 +187,19 @@ void xl4bus_free_sender_data(xl4bus_sender_data_t * data, size_t count);
 
 XL4_PUB
 /**
+ * Creates a copy of a sender data block. This is typically needed when the block
+ * needs to be used outside of a life cycle of a message where it is provided.
+ * @param data data to copy
+ * @param count element count in the data object, as was reported when it was allocated.
+ * @param to pointer to a pointer that will point to newly created sender data block.
+ * The block shall be freed with ::xl4bus_free_sender_data.
+ * @return ::E_XL4BUS_OK if copying is successful, or an error otherwise. If error is returned,
+ * no memory is allocated.
+ */
+int xl4bus_copy_sender_data(xl4bus_sender_data_t const * data, size_t count, xl4bus_sender_data_t ** to);
+
+XL4_PUB
+/**
  * Checks whether all specified addresses are present in the specified address list.
  * @param needle All of these addresses must be found in haystack.
  * @param haystack List of addresses to check against.

@@ -418,12 +418,41 @@ int xl4bus_get_identity_data(xl4bus_identity_t * identity, xl4bus_address_t ** a
 
 }
 
+int xl4bus_copy_sender_data(xl4bus_sender_data_t const * data, size_t count, xl4bus_sender_data_t ** to) {
+
+
+    int err = E_XL4BUS_OK;
+    *to = 0;
+
+    do {
+
+        BOLT_MALLOC(*to, count * sizeof(xl4bus_sender_data_t));
+        for (int i=0; i<count; i++) {
+            BOLT_MEM((*to)[i].oid = f_strdup(data[i].oid));
+            BOLT_MALLOC((*to)[i].data, data[i].data_size);
+            memcpy((void*)(*to)[i].data, data[i].data, data[i].data_size);
+            (*to)[i].data_size = data[i].data_size;
+        }
+        BOLT_NEST();
+
+    } while (0);
+
+    if (err != E_XL4BUS_OK) {
+        Z(xl4bus_free_sender_data, *to, count);
+    }
+
+    return err;
+
+}
+
 void xl4bus_free_sender_data(xl4bus_sender_data_t * data, size_t count) {
 
-    for (size_t i=0; i<count; i++) {
-        cfg.free((void*)(data[i].oid));
-        cfg.free((void*)(data[i].data));
+    if (data) {
+        for (size_t i=0; i<count; i++) {
+            cfg.free((void*)(data[i].oid));
+            cfg.free((void*)(data[i].data));
+        }
+        cfg.free(data);
     }
-    cfg.free(data);
 
 }
