@@ -277,6 +277,8 @@ int main(int argc, char ** argv) {
         fclose(output_log);
     }
 
+    close(0); // somehow I ended up with "fd 0 open at exist", despite the fclose() calls above....
+
     {
         // $TODO: It's bonkers that I have to do all this,
         // even though a destructor has been defined for this thread key...
@@ -285,7 +287,6 @@ int main(int argc, char ** argv) {
         free(val);
     }
 
-    // return ret;
     // _exit(ret); /* this breaks gcov! */
     return ret;
 
