@@ -2571,7 +2571,7 @@ void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add
     if (is_add) {
 
         if (with_hash && !mint->in_hash) {
-            DBG("Adding mint %p to hash for stream %d", mint, mint->stream_id);
+            DBG("Adding mint %p to hash for stream %04x", mint, mint->stream_id);
             HASH_ADD(hh, i_clt->stream_hash, stream_id, 2, mint);
             mint->in_hash = 1;
             ref_message_internal(mint);
@@ -2594,7 +2594,7 @@ void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add
     } else {
 
         if (with_hash && mint->in_hash) {
-            DBG("Adding mint %p from hash for stream %d", mint, mint->stream_id);
+            DBG("Adding mint %p from hash for stream %04x", mint, mint->stream_id);
             HASH_DEL(i_clt->stream_hash, mint);
             mint->in_hash = 0;
             unref_message_internal(mint);
