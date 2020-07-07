@@ -119,6 +119,8 @@ typedef struct broker_context {
     int max_ev;
     int timeout;
 
+    int port;
+
     int use_bcc;
     char * bcc_path;
     int bcc_fd;

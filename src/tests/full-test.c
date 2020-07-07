@@ -32,6 +32,7 @@ static void check_loud_mode(const char *);
 static int should_run_test_case(const char *);
 static void delivered_handler(struct xl4bus_client * clt, xl4bus_message_t * msg, void * arg, int ok);
 static void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg);
+static xl4bus_message_t * copy_msg(xl4bus_message_t * msg);
 static void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status);
 static char * set_client_thread_name(test_client_t * clt);
 static void pause_callback(xl4bus_client_t *, int is_pause);
@@ -233,6 +234,9 @@ int main(int argc, char ** argv) {
     CASE(esync_4413);
     CASE(esync_4417);
     CASE(esync_4799);
+    CASE(esync_4841);
+    CASE(esync_4843);
+    CASE(esync_4880);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
@@ -382,6 +386,7 @@ int full_test_broker_start(test_broker_t * brk) {
         init_broker_context(&brk->context);
         brk->context.init_ll = 0;
         brk->context.key_path = f_strdup("./testdata/pki/broker/private.pem");
+        brk->context.port = brk->port; // preserve port
         add_to_str_array(&brk->context.cert_path, "./testdata/pki/broker/cert.pem");
         add_to_str_array(&brk->context.ca_list, "./testdata/pki/ca/ca.pem");
 
@@ -831,27 +836,34 @@ void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status
 
 }
 
+xl4bus_message_t * copy_msg(xl4bus_message_t * msg) {
+
+    xl4bus_message_t * out = f_malloc(sizeof(xl4bus_message_t));
+    out->data = f_malloc(out->data_len = msg->data_len);
+    memcpy((void*)out->data, msg->data, msg->data_len);
+    xl4bus_copy_address(msg->address, 1, &out->address);
+    xl4bus_copy_address(msg->source_address, 1, &out->source_address);
+    out->content_type = f_strdup(msg->content_type);
+
+    out->sender_data_count = msg->sender_data_count;
+    out->sender_data = f_malloc(msg->sender_data_count * sizeof(xl4bus_sender_data_t));
+    for (int i=0; i<out->sender_data_count; i++) {
+        *(char**)(&out->sender_data[i].oid) = f_strdup(msg->sender_data[i].oid);
+        *(void**)(&out->sender_data[i].data) = f_malloc(msg->sender_data[i].data_size);
+        *(size_t*)(&out->sender_data[i].data_size) = msg->sender_data[i].data_size;
+        memcpy((void*)out->sender_data[i].data, msg->sender_data[i].data, msg->sender_data[i].data_size);
+    }
+
+    return out;
+
+}
 
 void incoming_handler(struct xl4bus_client * clt, xl4bus_message_t * msg) {
 
     test_client_t * t_clt = (test_client_t*)clt;
     test_event_t * evt = f_malloc(sizeof(test_event_t));
     evt->type = TET_CLT_MSG_RECEIVE;
-    evt->msg = f_malloc(sizeof(xl4bus_message_t));
-    evt->msg->data = f_malloc(evt->msg->data_len = msg->data_len);
-    memcpy((void*)evt->msg->data, msg->data, msg->data_len);
-    xl4bus_copy_address(msg->address, 1, &evt->msg->address);
-    xl4bus_copy_address(msg->source_address, 1, &evt->msg->source_address);
-    evt->msg->content_type = f_strdup(msg->content_type);
-
-    evt->msg->sender_data_count = msg->sender_data_count;
-    evt->msg->sender_data = f_malloc(msg->sender_data_count * sizeof(xl4bus_sender_data_t));
-    for (int i=0; i<evt->msg->sender_data_count; i++) {
-        *(char**)(&evt->msg->sender_data[i].oid) = f_strdup(msg->sender_data[i].oid);
-        *(void**)(&evt->msg->sender_data[i].data) = f_malloc(msg->sender_data[i].data_size);
-        *(size_t*)(&evt->msg->sender_data[i].data_size) = msg->sender_data[i].data_size;
-        memcpy((void*)evt->msg->sender_data[i].data, msg->sender_data[i].data, msg->sender_data[i].data_size);
-    }
+    evt->msg = copy_msg(msg);
 
     submit_event(&t_clt->events, evt);
 

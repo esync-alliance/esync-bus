@@ -1187,10 +1187,10 @@ int send_client_json_message(xl4bus_client_t * clt, remote_info_t * remote,
         BOLT_MEM(bus_object = json_object_new_object());
 
         BOLT_SUB(sign_jws(i_clt->private_key, conn->my_x5t, 0, bus_object, bux, strlen(bux) + 1, FCT_BUS_MESSAGE,
-                0, 0, &jws_data, &jws_data_len));
+                &jws_data, &jws_data_len));
 
-        BOLT_SUB(encrypt_jwe(remote->remote_public_key, remote->x5t, 0, jws_data, jws_data_len, FCT_JOSE_COMPACT
-                , 0, 0, &jwe_data, &jwe_data_len));
+        BOLT_SUB(encrypt_jwe(remote->remote_public_key, remote->x5t, 0, jws_data, jws_data_len, FCT_JOSE_COMPACT,
+                &jwe_data, &jwe_data_len));
 
         msg->msg.stream_id = stream_id;
         msg->msg.is_reply = is_reply;

@@ -10,8 +10,7 @@ static int find_symmetric_key(struct json_t * headers, cjose_jwk_t * key1, cjose
         cjose_jwk_t ** picked_key, int * is_key1);
 
 int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object * bus_object,
-        const void * data, size_t data_len, char const * ct,
-        int pad, int offset, char ** jws_data, size_t * jws_len) {
+        const void * data, size_t data_len, char const * ct, char ** jws_data, size_t * jws_len) {
 
     cjose_err c_err;
     cjose_jws_t *jws = 0;
@@ -77,8 +76,8 @@ int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object
         BOLT_CJOSE(cjose_jws_export(jws, &jws_export, &c_err));
 
         size_t l = strlen(jws_export) + 1;
-        BOLT_MALLOC(*jws_data, l + pad);
-        memcpy((*jws_data) + offset, jws_export, *jws_len = l);
+        BOLT_MALLOC(*jws_data, l);
+        memcpy(*jws_data, jws_export, *jws_len = l);
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
@@ -93,7 +92,7 @@ int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object
 }
 
 int encrypt_jwe(cjose_jwk_t * key, const char * x5t, json_object * bus_object, const void * data, size_t data_len,
-                char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len) {
+                char const * ct, char ** jwe_data, size_t * jwe_len) {
 
     cjose_err c_err;
     cjose_jwe_t *jwe = 0;
@@ -139,11 +138,11 @@ int encrypt_jwe(cjose_jwk_t * key, const char * x5t, json_object * bus_object, c
         BOLT_CJOSE(jwe_export = cjose_jwe_export(jwe, &c_err));
 
         size_t l = strlen(jwe_export) + 1;
-        BOLT_MALLOC(*jwe_data, l + pad);
+        BOLT_MALLOC(*jwe_data, l);
 
         // DBG("Encrypted JWE(%d bytes) %s, ", l-1, jwe_export);
 
-        memcpy((*jwe_data) + offset, jwe_export, *jwe_len = l);
+        memcpy(*jwe_data, jwe_export, *jwe_len = l);
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"

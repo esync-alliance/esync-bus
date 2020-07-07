@@ -19,7 +19,9 @@ int main(int argc, char ** argv) {
 
     broker_context.argv0 = argv[0];
 
-    while ((c = getopt(argc, argv, "hk:K:c:t:D:dpqT:iI:")) != -1) {
+    broker_context.port = 9133;
+
+    while ((c = getopt(argc, argv, "hk:K:c:t:D:dpqT:iI:P:")) != -1) {
 
         switch (c) {
 
@@ -70,6 +72,10 @@ int main(int argc, char ** argv) {
 
             case 'i':
                 broker_context.use_bcc = 1;
+                break;
+
+            case 'P':
+                broker_context.port = atoi(optarg);
                 break;
 
             case 'I':
