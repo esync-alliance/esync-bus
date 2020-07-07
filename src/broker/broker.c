@@ -266,9 +266,12 @@ int start_broker(broker_context_t * bc) {
     setsockopt(bc->fd, IPPROTO_TCP, TCP_NODELAY,  (void*)&opt, sizeof(int));
 #endif
 
+    int port = bc->port;
+    MSG("Will bind to port %d", port);
+
     memset(&bc->b_addr, 0, sizeof(bc->b_addr));
     bc->b_addr.sin_family = AF_INET;
-    bc->b_addr.sin_port = htons(9133);
+    bc->b_addr.sin_port = htons(port);
     bc->b_addr.sin_addr.s_addr = INADDR_ANY;
 
     memset(&bc->broker_identity, 0, sizeof(bc->broker_identity));
@@ -325,6 +328,15 @@ int start_broker(broker_context_t * bc) {
 
     if (bind(bc->fd, (struct sockaddr*)&bc->b_addr, sizeof(bc->b_addr))) {
         FATAL_SYS("Can't bind listening socket");
+    } else {
+        struct sockaddr_in sin;
+        socklen_t len = sizeof(sin);
+        if (getsockname(bc->fd, (struct sockaddr *)&sin, &len) == -1) {
+            ERR_SYS("Can't get port number from broker listen socket");
+        } else {
+            MSG("Bound to port %d", ntohs(sin.sin_port));
+        }
+
     }
 
     if (listen(bc->fd, 5)) {

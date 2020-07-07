@@ -389,6 +389,7 @@ int consume_dbuf(xl4bus_buf_t * into, xl4bus_buf_t * from, int do_free) {
         into->cap = need_len;
     }
     memcpy(into->data + into->len, from->data, from->len);
+    into->len = need_len;
     return 0;
 
 }
@@ -409,12 +410,12 @@ int add_to_dbuf(xl4bus_buf_t * into, void * from, size_t from_len) {
 }
 
 void free_dbuf(xl4bus_buf_t ** buf) {
-    clear_dbuf(*buf);
+    release_dbuf(*buf);
     free(*buf);
     *buf = 0;
 }
 
-void clear_dbuf(xl4bus_buf_t * buf) {
+void release_dbuf(xl4bus_buf_t * buf) {
 
     if (buf) {
         cfg.free(buf->data);
@@ -455,7 +456,7 @@ void shutdown_connection_ts(xl4bus_connection_t * conn, char const * reason) {
         cfg.free(aux);
     }
 
-    clear_dbuf(&i_conn->current_frame.data);
+    release_dbuf(&i_conn->current_frame.data);
 
     stream_t * stream;
     stream_t * aux;
@@ -484,7 +485,7 @@ void shutdown_connection_ts(xl4bus_connection_t * conn, char const * reason) {
     cjose_jwk_release(i_conn->session_key);
     cjose_jwk_release(i_conn->old_session_key);
     cfg.free(conn->my_x5t);
-    clear_dbuf(&conn->my_x5t_bin);
+    release_dbuf(&conn->my_x5t_bin);
     cfg.free(conn->remote_x5t);
     cfg.free(conn->remote_x5c);
     json_object_put(i_conn->x5c);

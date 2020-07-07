@@ -15,6 +15,9 @@ static int process_normal_frame(xl4bus_connection_t * conn);
 static int process_test_frame(xl4bus_connection_t * conn);
 static int process_abort_frame(xl4bus_connection_t * conn);
 static void init_dav(xl4bus_connection_t * conn, decrypt_and_verify_data_t * dav);
+static int assemble_complete_frame(xl4bus_connection_t * conn, int * assembled);
+static int assemble_complete_from_last(xl4bus_connection_t * conn, frame_t * last, int * assembled);
+static void release_incomplete_frame(xl4bus_connection_t * conn, frame_t * frame);
 
 MAKE_REF_FUNCTION(stream) {
     STD_REF_FUNCTION(stream);
@@ -22,7 +25,7 @@ MAKE_REF_FUNCTION(stream) {
 
 MAKE_UNREF_FUNCTION(stream) {
     STD_UNREF_FUNCTION(stream);
-    clear_dbuf(&obj->incoming_message_data);
+    release_dbuf(&obj->incoming_message_data);
     free(obj);
 }
 
@@ -265,7 +268,7 @@ do {} while(0)
                         BOLT_SUB(process_test_frame(conn));
                         break;
 
-                    case FRAME_TYPE_SABORT:
+                    case FRAME_TYPE_S_ABORT:
                         BOLT_SUB(process_abort_frame(conn));
                         break;
 
@@ -278,7 +281,7 @@ do {} while(0)
                 BOLT_NEST();
 
                 // we dealt with the frame
-                clear_dbuf(&frm.data);
+                release_dbuf(&frm.data);
                 memset(&frm, 0, sizeof(frm));
 
                 // ESYNC-1364 don't try reading too much data at a time
@@ -475,11 +478,11 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
         // $TODO: we should create the full frame memory block here, instead of copying
         // the data below.
         BOLT_SUB(sign_jws(key, conn->my_x5t, i_conn->x5c, bus_object, "", 1,
-                FCT_TEXT_PLAIN, 0, 0, (char**)&signed_data, &signed_data_len));
+                FCT_TEXT_PLAIN, (char**)&signed_data, &signed_data_len));
 
         BOLT_MALLOC(frame, 4 + signed_data_len + 5);
         set_frame_size(frame, (uint32_t)(signed_data_len + 5)); // without the minimal header
-        *frame = FRAME_TYPE_SABORT | FRAME_LAST_MASK;
+        *frame = FRAME_TYPE_S_ABORT | FRAME_LAST_MASK;
 
         frame[4] = CT_JOSE_COMPACT;
 
@@ -509,7 +512,6 @@ void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 
 static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, void *arg) {
 
-    uint8_t * frame = 0;
     int err /*= E_XL4BUS_OK*/;
     char * base64 = 0;
     uint8_t * signed_buf = 0;
@@ -517,12 +519,14 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     connection_internal_t * i_conn = conn->_private;
     stream_t * stream = 0;
     char * interim;
+    void * allocated_send_data = 0;
+    void const * use_send_data;
+    size_t send_data_len;
+    uint8_t * frame_data = 0;
 
     do {
 
         uint8_t ct;
-
-        size_t ser_len = 0;
 
         HASH_FIND(hh, i_conn->streams, &msg->stream_id, 2, stream);
         ref_stream(stream);
@@ -604,13 +608,15 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
                 DBG("Signing, then encrypting message");
 
-                BOLT_SUB(sign_jws(signing_key, x5t, x5c, bus_object, msg->data, msg->data_len, msg->content_type, 0, 0, &interim, &interim_len));
-                BOLT_SUB(encrypt_jwe(encryption_key, remote_x5t, 0, interim, interim_len, deflate_content_type(FCT_JOSE_COMPACT), 13, 9, (char**)&frame, &ser_len));
+                BOLT_SUB(sign_jws(signing_key, x5t, x5c, bus_object, msg->data, msg->data_len, msg->content_type, &interim, &interim_len));
+                BOLT_SUB(encrypt_jwe(encryption_key, remote_x5t, 0, interim, interim_len, deflate_content_type(FCT_JOSE_COMPACT), (char**)&allocated_send_data, &send_data_len));
+                use_send_data = allocated_send_data;
 
             } else {
 
                 DBG("Only encrypting message, session key:%s", BOOL_STR(use_session_key));
-                BOLT_SUB(encrypt_jwe(encryption_key, remote_x5t, bus_object, msg->data, msg->data_len, msg->content_type, 13, 9, (char**)&frame, &ser_len));
+                BOLT_SUB(encrypt_jwe(encryption_key, remote_x5t, bus_object, msg->data, msg->data_len, msg->content_type, (char**)&allocated_send_data, &send_data_len));
+                use_send_data = allocated_send_data;
 
             }
 
@@ -620,7 +626,8 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
             DBG("Only signing message, session key:%s", BOOL_STR(use_session_key));
 
-            BOLT_SUB(sign_jws(signing_key, x5t, x5c, bus_object, msg->data, msg->data_len, msg->content_type, 13, 9, (char**)&frame, &ser_len));
+            BOLT_SUB(sign_jws(signing_key, x5t, x5c, bus_object, msg->data, msg->data_len, msg->content_type, (char**)&allocated_send_data, &send_data_len));
+            use_send_data = allocated_send_data;
 
             ct = CT_JOSE_COMPACT;
 
@@ -629,45 +636,85 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
             DBG("Message is being passed through");
             BOLT_SUB(get_numeric_content_type(msg->content_type, &ct));
 
-            BOLT_MALLOC(frame, msg->data_len + 13);
-            memcpy(frame + 9, msg->data, ser_len = msg->data_len);
+            use_send_data = msg->data;
+            send_data_len = msg->data_len;
 
         }
 
-        // $TODO: support large messages!
-        BOLT_IF(ser_len > 65000, E_XL4BUS_ARG, "Frame size too large: %d", ser_len);
+        int first_frame = 1;
 
-        set_frame_size(frame, (uint32_t)ser_len + 9);
+        while (send_data_len) {
 
-        uint8_t byte0 = (uint8_t)(FRAME_TYPE_NORMAL | (msg->is_final ? FRAME_MSG_FINAL_MASK : 0) | FRAME_LAST_MASK);
-        if (msg->is_reply) {
-            byte0 |= FRAME_MSG_FIRST_MASK;
+            uint8_t fl_mask;
+            size_t frame_len;
+            if (send_data_len > 65000) {
+                frame_len = 65000;
+                fl_mask = 0;
+            } else {
+                frame_len = send_data_len;
+                fl_mask = FRAME_LAST_MASK;
+            }
+
+            size_t x_len;
+
+            if (!first_frame) {
+                fl_mask |= FRAME_NOT_FIRST_MASK;
+                x_len = 12;
+            } else {
+                x_len = 13;
+            }
+
+            BOLT_MALLOC(frame_data, frame_len + x_len);
+
+            set_frame_size(frame_data, (uint32_t)frame_len + x_len - 4);
+
+            uint8_t byte0 = (uint8_t)(FRAME_TYPE_NORMAL | (msg->is_final ? FRAME_MSG_FINAL_MASK : 0) | fl_mask);
+            if (msg->is_reply) {
+                byte0 |= FRAME_MSG_FIRST_MASK;
+            }
+            *frame_data = byte0;
+
+            if (first_frame) {
+                *(frame_data+8) = ct;
+            }
+
+            *((uint16_t*)(frame_data+4)) = htons(stream->stream_id);
+            *((uint16_t*)(frame_data+6)) = htons(stream->frame_seq_out++);
+
+            // $TODO: I think that x_l4en - 4 offset is pure coincidence, and is not logical, but it works.
+            memcpy(frame_data + x_len - 4, use_send_data, frame_len);
+
+            calculate_frame_crc(frame_data, (uint32_t)(frame_len + x_len)); // size with crc
+
+            err = post_frame(i_conn, frame_data, frame_len + x_len, stream->stream_id);
+            if (err == E_XL4BUS_OK) {
+                frame_data = 0; // consumed.
+            } else {
+                break;
+            }
+
+            use_send_data += frame_len;
+            send_data_len -= frame_len;
+            first_frame = 0;
+
         }
-        *frame = byte0;
 
-        *((uint16_t*)(frame+4)) = htons(stream->stream_id);
-        *((uint16_t*)(frame+6)) = htons(stream->frame_seq_out++);
-        *(frame+8) = ct;
-
-        calculate_frame_crc(frame, (uint32_t)(ser_len + 13)); // size with crc
-
-        err = post_frame(i_conn, frame, ser_len + 13, stream->stream_id);
-        if (err == E_XL4BUS_OK) {
-            frame = 0; // consumed.
-        }
+        BOLT_NEST();
 
         if (msg->is_final) {
             release_stream(conn, stream, XL4SCR_LOCAL_CLOSED);
         }
+
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
 #pragma clang diagnostic pop
 
-    cfg.free(frame);
+    cfg.free(frame_data);
     cfg.free(base64);
     cfg.free(signed_buf);
+    cfg.free(allocated_send_data);
 
     unref_stream(stream);
 
@@ -697,6 +744,208 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 
 }
 
+static int assemble_complete_from_last(xl4bus_connection_t * conn, frame_t * last, int * assembled) {
+
+    int err = E_XL4BUS_OK;
+    xl4bus_buf_t last_buf = {0};
+
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    do {
+
+        *assembled = 0;
+
+        uint16_t need_frame = last->id.frame_id - 1;
+        frame_t * first_frame;
+
+        // make sure we can get to the first frame
+        while (1) {
+
+            frame_id_t id = {
+                    .frame_id = need_frame,
+                    .stream_id = last->id.stream_id
+            };
+
+            HASH_FIND(hh, i_conn->incomplete_frames, &id, sizeof(id), first_frame);
+            if (!first_frame) {
+                DBG("Missing frame %05x:%05x", id.stream_id, id.frame_id);
+                break;
+            }
+            if (!(first_frame->byte0 & FRAME_NOT_FIRST_MASK)) {
+                break;
+            }
+
+            need_frame--;
+
+        }
+
+        if (!first_frame) { break; }
+
+        // All right, we have the entire chain
+
+        if (!last->hashed) {
+            last_buf = last->data;
+            last->data.data = 0;
+        }
+
+        release_dbuf(&i_conn->current_frame.data);
+
+        while (1) {
+
+            need_frame = first_frame->id.frame_id + 1;
+
+            xl4bus_buf_t * src_buf;
+            if (!first_frame->hashed) {
+                src_buf = &last_buf;
+            } else {
+                src_buf = &first_frame->data;
+            }
+
+            if (!(first_frame->byte0 & FRAME_NOT_FIRST_MASK)) {
+                consume_dbuf(&i_conn->current_frame.data, src_buf, 0);
+            } else {
+                add_to_dbuf(&i_conn->current_frame.data, src_buf->data + 4, src_buf->len - 4);
+            }
+
+            int was_last = first_frame->byte0 & FRAME_LAST_MASK;
+
+            if (first_frame->hashed) {
+                release_incomplete_frame(conn, first_frame);
+            }
+            if (was_last) { break; }
+
+            if (need_frame == last->id.frame_id) {
+                first_frame = last;
+            } else {
+                frame_id_t id = {
+                        .frame_id = need_frame,
+                        .stream_id = last->id.frame_id
+                };
+
+                HASH_FIND(hh, i_conn->incomplete_frames, &id, sizeof(id), first_frame);
+                BOLT_IF(!first_frame, E_XL4BUS_INTERNAL, "Expected frame %05x:%05x not found",
+                        id.stream_id, id.frame_id);
+            }
+
+        }
+
+        BOLT_NEST();
+
+        *assembled = 1;
+
+    } while (0);
+
+    release_dbuf(&last_buf);
+
+    return err;
+
+}
+
+static void release_incomplete_frame(xl4bus_connection_t * conn, frame_t * frame) {
+
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    release_dbuf(&frame->data);
+    if (frame->hashed) {
+        HASH_DEL(i_conn->incomplete_frames, frame);
+        free(frame);
+    }
+
+}
+
+static int assemble_complete_frame(xl4bus_connection_t * conn, int * assembled) {
+
+#define frm (i_conn->current_frame)
+
+    connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
+
+    int err = E_XL4BUS_OK;
+    *assembled = 0;
+
+    do {
+
+        int is_first = !(frm.byte0 & FRAME_NOT_FIRST_MASK);
+        int is_last = frm.byte0 & FRAME_LAST_MASK;
+
+        if (is_first && is_last) {
+            // single message frame.
+            *assembled = 1;
+            break;
+        }
+
+        if (is_last) {
+            // attempt to build the entire chain
+            BOLT_SUB(assemble_complete_from_last(conn, &frm, assembled));
+            if (*assembled) { break; }
+        }
+
+        // ok, we need to stash the frame.
+
+        frame_t * stored_frame;
+        BOLT_MALLOC(stored_frame, sizeof(frame_t));
+        *stored_frame = frm;
+        frm.data.data = 0; // so it's not freed.
+
+        HASH_ADD(hh, i_conn->incomplete_frames, id, sizeof(frame_id_t), stored_frame);
+        stored_frame->hashed = 1;
+
+        DBG("Stored incomplete frame %05x:%05x", stored_frame->id.stream_id, stored_frame->id.frame_id);
+
+        // $TODO: that's a rather random constant
+        stored_frame->expires_at = pf_ms_value() + 60 * MILLIS_PER_SEC;
+
+        if (!is_last) {
+
+            // then it's possible that the chain is now complete.
+
+            uint16_t next_frame = frm.id.frame_id;
+
+            while (1) {
+
+                frame_id_t next = {
+                        .frame_id = ++next_frame,
+                        .stream_id = frm.id.stream_id
+                };
+
+                frame_t * may_be_last;
+
+                HASH_FIND(hh, i_conn->incomplete_frames, &next, sizeof(next), may_be_last);
+                if (!may_be_last) { break; }
+                if (may_be_last->byte0 & FRAME_LAST_MASK) {
+                    // may be we can assemble now?
+                    BOLT_SUB(assemble_complete_from_last(conn, may_be_last, assembled));
+                    break;
+                }
+
+                // not last frame, continue searching
+
+            }
+
+        }
+
+
+    } while (0);
+
+    // may be frame is assembled, may be not, may be there was an error or not.
+    // In any case, let's look at all the frames and see if we need to expire any.
+
+    uint64_t now = pf_ms_value();
+    frame_t *frame, *aux;
+    // $TODO: this is O(n), and probably can be done more effective
+    HASH_ITER(hh, i_conn->incomplete_frames, frame, aux) {
+        if (frame->expires_at < now) {
+            // $TODO: release dependent frames as well
+            DBG("Frame %05x:%05x timed out, throwing out", frame->id.stream_id, frame->id.frame_id);
+            release_incomplete_frame(conn, frame);
+        }
+    }
+
+    return err;
+
+#undef frm
+
+}
+
 int process_normal_frame(xl4bus_connection_t * conn) {
 
 #define frm (i_conn->current_frame)
@@ -711,14 +960,20 @@ int process_normal_frame(xl4bus_connection_t * conn) {
         size_t offset = 4;
         BOLT_IF(frm.data.len < offset, E_XL4BUS_DATA, "Not enough data for header");
 
-        uint16_t stream_id = ntohs(*(uint16_t *) frm.data.data);
-        HASH_FIND(hh, i_conn->streams, &stream_id, 2, stream);
+        frm.id.stream_id = ntohs(*(uint16_t *) frm.data.data);
+        frm.id.frame_id = ntohs(*(((uint16_t*)frm.data.data)+1));
+        HASH_FIND(hh, i_conn->streams, &frm.id.stream_id, 2, stream);
         ref_stream(stream);
 
+        int complete;
+        BOLT_SUB(assemble_complete_frame(conn, &complete));
+
         if (cfg.debug_f) {
-            DBG("received frame stream %05x opened stream=%s socket has %d bytes ready",
-                    stream_id, stream?"yes":"no", pf_fionread(conn->fd));
+            DBG("received frame %05x:%05x opened stream=%s complete: %s, socket has %d bytes ready",
+                    frm.id.stream_id, frm.id.frame_id, stream?"yes":"no", complete?"yes":"no", pf_fionread(conn->fd));
         }
+
+        if (!complete) { break; }
 
         int is_not_first;
 
@@ -728,17 +983,17 @@ int process_normal_frame(xl4bus_connection_t * conn) {
             // first message, and if stream ID is not ours.
 
             if ((is_not_first = (frm.byte0 & FRAME_MSG_FIRST_MASK)) ||
-                (stream_id & 0x1) != (conn->is_client ? 1 : 0)) {
+                (frm.id.stream_id & 0x1) != (conn->is_client ? 1 : 0)) {
                 DBG("Stream ID %05x has incorrect parity or not a stream starter (byte0 is %x, exp parity %d)",
-                        stream_id, frm.byte0, (conn->is_client ? 1 : 0));
-                xl4bus_abort_stream(conn, stream_id);
+                        frm.id.stream_id, frm.byte0, (conn->is_client ? 1 : 0));
+                xl4bus_abort_stream(conn, frm.id.stream_id);
                 break;
             }
 
             BOLT_MALLOC(stream, sizeof(stream_t));
             ref_stream(stream);
 
-            stream->stream_id = stream_id;
+            stream->stream_id = frm.id.stream_id;
 
             BOLT_SYS(LOCK(i_conn->hash_lock), "");
 
@@ -754,33 +1009,22 @@ int process_normal_frame(xl4bus_connection_t * conn) {
         } else {
 
             if (!(frm.byte0 & FRAME_MSG_FIRST_MASK)) {
-                BOLT_SAY(E_XL4BUS_DATA, "Frame attempts to start existing stream %d", stream_id);
+                BOLT_SAY(E_XL4BUS_DATA, "Frame attempts to start existing stream %d", frm.id.stream_id);
             }
 
             is_not_first = 1;
 
         }
 
-        // Does this frame start a message?
-        if (!stream->message_started) {
+        // the message must contain CT code.
+        offset++;
 
-            // the message must contain CT code.
-            offset++;
+        BOLT_IF(frm.data.len < offset, E_XL4BUS_DATA, "Not enough bytes (%zd) for message content type", frm.data.len);
 
-            BOLT_IF(frm.data.len < offset, E_XL4BUS_DATA, "Not enough bytes for message content type");
+        stream->incoming_message_ct = *(frm.data.data + 4);
 
-            stream->message_started = 1;
-            stream->incoming_message_ct = *(frm.data.data + 4);
-
-            stream->is_final = (frm.byte0 & FRAME_MSG_FINAL_MASK) > 0;
-            stream->is_reply = is_not_first > 0;
-
-        }
-
-        // does frame sequence match our expectations?
-        BOLT_IF(stream->frame_seq_in++ != ntohs(*(uint16_t *) (frm.data.data + 2)),
-                E_XL4BUS_DATA, "Expected frame sequence %d, got %d", stream->frame_seq_in - 1,
-                ntohs(*(uint16_t *) (frm.data.data + 2)));
+        stream->is_final = (frm.byte0 & FRAME_MSG_FINAL_MASK) > 0;
+        stream->is_reply = is_not_first > 0;
 
         // OK, we are ready to consume the frame's contents.
         BOLT_IF(add_to_dbuf(&stream->incoming_message_data, frm.data.data + offset,
@@ -815,7 +1059,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
                 message.uses_validation = dav.was_verified;
                 message.uses_session_key = dav.was_symmetric;
 
-                message.stream_id = stream_id;
+                message.stream_id = frm.id.stream_id;
                 message.is_reply = stream->is_reply;
                 message.is_final = stream->is_final;
 
@@ -837,8 +1081,7 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
             } while (0);
 
-            clear_dbuf(&stream->incoming_message_data);
-            stream->message_started = 0;
+            release_dbuf(&stream->incoming_message_data);
 
             clean_decrypt_and_verify(&dav);
 

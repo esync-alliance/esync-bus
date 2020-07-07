@@ -80,8 +80,9 @@
 #define FRAME_TYPE_MASK 0x7
 #define FRAME_TYPE_NORMAL 0x0
 #define FRAME_TYPE_CTEST 0x1
-#define FRAME_TYPE_SABORT 0x2
+#define FRAME_TYPE_S_ABORT 0x2
 #define FRAME_LAST_MASK (1<<5)
+#define FRAME_NOT_FIRST_MASK (1<<6)
 #define FRAME_MSG_FIRST_MASK (1<<3)
 #define FRAME_MSG_FINAL_MASK (1<<4)
 
@@ -158,8 +159,6 @@ typedef struct stream {
     int incoming_message_ct;
     xl4bus_buf_t incoming_message_data;
 
-    int message_started;
-    uint16_t frame_seq_in;
     uint16_t frame_seq_out;
 
     int is_final;
@@ -172,27 +171,45 @@ typedef struct stream {
 
 } stream_t;
 
+typedef struct frame_id {
+    uint16_t stream_id;
+    uint16_t frame_id;
+} frame_id_t;
+
+typedef struct frame {
+
+    UT_hash_handle hh; // hashed by frame ID + stream ID
+
+    frame_id_t id;
+
+    size_t total_read;
+    uint8_t byte0;
+    union {
+        struct {
+            uint8_t len_converted;
+            uint8_t len_bytes[3];
+        };
+        uint32_t frame_len;
+    };
+
+    xl4bus_buf_t data;
+
+    uint32_t crc;
+
+    uint16_t needs_frame;
+    uint64_t expires_at;
+
+    int hashed;
+
+} frame_t;
+
 typedef struct connection_internal {
     chunk_t * out_queue;
 
     int err;
 
-    struct {
-        size_t total_read;
-        uint8_t byte0;
-        union {
-            struct {
-                uint8_t len_converted;
-                uint8_t len_bytes[3];
-            };
-            uint32_t frame_len;
-        };
-
-        xl4bus_buf_t data;
-
-        uint32_t crc;
-
-    } current_frame;
+    frame_t current_frame;
+    frame_t * incomplete_frames;
 
     // this hash is protected by a read lock only.
     // An alien thread may read from this hash. So the
@@ -521,8 +538,8 @@ void release_stream(xl4bus_connection_t *, stream_t *, xl4bus_stream_close_reaso
 #define pick_session_key XI(pick_session_key)
 
 int sign_jws(cjose_jwk_t * key, char const * x5t, json_object * x5c, json_object * bus_object, const void * data,
-        size_t data_len, char const * ct, int pad, int offset, char ** jws_data, size_t * jws_len);
-int encrypt_jwe(cjose_jwk_t *, const char * x5t, json_object * bus_object, const void * data, size_t data_len, char const * ct, int pad, int offset, char ** jwe_data, size_t * jwe_len);
+        size_t data_len, char const * ct, char ** jws_data, size_t * jws_len);
+int encrypt_jwe(cjose_jwk_t *, const char * x5t, json_object * bus_object, const void * data, size_t data_len, char const * ct, char ** jwe_data, size_t * jwe_len);
 int decrypt_jwe(void * bin, size_t bin_len, int ct, char * x5t, cjose_jwk_t * a_key, cjose_jwk_t * s_key,
         int * is_verified, void ** decrypted, size_t * decrypted_len, char ** cty);
 int decrypt_and_verify(decrypt_and_verify_data_t * dav);
@@ -542,7 +559,7 @@ int build_address_list(json_object *, xl4bus_address_t **);
 #define consume_dbuf XI(consume_dbuf)
 #define add_to_dbuf XI(add_to_dbuf)
 #define free_dbuf XI(free_dbuf)
-#define clear_dbuf XI(clear_dbuf)
+#define release_dbuf XI(release_dbuf)
 #define cjose_to_err XI(cjose_to_err)
 #define f_asprintf XI(f_asprintf)
 #define shutdown_connection_ts XI(shutdown_connection_ts)
@@ -563,7 +580,7 @@ int build_address_list(json_object *, xl4bus_address_t **);
 int consume_dbuf(xl4bus_buf_t * , xl4bus_buf_t * , int);
 int add_to_dbuf(xl4bus_buf_t * , void * , size_t );
 void free_dbuf(xl4bus_buf_t **);
-void clear_dbuf(xl4bus_buf_t *);
+void release_dbuf(xl4bus_buf_t *);
 int cjose_to_err(cjose_err * err);
 char * f_asprintf(char * fmt, ...);
 void shutdown_connection_ts(xl4bus_connection_t *, char const * reason);
