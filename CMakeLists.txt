@@ -150,6 +150,10 @@ if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
     endif()
 endif()
 
+if(ESYNC_ALLIANCE)
+	add_definitions(-DESYNC_ALLIANCE)
+endif()
+
 set_empty(BUILD_SHARED TRUE)
 set_empty(BUILD_STATIC TRUE)
 set_empty(BUILD_BINS TRUE)
@@ -207,6 +211,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     ${BCH}
     ${BUILD_INCLUDE_BUS}/types_base.h
     ${CMAKE_BINARY_DIR}/xl4bus_version.h
+    src/client_message.h
     src/identity.c
     src/misc.c
     src/net.c

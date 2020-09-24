@@ -3,6 +3,7 @@
 #include <libxl4bus/low_level.h>
 #include "utlist.h"
 #include "basics.h"
+#include "client_message.h"
 
 #include "lib/hash_list.h"
 

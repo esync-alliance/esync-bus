@@ -2,6 +2,7 @@
 #define _XL4BUS_BASICS_H_
 
 #include "renamed_json.h"
+#include "client_message.h"
 
 // whatever is defined in this header file can be used by both the library and our own clients.
 // this header, therefore, must not defined any functions, unless they are inline, or can execute
@@ -15,9 +16,7 @@
 #define FCT_JOSE_COMPACT "application/jose"
 #define FCT_JOSE_JSON "application/jose+json"
 #define FCT_APPLICATION_JSON "application/json"
-#define FCT_TRUST_MESSAGE "application/vnd.xl4.busmessage-trust+json"
 #define FCT_APPLICATION_OCTET_STREAM "application/octet-stream"
-#define FCT_BUS_MESSAGE "application/vnd.xl4.busmessage+json"
 #define FCT_TEXT_PLAIN "text/plain"
 
 #define MILLIS_PER_SEC 1000ULL
@@ -35,18 +34,6 @@
 #define HDR_X5C "x5c"
 #define BUS_OBJ_NONCE "nonce"
 #define BUS_OBJ_TIMESTAMP "nonce"
-
-#define MSG_TYPE_REG_REQUEST "xl4bus.registration-request"
-#define MSG_TYPE_REQ_DESTINATIONS "xl4bus.request-destinations"
-#define MSG_TYPE_REQ_CERT "xl4bus.request-cert"
-#define MSG_TYPE_CERT_DETAILS "xl4bus.cert-details"
-#define MSG_TYPE_MESSAGE_CONFIRM "xl4bus.message-confirm"
-#define MSG_TYPE_KEY_INFO "xl4bus.key-info"
-#define MSG_TYPE_REQ_KEY "xl4bus.request-key"
-#define MSG_TYPE_PRESENCE "xl4bus.presence"
-#define MSG_TYPE_ALG_SUPPORTED "xl4bus.alg-supported"
-#define MSG_TYPE_REQUEST_CERT "xl4bus.request-cert"
-#define MSG_TYPE_DESTINATION_INFO "xl4bus.destination-info"
 
 #define JSON_ADDR_PROP_UPDATE_AGENT "update-agent"
 #define JSON_ADDR_PROP_SPECIAL "special"

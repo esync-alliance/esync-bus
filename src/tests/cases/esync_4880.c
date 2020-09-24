@@ -4,10 +4,11 @@
 #include "tests/cases.h"
 #include "lib/debug.h"
 #include <libxl4bus/low_level.h>
+#include "client_message.h"
 
 #define MESSAGE \
 "07-03:16:33:18.812 send_message:ws_xl4bus.c:67 [main] BUS SND 0x2" \
-"c0aa070 { type: xl4.query-updates, body: { campaigns: [ { id: 123" \
+"c0aa070 { type: FCT_BUS_MESSAGE_QUERY_UPDATE_RESPONSE, body: { campaigns: [ { id: 123" \
 "9, release-notes: {\"version\":2,\"title\":{\"en\":\"DDCU1-2\",\"zh\":\"DDCU" \
 "1-2\"},\"info\":{\"zh\":\"请等待\"}}, targets: [ { package: { name: GW-ECU-" \
 "3610315-DB01-0x0056, type: \\/GW\\/ECU\\/3610315-DB01, version: 3610" \
@@ -500,7 +501,7 @@
 "-0x0072, current-version: 3002            , terminal-failure: fal" \
 "se, update-status: 10, update-progress: { }, download-consent: { " \
 "state: 3 } } ] }, reply-to: 268249633 }" \
-"c0aa070 { type: xl4.query-updates, body: { campaigns: [ { id: 123" \
+"c0aa070 { type: FCT_BUS_MESSAGE_QUERY_UPDATE_RESPONSE, body: { campaigns: [ { id: 123" \
 "9, release-notes: {\"version\":2,\"title\":{\"en\":\"DDCU1-2\",\"zh\":\"DDCU" \
 "1-2\"},\"info\":{\"zh\":\"请等待\"}}, targets: [ { package: { name: GW-ECU-" \
 "3610315-DB01-0x0056, type: \\/GW\\/ECU\\/3610315-DB01, version: 3610" \

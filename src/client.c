@@ -7,6 +7,7 @@
 #include "basics.h"
 #include "lib/hash_list.h"
 #include "bus-test-support.h"
+#include "client_message.h"
 #include "itc.h"
 
 #if WITH_UNIT_TEST
@@ -2108,8 +2109,7 @@ int get_xl4bus_message(char const * data, size_t data_len, char const* ct, json_
     *json = 0;
 
     do {
-
-        BOLT_IF(z_strcmp("application/vnd.xl4.busmessage+json", ct),
+        BOLT_IF(z_strcmp(FCT_BUS_MESSAGE, ct),
                 E_XL4BUS_CLIENT, "Invalid content type %s", SAFE_STR(ct));
 
         // the json must be ASCIIZ.

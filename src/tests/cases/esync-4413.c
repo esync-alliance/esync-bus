@@ -6,6 +6,7 @@
 #include <libxl4bus/low_level.h>
 #include "bus-test-support.h"
 #include "basics.h"
+#include "client_message.h"
 
 static int key_used_twice() {
 

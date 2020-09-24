@@ -5,6 +5,7 @@
 #include "internal.h"
 #include "embedded_test_functions.h"
 #include "renamed_json.h"
+#include "client_message.h"
 
 int esync_4843_corrupted_incoming = 0;
 int esync_4843_corrupted_cert_details = 0;

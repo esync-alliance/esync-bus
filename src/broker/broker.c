@@ -4,6 +4,7 @@
 #include "lib/debug.h"
 #include "lib/poll_help.h"
 #include "basics.h"
+#include "client_message.h"
 
 #include <libxl4bus/low_level.h>
 
