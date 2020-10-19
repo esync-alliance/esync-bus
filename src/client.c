@@ -917,7 +917,13 @@ void ares_gethostbyname_cb(void * arg, int status, int unused0, struct hostent* 
 
     do {
 
-        DBG("ARES reported status %d, hostent at %p, dual IP:%s", status, hent, BOOL_STR(i_clt->dual_ip));
+        DBG("ARES reported status %d, hostent at %p, dual IP:%s", status, hent,
+#if XL4_SUPPORT_IPV4 && XL4_SUPPORT_IPV6
+            BOOL_STR(i_clt->dual_ip)
+#else
+            "N/A"
+#endif
+        );
         if (status != ARES_SUCCESS) {
             DBG("ARES query failed");
             break;
