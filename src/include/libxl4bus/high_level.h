@@ -81,7 +81,7 @@ XL4_PUB
  * @param fd file descriptor that was triggered
  * @param modes triggered operations, can be combination of
  * ::XL4BUS_POLL_READ, ::XL4BUS_POLL_WRITE and ::XL4BUS_POLL_ERR, should not
- * be 0, or contain other bits.
+ * be 0, or have any other bits set.
  * @return ::E_XL4BUS_OK in case of success, or ::E_XL4BUS_MEMORY if there
  * was insufficient memory. The client won't stop operating in case
  * an error is returned, but the user must retry, or stop the client.

@@ -398,6 +398,9 @@ typedef struct message_internal {
 } message_internal_t;
 
 typedef struct poll_info {
+    // array of descriptors to poll, along with specification on the events to poll
+    // and the events detected on each descriptor. Free slots identified by fd -1. Array only
+    // resized upwards, and len never decreases.
     pf_poll_t * polls;
     int polls_len;
 } poll_info_t;
@@ -406,8 +409,22 @@ typedef struct client_internal {
 
     client_state_t state;
 
+    /**
+     * Array of structures, containing indication which file descriptors have
+     * pending poll events. Set by xl4bus_flag_poll() function, typically from
+     * application poll loop.
+     */
     pending_fd_t * pending;
+    /**
+     * Number of valid entries in `pending` array.
+     */
     int pending_len;
+    /**
+     * Amount of entries that can fit into currently allocated `pending` array.
+     * When attempt is made to add items above this threshold, the `pending` array is resized by 1 element.
+     * It's not expected that the array will constantly grow, as it is to be limited to the general amount
+     * of file descriptors in play, which typically is just a handful.
+     */
     int pending_cap;
 
 #if XL4_SUPPORT_RESOLVER
@@ -424,6 +441,10 @@ typedef struct client_internal {
     char * host;
     int port;
 
+    /**
+     * list of file descriptors known to the client,
+     * hashed by file descriptor.
+     */
     known_fd_t * known_fd;
     uint64_t down_target;
     xl4bus_connection_t * ll;
@@ -434,6 +455,9 @@ typedef struct client_internal {
     cjose_jwk_t * private_key;
 
 #if XL4_PROVIDE_THREADS
+    /**
+     * List of descriptors to poll, set through internal_set_poll in client.c
+     */
     poll_info_t poll_info;
     int stop;
     int mt_write_socket;

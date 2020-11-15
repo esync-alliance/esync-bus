@@ -451,7 +451,25 @@ typedef int (*xl4bus_handle_ll_message)(struct xl4bus_connection*, xl4bus_ll_mes
 typedef void (*xl4bus_ll_send_callback) (struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 
 typedef char *(*xl4bus_password_callback_t)(struct xl4bus_X509v3_Identity *);
-typedef int (*xl4bus_set_ll_poll)(struct xl4bus_connection *, int, int);
+
+/**
+ * Functions of this type are invoked by the low level implementation when a file descriptor needs to be polled,
+ * or no longer polled; or to specify a poll timeout.
+ * @param fd file descriptor, or ::XL4BUS_POLL_TIMEOUT constant to indicate poll timeout specification.
+ * @param poll_for If `fd` was a file descriptor, then one of ::XL4BUS_POLL_READ, ::XL4BUS_POLL_WRITE or
+ * ::XL4BUS_POLL_REMOVE, or a bitwise OR thereof to indicate that the file descriptor should be polled for reading,
+ * writing, or be removed from the list of polled file descriptors all together. Note that all added file
+ * descriptors are always monitored for error conditions, if added.
+ * For timeout specification, shall contain a timeout value, in milliseconds, until a poll operation is to
+ * return when no file descriptors have reported registered events. A value of `0` indicates no timeout is needed.
+ * Even if no timeout is specified, the poll can still cycle if the implementation decides to apply its own timeouts.
+ * @return E_XL4BUS_OK in case of executing the operation successfully, or a corresponding error message otherwise.
+ * The function is not expected to fail when removing file descriptors from polling; the return value is not checked
+ * for these operations. Otherwise, if the function returns anything but E_XL4BUS_OK, the corresponding connection(s)
+ * will be closed by the low level.
+ */
+typedef int (*xl4bus_set_ll_poll)(struct xl4bus_connection *, int fd, int poll_for);
+
 typedef int (*xl4bus_stream_callback)(struct xl4bus_connection *, uint16_t stream, xl4bus_stream_close_reason_t);
 typedef void (*xl4bus_shutdown_callback)(struct xl4bus_connection *);
 
@@ -589,6 +607,10 @@ typedef struct xl4bus_connection {
 
     xl4bus_identity_t identity;
 
+    /**
+     * This function is invoked when the low level needs to monitor a specific file descriptor
+     * for a specific operation or operations.
+     */
     xl4bus_set_ll_poll set_poll;
     xl4bus_handle_ll_message on_message;
     xl4bus_ll_send_callback on_sent_message;
@@ -706,7 +728,20 @@ typedef enum xl4bus_client_condition {
     XL4BCC_CLIENT_START
 } xl4bus_client_condition_t;
 
-typedef int (*xl4bus_set_poll) (struct xl4bus_client *, int fd, int modes);
+/**
+ * Functions of this type are invoked by the client implementation when a file descriptor needs to be polled,
+ * or no longer polled.
+ * @param client xl4bus client object requesting the change in polled descriptors.
+ * @param fd file descriptor so set the polling mode(s) for.
+ * @param modes If `fd` was a file descriptor, then one of ::XL4BUS_POLL_READ, ::XL4BUS_POLL_WRITE or
+ * ::XL4BUS_POLL_REMOVE, or a bitwise OR thereof to indicate that the file descriptor should be polled for reading,
+ * writing, or be removed from the list of polled file descriptors all together. Note that is ::XL4BUS_POLL_REMOVE
+ * is present, all other bits are ignored, and the descriptor will be removed.
+ * @return E_XL4BUS_OK in case of executing the operation successfully, or a corresponding error message otherwise.
+ * If an error is returned from this function, the current operation will fail, causing the client to either
+ * fail initialization, or drop the connection to the broker (and reconnect).
+ */
+typedef int (*xl4bus_set_poll) (struct xl4bus_client * client, int fd, int modes);
 
 /**
  * Callback invoked for incoming messages.
@@ -819,7 +854,8 @@ typedef struct xl4bus_client {
     /**
      * Invoked when the library requests for changing poll properties
      * of needed socket descriptors. This does not need to be implemented
-     * if internal threads are used.
+     * if internal threads are used; in that case polling is handled by the
+     * internal thread.
      */
     xl4bus_set_poll set_poll;
 

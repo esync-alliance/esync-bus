@@ -232,6 +232,9 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,  (void*)&opt, sizeof(int));
 #endif
 
+    // $TODO: ESYNC-5108 the connection must be non-blocking.
+    // pf_set_nonblocking(fd);
+
     int rc;
 
 #if XL4_SUPPORT_IPV4

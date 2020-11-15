@@ -24,7 +24,7 @@
 
 #define TEST_ERR(s, a...) PRINT_LN(1, "ERR", " " s, ## a)
 #define TEST_MSG(s, a...) PRINT_LN(1, "MSG", " " s, ## a)
-#define TEST_DBG(s, a...) if (show_debug) PRINT_LN(1, "DBG", " " s, ## a)
+#define TEST_DBG(s, a...) PRINT_LN(show_debug, "DBG", " " s, ## a)
 #define TEST_SUB(a) { err = (a); if (err != E_XL4BUS_OK) { BOLT_SAY(err, "FAIL - " #a); } else { TEST_MSG("OK - " #a); }} do{}while(0)
 #define TEST_IF(a) BOLT_IF(a, E_XL4BUS_INTERNAL, "FAIL - " #a)
 // { if ((a) != E_XL4BUS_OK) { BOLT_SAY(err, "FAIL - " #a); } else { TEST_MSG("OK - " #a); }} do{}while(0)
@@ -38,6 +38,8 @@ typedef enum test_event_type {
     TET_CLT_PAUSED, // reception paused
     TET_CLT_UNPAUSED, // reception unpaused
     TET_CLT_DISCONNECTED, // connection to broker lost
+    TET_CLT_DNS_FAILED, // resolving broker host name failed
+    TET_CLT_CONN_FAILED, // connection to broker failed
     TET_MSG_ACK_OK,
     TET_MSG_ACK_FAIL,
     TET_CLT_RUNNING,
@@ -73,6 +75,7 @@ typedef struct test_broker {
     char * name;
     broker_context_t context;
     pthread_t thread;
+    char * host;
 
 } test_broker_t;
 

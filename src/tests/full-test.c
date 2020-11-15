@@ -237,6 +237,7 @@ int main(int argc, char ** argv) {
     CASE(esync_4841);
     CASE(esync_4843);
     CASE(esync_4880);
+    CASE(esync_5093);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
@@ -304,8 +305,9 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
 
     do {
 
-        BOLT_IF(!brk->port, E_XL4BUS_ARG, "");
-        url = f_asprintf("tcp://localhost:%d", brk->port);
+        BOLT_IF(!brk->port, E_XL4BUS_ARG, "no port");
+        BOLT_IF(!brk->host, E_XL4BUS_ARG, "no host");
+        url = f_asprintf("tcp://%s:%d", brk->host, brk->port);
 
         if (!clt->name) {
             clt->name = f_asprintf("%s:%s:%d", test_name, clt->label, through_count++);
@@ -396,6 +398,10 @@ int full_test_broker_start(test_broker_t * brk) {
             brk->name = f_asprintf("%s:%d", test_name, through_count++);
         }
 
+        if (!brk->host) {
+            brk->host = f_strdup("localhost");
+        }
+
         BOLT_DIR(pthread_mutex_lock(&broker_start_lock), "");
         locked = 1;
         BOLT_DIR(pthread_create(&brk->thread, 0, broker_runner, brk), "");
@@ -450,6 +456,7 @@ int full_test_broker_stop(test_broker_t * brk, int release) {
 
         if (release) {
             Z(free, brk->name);
+            Z(free, brk->host);
         }
 
         return E_XL4BUS_OK;
@@ -834,6 +841,10 @@ void status_handler(struct xl4bus_client * clt, xl4bus_client_condition_t status
         full_test_submit_event(&t_clt->events, TET_CLT_RUNNING);
     } else if (status == XL4BCC_CONNECTION_BROKE) {
         full_test_submit_event(&t_clt->events, TET_CLT_DISCONNECTED);
+    } else if (status == XL4BCC_CONNECTION_FAILED) {
+        full_test_submit_event(&t_clt->events, TET_CLT_CONN_FAILED);
+    } else if (status == XL4BCC_RESOLUTION_FAILED) {
+        full_test_submit_event(&t_clt->events, TET_CLT_DNS_FAILED);
     }
 
 }

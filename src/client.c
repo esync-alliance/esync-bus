@@ -39,7 +39,17 @@ typedef struct ll_message_container {
 } ll_message_container_t;
 
 static void client_thread(void *);
-static int internal_set_poll(xl4bus_client_t *, int fd, int modes);
+
+/**
+ * If remove request is issued, client's poll_info is modified to have the fd found, and set to -1.
+ * Otherwise, poll_info is scanned for the fd, or a free slot. If none are found, array is extended by 1.
+ * The modes intended for the descriptor are set in the corresponding element.
+ * @param clt client that requested the poll change
+ * @param fd fd to change
+ * @param modes modes, request read or write events, or remove the fd
+ * @return
+ */
+static int internal_set_poll(xl4bus_client_t * clt, int fd, int modes);
 static int apply_timeouts(xl4bus_client_t *, int need_timeout);
 static void clean_expired_things(xl4bus_client_t *);
 
@@ -61,7 +71,17 @@ static void ares_gethostbyname_cb(void *, int, int unused0, struct hostent*);
 
 static int accept_resolved_address(xl4bus_client_t * clt, struct hostent*);
 static void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t);
-static int ll_poll_cb(struct xl4bus_connection*, int, int);
+
+/**
+ * Default implementation of the xl4bus_set_ll_poll function type for the high
+ * level client. The implementation sets the last known timeout (for timeout operations),
+ * otherwise ensures (if poll modes are !0) the descriptor is ensured to be registered in client->known_fd,
+ * and client->set_poll() is called for the affected file descriptor.
+ * @param fd file descriptor to set poll for, or timeout indicator
+ * @param mode_or_timeout poll mode, or timeout value
+ * @return E_XL4BUS_OK or errors of the caller's set poll failed, or memory could not be allocated if needed.
+ */
+static int ll_poll_cb(struct xl4bus_connection*, int fd, int mode_or_timeout);
 static int ll_msg_cb(struct xl4bus_connection*, xl4bus_ll_message_t *);
 static void ll_send_cb(struct xl4bus_connection*, xl4bus_ll_message_t *, void *, int);
 static void ll_shutdown_cb(xl4bus_connection_t *);
@@ -551,6 +571,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
             if (!reason) {
                 BOLT_SUB(clt->set_poll(clt, fdi->fd, XL4BUS_POLL_REMOVE));
                 HASH_DEL(i_clt->known_fd, fdi);
+                free(fdi);
             } else {
                 if (fdi->modes != reason) {
                     BOLT_SUB(clt->set_poll(clt, fdi->fd, reason));
@@ -774,6 +795,7 @@ void client_thread(void * arg) {
 
 }
 
+// prototype documented
 int internal_set_poll(xl4bus_client_t *clt, int fd, int modes) {
 
     client_internal_t * i_clt = clt->_private;
@@ -969,6 +991,9 @@ void drop_client(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
     DBG("Disconnecting client %p : %d", clt, how);
 
     client_internal_t * i_clt = clt->_private;
+    if (!i_clt) {
+        return;
+    }
     i_clt->down_target = pf_ms_value() + XL4_CLIENT_RECONNECT_INTERVAL_MS;
     i_clt->state = CS_DOWN;
     i_clt->net_addr_current = 0;
@@ -1120,7 +1145,8 @@ int create_ll_connection(xl4bus_client_t * clt) {
 
 }
 
-int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
+// prototype documented
+int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes_or_timeout) {
 
     int err = E_XL4BUS_OK;
     do {
@@ -1133,7 +1159,7 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
 
         if (fd == XL4BUS_POLL_TIMEOUT_MS) {
 
-            apply_timeouts(clt, modes);
+            apply_timeouts(clt, modes_or_timeout);
 
         } else {
 
@@ -1142,7 +1168,7 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
             known_fd_t * fdi;
 
             HASH_FIND_INT(i_clt->known_fd, &fd, fdi);
-            if (!fdi && modes) {
+            if (!fdi && modes_or_timeout) {
                 BOLT_MALLOC(fdi, sizeof(known_fd_t));
                 fdi->fd = fd;
                 fdi->is_ll_conn = 1;
@@ -1150,8 +1176,8 @@ int ll_poll_cb(struct xl4bus_connection* conn, int fd, int modes) {
             }
 
             if (fdi) {
-                fdi->modes = modes;
-                BOLT_SUB(clt->set_poll(clt, fdi->fd, modes));
+                fdi->modes = modes_or_timeout;
+                BOLT_SUB(clt->set_poll(clt, fdi->fd, modes_or_timeout));
             }
 
         }
