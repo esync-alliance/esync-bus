@@ -328,13 +328,28 @@ int pf_init_lock(void ** lock) {
 
 int pf_lock(void** lock) {
 
-    return pthread_mutex_lock(*lock);
+#if XL4_DEBUG_LOCKS
+    DBG("LOCKING: %p", lock);
+#endif
+    int rc = pthread_mutex_lock(*lock);
+#if XL4_DEBUG_LOCKS
+    if (rc) {
+        DBG("FAILED TO LOCK: %p, %d", lock, rc);
+    } else {
+        DBG("LOCKED: %p", lock);
+    }
+#endif
+    return rc;
 
 }
 
 int pf_unlock(void** lock) {
 
-    return pthread_mutex_unlock(*lock);
+    int rc = pthread_mutex_unlock(*lock);
+#if XL4_DEBUG_LOCKS
+    DBG("UNLOCKED: %p (rc: %d)", lock, rc);
+#endif
+    return rc;
 
 }
 

@@ -122,8 +122,6 @@ static int get_xl4bus_message_msg(xl4bus_ll_message_t const *, json_object **, c
 static int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t *, decrypt_and_verify_data_t  *, json_object *, char const * type, int * need_reconnect);
 #endif
 
-static hash_list_t * mint_by_kid = 0;
-
 #define CHANGE_MIS(mint,__mis, how, c...) do { \
     DBG("mint %p state %d->%d : " how, mint, mint->mis, __mis, ## c); \
     mint->mis = __mis; \
@@ -1765,6 +1763,8 @@ int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t * m
     char * key_base64 = 0;
     size_t key_base64_len = 0;
 
+    int locked = 0;
+
     do {
 
         if (!z_strcmp(type, MSG_TYPE_KEY_INFO)) {
@@ -1774,8 +1774,13 @@ int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t * m
             char const * kid;
             BOLT_SUB(process_remote_key(conn->cache, root, conn->my_x5t, dav->remote, &kid));
 
+#if XL4_SUPPORT_THREADS
+            BOLT_SYS(pf_lock(&i_clt->hash_lock), "");
+            locked = 1;
+#endif
+
             hash_list_t * pending;
-            HASH_FIND(hh, mint_by_kid, kid, strlen(kid) + 1, pending);
+            HASH_FIND(hh, i_clt->mint_by_kid, kid, strlen(kid) + 1, pending);
             size_t len;
             if (pending && (len = utarray_len(&pending->items))) {
 
@@ -1790,10 +1795,15 @@ int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t * m
                 for (size_t i = 0; i<len; i++) {
                     message_internal_t * mint = ref_message_internal(*(message_internal_t**)utarray_eltptr(&pending->items, i));
                     copy[i] = mint;
-                    reattempt_pending_message(conn, mint, need_reconnect);
                 }
 
+#if XL4_SUPPORT_THREADS
+                pf_unlock(&i_clt->hash_lock);
+                locked = 0;
+#endif
+
                 for (size_t i = 0; i<len; i++) {
+                    reattempt_pending_message(conn, copy[i], need_reconnect);
                     record_mint(clt, copy[i], 0, 0, 0, 1);
                     unref_message_internal(copy[i]);
                 }
@@ -1866,6 +1876,12 @@ int xl4bus_process_client_message(xl4bus_client_t * clt, xl4bus_ll_message_t * m
 #pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
 #pragma clang diagnostic pop
+
+#if XL4_SUPPORT_THREADS
+    if (locked) {
+        pf_unlock(&i_clt->hash_lock);
+    }
+#endif
 
     json_object_put(body);
     free_s(key_base64, key_base64_len);
@@ -2618,7 +2634,7 @@ void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add
 
         if (with_kid_list && !mint->in_kid_list) {
             DBG("Adding mint %p to KID list", mint);
-            HASH_LIST_ADD(mint_by_kid, mint, needs_kid);
+            HASH_LIST_ADD(i_clt->mint_by_kid, mint, needs_kid);
             mint->in_kid_list = 1;
             ref_message_internal(mint);
         }
@@ -2645,7 +2661,7 @@ void record_mint_nl(xl4bus_client_t * clt, message_internal_t * mint, int is_add
 #pragma clang diagnostic ignored "-Wunused-variable"
             int aux;
 #pragma clang diagnostic pop
-            REMOVE_FROM_HASH(mint_by_kid, mint, needs_kid, aux, "Removing mint %p from KID list", mint);
+            REMOVE_FROM_HASH(i_clt->mint_by_kid, mint, needs_kid, aux, "Removing mint %p from KID list", mint);
             mint->in_kid_list = 0;
             unref_message_internal(mint);
         }
@@ -2677,7 +2693,7 @@ int record_mint(xl4bus_client_t * clt, message_internal_t * mint, int is_add, in
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCSimplifyInspection"
     } while (0);
-#pragma clang diagnostic pop1
+#pragma clang diagnostic pop
 
 #if XL4_SUPPORT_THREADS
     if (locked) {

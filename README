@@ -45,6 +45,7 @@ Supported options:
 * XL4_HL_KEY_EXPIRATION_MS (default 24 hours, see build_config.h.in)
 * XL4_HL_KEY_USE_EXPIRATION_MS (default 1 hour, see build_config.h.in)
 * XL4_DEBUG_REFS (default FALSE, see build_config.h.in)
+* XL4_DEBUG_LOCKS (default FALSE, see build_config.h.in)
 
 LINUX
 =====

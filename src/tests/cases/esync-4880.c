@@ -1048,8 +1048,10 @@ int esync_4880() {
 
     do {
 
-        BOLT_SUB(large_message());
-
+        // the loop is to test regression of ESYNC-5109
+        for (int i=0; i<50; i++) {
+            BOLT_SUB(large_message());
+        }
     } while (0);
 
     return err;

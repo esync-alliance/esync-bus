@@ -77,6 +77,8 @@
 #include "uthash.h"
 #include "utlist.h"
 
+#include "lib/hash_list.h"
+
 #define FRAME_TYPE_MASK 0x7
 #define FRAME_TYPE_NORMAL 0x0
 #define FRAME_TYPE_CTEST 0x1
@@ -435,6 +437,7 @@ typedef struct client_internal {
     int net_addr_current;
     message_internal_t * message_list;
     message_internal_t * stream_hash;
+    hash_list_t * mint_by_kid;
 
     int tcp_fd;
 

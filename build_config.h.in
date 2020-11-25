@@ -117,6 +117,12 @@
 #cmakedefine01 XL4_DEBUG_REFS
 
 /**
+ * If true, the porting library should produce debugging messages
+ * to debug locking.
+ */
+#cmakedefine01 XL4_DEBUG_LOCKS
+
+/**
  * Whether the client will use a resolver (ARES) library.
  * If set to FALSE, then only system getaddrinfo(3) will be
  * used to fill in socket addresses. This will only work if
