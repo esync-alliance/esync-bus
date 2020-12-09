@@ -34,6 +34,10 @@
 
 #include <libxl4bus/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef XL4_PUB
 /**
  * Used to indicate that the library symbol is properly exported.
@@ -142,4 +146,8 @@ int xl4bus_send_message(xl4bus_client_t * clt, xl4bus_message_t * msg, void * ar
 
 #undef XL4_PUB
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* _XL4BUS_HIGH_LEVEL_H_ */

@@ -8,6 +8,10 @@
 
 #include <libxl4bus/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifndef XL4_PUB
 #if XL4_SYMBOL_VISIBILITY_SUPPORTED
 #define XL4_PUB __attribute__((visibility ("default")))
@@ -273,4 +277,8 @@ XL4_PUB void xl4bus_release_cache(struct xl4bus_global_cache * cache);
 
 #undef XL4_PUB
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* _XL4BUS_LOW_LEVEL_H_ */

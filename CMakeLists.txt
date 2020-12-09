@@ -1,6 +1,21 @@
 
 cmake_minimum_required(VERSION 3.5)
-project(libxl4bus)
+project(xl4bus
+    DESCRIPTION "Excelfore eSync Bus"
+    LANGUAGES "C"
+    )
+
+# Set PROJECT_VERSION base on GIT Tag
+execute_process(COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/get_projver.sh
+    OUTPUT_VARIABLE GIT_DESCRIBE_TAG_VERSION
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+set(PROJECT_VERSION ${GIT_DESCRIBE_TAG_VERSION})
+string(REPLACE "." ";" VERSION_LIST ${GIT_DESCRIBE_TAG_VERSION})
+list(GET VERSION_LIST 0 PROJECT_VERSION_MAJOR)
+list(GET VERSION_LIST 1 PROJECT_VERSION_MINOR)
+list(GET VERSION_LIST 2 PROJECT_VERSION_PATCH)
+list(GET VERSION_LIST 3 PROJECT_VERSION_TWEAK)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_VERBOSE_MAKEFILE on)
@@ -8,7 +23,10 @@ set(CMAKE_C_VISIBILITY_PRESET hidden)
 
 set(PORT $ENV{LIBXL4BUS_PORT})
 
-add_custom_command(OUTPUT PHONY ${CMAKE_BINARY_DIR}/xl4bus_version.h COMMAND ${CMAKE_SOURCE_DIR}/make_version.sh ARGS ${CMAKE_SOURCE_DIR} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+add_custom_command(OUTPUT PHONY ${CMAKE_CURRENT_BINARY_DIR}/xl4bus_version.h
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/make_version.sh
+    ARGS ${CMAKE_CURRENT_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
 
@@ -100,15 +118,32 @@ if ("${PORT}" STREQUAL "")
     set(PORT "linux_port")
 endif()
 
-get_filename_component(PORT "${PORT}" REALPATH BASE_DIR "${CMAKE_SOURCE_DIR}")
-get_filename_component(ROOT_DIR "" REALPATH BASE_DIR "${CMAKE_SOURCE_DIR}")
+get_filename_component(PORT "${PORT}" REALPATH BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+get_filename_component(ROOT_DIR "" REALPATH BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 if((NOT IS_DIRECTORY "${PORT}") OR ("${PORT}" STREQUAL "${ROOT_DIR}"))
    message(FATAL_ERROR "LIBXL4BUS_PORT environment variable (${PORT}) must be set and point to a valid port directory!")
 endif()
 
+if(BUILD_DEPENDENCIES)
+    if(NOT EXISTS ${PORT}/build_deps.done)
+        message(STATUS "Building ${PROJECT_NAME} External Dependendcies...")
+        execute_process(COMMAND ./build_deps.sh clean
+            OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/CMakeExtDepsClean.log
+            ERROR_FILE ${CMAKE_CURRENT_BINARY_DIR}/CMakeExtDepsClean.log
+            WORKING_DIRECTORY "${PORT}")
+        execute_process(COMMAND ./build_deps.sh
+            OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/CMakeExtDepsBuild.log
+            ERROR_FILE ${CMAKE_CURRENT_BINARY_DIR}/CMakeExtDepsBuild.log
+            WORKING_DIRECTORY "${PORT}")
+        message(STATUS "${PROJECT_NAME} External Dependencies Build Finished...")
+    endif()
+endif(BUILD_DEPENDENCIES)
+
 set(RUN_TESTS TRUE)
 if (CMAKE_CROSSCOMPILING)
+    set(RUN_TESTS FALSE)
+elseif(NOT CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
     set(RUN_TESTS FALSE)
 endif()
 
@@ -184,42 +219,57 @@ set_empty(XL4_SYMBOL_VISIBILITY_SUPPORTED 1)
 
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES build_config.h)
 
-set(BUILD_INCLUDE ${CMAKE_BINARY_DIR}/include)
+set(BUILD_INCLUDE ${CMAKE_CURRENT_BINARY_DIR}/include)
 set(BUILD_INCLUDE_BUS ${BUILD_INCLUDE}/libxl4bus)
 file(MAKE_DIRECTORY ${BUILD_INCLUDE_BUS})
 
 set(BCH ${BUILD_INCLUDE_BUS}/build_config.h)
 
-configure_file(${CMAKE_SOURCE_DIR}/build_config.h.in ${BCH})
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/build_config.h.in ${BCH})
 configure_file(${PORT}/types_base.h ${BUILD_INCLUDE_BUS}/types_base.h)
-configure_file(${CMAKE_SOURCE_DIR}/json-c-rename.h ${CMAKE_BINARY_DIR} COPYONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/json-c-rename.h ${CMAKE_CURRENT_BINARY_DIR} COPYONLY)
 
-include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/include)
+include_directories(SYSTEM ${CMAKE_CURRENT_SOURCE_DIR}/src/include)
 include_directories(SYSTEM ${BUILD_INCLUDE})
-include_directories(${CMAKE_SOURCE_DIR}/src/tests)
-include_directories(${CMAKE_SOURCE_DIR}/src)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/tests)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 include_directories(${PORT})
-include_directories(${CMAKE_BINARY_DIR})
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-set(JSON_C ${CMAKE_SOURCE_DIR}/json-c-build)
-set(MBEDTLS ${CMAKE_SOURCE_DIR}/mbedtls-build)
-set(CJOSE ${CMAKE_SOURCE_DIR}/cjose-build)
-set(CARES ${CMAKE_SOURCE_DIR}/c-ares-build)
-set(JANSSON ${CMAKE_SOURCE_DIR}/jansson-build)
+if(ENABLE_YOCTO_BUILD)
+    set(JSON_C ${BITBAKE_STAGING_DIR}/xl4bus/libjson-c)
+    set(MBEDTLS ${BITBAKE_STAGING_DIR}/xl4bus/libmbedtls)
+    set(CJOSE ${BITBAKE_STAGING_DIR}/xl4bus/libcjose)
+    set(CARES ${BITBAKE_STAGING_DIR}/xl4bus/libcares)
 
-include_directories(SYSTEM ${JSON_C})
-include_directories(SYSTEM ${MBEDTLS}/include)
-include_directories(SYSTEM ${CJOSE}/include)
-if (XL4_SUPPORT_RESOLVER)
-    include_directories(SYSTEM ${CARES})
-endif()
-include_directories(SYSTEM ${JANSSON}/build/include)
+    include_directories(SYSTEM ${JSON_C}/include)
+    include_directories(SYSTEM ${JSON_C}/include/json-c)
+    include_directories(SYSTEM ${MBEDTLS}/include)
+    include_directories(SYSTEM ${MBEDTLS}/include/mbedtls)
+    include_directories(SYSTEM ${CJOSE}/include)
+    include_directories(SYSTEM ${CJOSE}/include/cjose)
+    if (XL4_SUPPORT_RESOLVER)
+        include_directories(SYSTEM ${CARES}/include)
+    endif()
+else(ENABLE_YOCTO_BUILD)
+    set(JSON_C ${CMAKE_CURRENT_SOURCE_DIR}/json-c-build)
+    set(MBEDTLS ${CMAKE_CURRENT_SOURCE_DIR}/mbedtls-build)
+    set(CJOSE ${CMAKE_CURRENT_SOURCE_DIR}/cjose-build)
+    set(CARES ${CMAKE_CURRENT_SOURCE_DIR}/c-ares-build)
+
+    include_directories(SYSTEM ${JSON_C})
+    include_directories(SYSTEM ${MBEDTLS}/include)
+    include_directories(SYSTEM ${CJOSE}/include)
+    if (XL4_SUPPORT_RESOLVER)
+        include_directories(SYSTEM ${CARES})
+    endif()
+endif(ENABLE_YOCTO_BUILD)
 
 set(LIB_SOURCE ${LIB_SOURCE}
     PHONY
     ${BCH}
     ${BUILD_INCLUDE_BUS}/types_base.h
-    ${CMAKE_BINARY_DIR}/xl4bus_version.h
+    ${CMAKE_CURRENT_BINARY_DIR}/xl4bus_version.h
     src/client_message.h
     src/identity.c
     src/misc.c
@@ -281,7 +331,14 @@ if (BUILD_SHARED)
     set(USE_LIB xl4bus-shared)
     target_link_libraries(xl4bus-shared ${SHARED_LIBS})
     target_compile_definitions(xl4bus-shared PRIVATE XL4BUS_BUILD)
-    install(TARGETS xl4bus-shared LIBRARY DESTINATION lib)
+    install(TARGETS xl4bus-shared LIBRARY DESTINATION lib COMPONENT SharedLibrary)
+
+    if(ENABLE_YOCTO_BUILD)
+        set_target_properties(xl4bus-shared PROPERTIES
+            SOVERSION   ${PROJECT_VERSION_MAJOR}
+            VERSION     ${PROJECT_VERSION}
+            )
+    endif(ENABLE_YOCTO_BUILD)
 endif()
 
 if (BUILD_STATIC)
@@ -298,7 +355,7 @@ if (BUILD_STATIC)
     endif()
     target_link_libraries(xl4bus-static ${STATIC_LIBS})
     target_compile_definitions(xl4bus-static PRIVATE HIDE_SYM XL4BUS_BUILD)
-    install(TARGETS xl4bus-static ARCHIVE DESTINATION lib)
+    install(TARGETS xl4bus-static ARCHIVE DESTINATION lib COMPONENT StaticLibrary)
 endif()
 
 if (BUILD_BINS)
@@ -422,10 +479,10 @@ if (BUILD_BINS)
 
     set(BINARIES ${NORMAL_BINARIES} ${TEST_BINARIES})
 
-    install(TARGETS xl4bus-broker RUNTIME DESTINATION bin)
-    
+    install(TARGETS xl4bus-broker RUNTIME DESTINATION bin COMPONENT Broker)
+
     target_link_libraries(xl4bus-broker ${JSON_C_LIB})
-    
+
     if (WITH_EFENCE)
         targets_link_libraries(${BINARIES} LIBRARIES -lefence)
     endif()
@@ -438,9 +495,9 @@ if (BUILD_BINS)
 
 endif()
 
-install(DIRECTORY src/include/libxl4bus DESTINATION include)
-install(FILES ${BCH} DESTINATION include/libxl4bus)
-install(FILES ${BUILD_INCLUDE_BUS}/types_base.h ${BUILD_INCLUDE_BUS}/build_config.h DESTINATION include/libxl4bus)
+install(DIRECTORY src/include/libxl4bus DESTINATION include COMPONENT PublicHeaders)
+install(FILES ${BCH} DESTINATION include/libxl4bus COMPONENT PublicHeaders)
+install(FILES ${BUILD_INCLUDE_BUS}/types_base.h ${BUILD_INCLUDE_BUS}/build_config.h DESTINATION include/libxl4bus COMPONENT PublicHeaders)
 
 find_package(Doxygen)
 
@@ -450,7 +507,7 @@ if (NOT DOXYGEN_FOUND)
 
 else ()
 
-    set(doxyfile_in ${CMAKE_HOME_DIRECTORY}/doc/doxyfile.in)
+    set(doxyfile_in ${CMAKE_CURRENT_SOURCE_DIR}/doc/doxyfile.in)
     set(doxyfile ${CMAKE_CURRENT_BINARY_DIR}/doxyfile)
 
     configure_file(${doxyfile_in} ${doxyfile} @ONLY)
@@ -466,7 +523,7 @@ else ()
                 src/include/libxl4bus/types.h
             VERBATIM)
 
-    install(DIRECTORY ${CMAKE_BINARY_DIR}/html DESTINATION share/doc/libxl4bus)
+    install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/html DESTINATION share/doc/libxl4bus COMPONENT HTMLDocuments)
 
 endif ()
 
@@ -477,7 +534,9 @@ if (RUN_TESTS)
         add_test(NAME unit-timeout COMMAND timeout-test)
         set_tests_properties(unit-tree unit-timeout PROPERTIES TIMEOUT 600)
         if (XL4_FULL_TEST)
-            add_test(NAME unit-full-prepare WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/src/tests/prepare-full-test.sh ${CMAKE_CURRENT_BINARY_DIR})
+            add_test(NAME unit-full-prepare
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/src/tests/prepare-full-test.sh ${CMAKE_CURRENT_BINARY_DIR})
             add_test(NAME unit-full-test COMMAND full-test -O full-test.log)
             set_tests_properties(unit-full-prepare unit-full-test PROPERTIES TIMEOUT 6000)
             set_tests_properties(unit-full-test PROPERTIES DEPENDS "unit-full-prepare")
@@ -487,7 +546,7 @@ if (RUN_TESTS)
             DEPENDS ${TEST_BINARIES}
             COMMENT "Run tests"
             POST_BUILD
-            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
             COMMAND ${CMAKE_CTEST_COMMAND} -C $<CONFIGURATION> -V -R "^unit-"
         )
 
@@ -499,3 +558,8 @@ else()
 endif()
 
 include(${LOAD_CFG})
+
+#-----------------------------------------------------------------------------
+# Setup Packaging Config
+#-----------------------------------------------------------------------------
+add_subdirectory(pkg)

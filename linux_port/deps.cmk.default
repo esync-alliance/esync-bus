@@ -1,26 +1,50 @@
-# json-c
-set(JSON_C_LIB ${JSON_C}/.libs/libjson-c.a)
+if(ENABLE_YOCTO_BUILD)
+    # json-c
+    set(JSON_C_LIB ${JSON_C}/lib/libjson-c.a)
+
+    # mbedtls
+    set(MBEDTLS_LIB ${MBEDTLS}/lib/libmbedx509.a ${MBEDTLS}/lib/libmbedcrypto.a)
+
+    # cjose
+    set(CJOSE_LIB ${CJOSE}/lib/libcjose.a)
+
+    # c-ares
+    if (XL4_SUPPORT_RESOLVER)
+        set(CARES_LIB ${CARES}/lib/libcares.a)
+    endif()
+else(ENABLE_YOCTO_BUILD)
+    # json-c
+    set(JSON_C_LIB ${JSON_C}/.libs/libjson-c.a)
+
+    # mbedtls
+    set(MBEDTLS_LIB
+        ${MBEDTLS}/build/library/libmbedx509.a
+        ${MBEDTLS}/build/library/libmbedcrypto.a)
+
+    # cjose
+    set(CJOSE_LIB ${CJOSE}/lib/libcjose.a)
+
+    # c-ares
+    if (XL4_SUPPORT_RESOLVER)
+        set(CARES_LIB ${CARES}/.libs/libcares.a)
+    endif()
+endif(ENABLE_YOCTO_BUILD)
+
 if (NOT EXISTS ${JSON_C_LIB})
     message(FATAL_ERROR "You must build json-c sources first!")
 endif()
 
-# mbedtls
-set(MBEDTLS_LIB ${MBEDTLS}/build/library/libmbedx509.a ${MBEDTLS}/build/library/libmbedcrypto.a)
 exists_all(TEST ${MBEDTLS_LIB})
 if (NOT ${TEST})
     message(FATAL_ERROR "You must build mbedtls sources first!")
 endif()
 
-# cjose
-set(CJOSE_LIB ${CJOSE}/lib/libcjose.a)
 exists_all(TEST ${CJOSE_LIB})
 if (NOT ${TEST})
     message(FATAL_ERROR "You must build cjose sources first!")
 endif()
 
-# c-ares
 if (XL4_SUPPORT_RESOLVER)
-    set(CARES_LIB ${CARES}/.libs/libcares.a)
     exists_all(TEST ${CARES_LIB})
     if (NOT ${TEST})
         message(FATAL_ERROR "You must build c-ares sources first!")
@@ -34,6 +58,20 @@ endif()
 
 # static build
 if (BUILD_STATIC)
-    file(GLOB EXT_OBJ ${JSON_C}/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o ${CJOSE}/src/*.o ${CARES}/libcares_la-*.o)
-    set(STATIC_LIBS ${CARES_LIB} ${EXTRA_LIBS})
+    if(ENABLE_YOCTO_BUILD)
+        file(GLOB EXT_OBJ
+            ${JSON_C}/obj/*.o
+            ${MBEDTLS}/obj/*.o
+            ${CJOSE}/obj/*.o
+            ${CARES}/obj/libcares_la-*.o)
+        set(STATIC_LIBS ${CARES_LIB} ${EXTRA_LIBS})
+    else(ENABLE_YOCTO_BUILD)
+        file(GLOB EXT_OBJ
+            ${JSON_C}/*.o
+            ${MBEDTLS}/build/library/CMakeFiles/mbedx509.dir/*.o
+            ${MBEDTLS}/build/library/CMakeFiles/mbedcrypto.dir/*.o
+            ${CJOSE}/src/*.o
+            ${CARES}/libcares_la-*.o)
+        set(STATIC_LIBS ${CARES_LIB} ${EXTRA_LIBS})
+    endif(ENABLE_YOCTO_BUILD)
 endif()

@@ -16,3 +16,4 @@ jansson-build
 Release
 Debug
 *.swp
+build_deps.done

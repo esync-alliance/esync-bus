@@ -8,8 +8,8 @@
     branch = mbedtls-2.12.0
 [submodule "cjose"]
 	path = cjose
-	url = https://github.com/veselov/cjose.git
-	branch = no-key
+	url = https://github.com/zmartzone/cjose.git
+	branch = v0.6.2
 [submodule "c-ares"]
 	path = c-ares
     url = https://github.com/c-ares/c-ares.git

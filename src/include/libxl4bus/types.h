@@ -6,6 +6,10 @@
 #ifndef _XL4BUS_TYPES_H_
 #define _XL4BUS_TYPES_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <libxl4bus/types_base.h>
 #include <libxl4bus/build_config.h>
 
@@ -884,4 +888,8 @@ typedef struct xl4bus_client {
 
 } xl4bus_client_t;
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* _XL4BUS_TYPES_H_ */
