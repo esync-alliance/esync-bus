@@ -433,7 +433,7 @@ int xl4bus_send_ll_message(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
 void xl4bus_abort_stream(xl4bus_connection_t *conn, uint16_t stream_id) {
 
     if (conn->_init_magic != MAGIC_INIT) {
-        DBG("Attempting to abort stream with uninitialized connection %p", conn);
+        DBG("Attempting to abort stream %04x with uninitialized connection %p", stream_id, conn);
         return;
     }
 
@@ -819,7 +819,7 @@ static int assemble_complete_from_last(xl4bus_connection_t * conn, frame_t * las
             } else {
                 frame_id_t id = {
                         .frame_id = need_frame,
-                        .stream_id = last->id.frame_id
+                        .stream_id = last->id.stream_id
                 };
 
                 HASH_FIND(hh, i_conn->incomplete_frames, &id, sizeof(id), first_frame);
@@ -884,7 +884,7 @@ static int assemble_complete_frame(xl4bus_connection_t * conn, int * assembled) 
         frame_t * stored_frame;
         BOLT_MALLOC(stored_frame, sizeof(frame_t));
         *stored_frame = frm;
-        frm.data.data = 0; // so it's not freed.
+        frm.data.data = 0; // so that it's not freed.
 
         HASH_ADD(hh, i_conn->incomplete_frames, id, sizeof(frame_id_t), stored_frame);
         stored_frame->hashed = 1;
@@ -954,6 +954,8 @@ int process_normal_frame(xl4bus_connection_t * conn) {
     connection_internal_t * i_conn = (connection_internal_t*)conn->_private;
     stream_t *stream = 0;
 
+    int id_ok = 0;
+
     do {
 
         // we must have at least 4 bytes.
@@ -962,6 +964,9 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 
         frm.id.stream_id = ntohs(*(uint16_t *) frm.data.data);
         frm.id.frame_id = ntohs(*(((uint16_t*)frm.data.data)+1));
+
+        id_ok = 1;
+
         HASH_FIND(hh, i_conn->streams, &frm.id.stream_id, 2, stream);
         ref_stream(stream);
 
@@ -1097,6 +1102,10 @@ int process_normal_frame(xl4bus_connection_t * conn) {
 #pragma clang diagnostic pop
 
     unref_stream(stream);
+
+    if (err && id_ok) {
+        DBG("Issue was with processing frame %05d:%05d", frm.id.stream_id, frm.id.frame_id);
+    }
 
     return err;
 
