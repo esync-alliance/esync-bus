@@ -187,18 +187,15 @@ typedef struct frame {
     size_t total_read;
     uint8_t byte0;
     union {
-        struct {
-            uint8_t len_converted;
-            uint8_t len_bytes[3];
-        };
         uint32_t frame_len;
+        uint8_t len_bytes[3];
     };
 
     xl4bus_buf_t data;
 
     uint32_t crc;
 
-    uint16_t needs_frame;
+    int len_converted;
     uint64_t expires_at;
 
     int hashed;
