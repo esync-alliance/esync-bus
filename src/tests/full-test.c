@@ -102,7 +102,7 @@ void version(FILE * to) {
 int main(int argc, char ** argv) {
 
     char * output_file_log = 0;
-
+   	char *end = NULL;
     int ret = 0;
     int c;
     int t_count = 0;
@@ -163,7 +163,7 @@ int main(int argc, char ** argv) {
                 output_file_log = f_strdup(optarg);
                 break;
             case 'i':
-                default_timeout_ms = atoi(optarg);
+                default_timeout_ms = strtol(optarg, &end, 10);                
                 break;
             default:
                 version(0);
@@ -295,7 +295,7 @@ int main(int argc, char ** argv) {
 
 int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on_latch) {
 
-    int err /*= E_XL4BUS_OK*/;
+    int err = E_XL4BUS_OK;
     char * url = 0;
     test_event_t * event = 0;
 
@@ -379,7 +379,7 @@ void full_test_client_stop(test_client_t * clt, int release) {
 
 int full_test_broker_start(test_broker_t * brk) {
 
-    int err /*= E_XL4BUS_OK*/;
+    int err = E_XL4BUS_OK;
     int locked = 0;
 
     do {
@@ -638,9 +638,13 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
         TEST_DBG("Considering event %d for %s", consider, in_success ? "SUCCESS":"FAILURE");
 
         *target = realloc(*target, (*target_count+1) * sizeof(test_event_type_t));
-        (*target)[*target_count] = consider;
-        (*target_count)++;
-
+        if(target == NULL){
+            TEST_ERR("realloc failed");
+        }
+        else{
+            (*target)[*target_count] = consider;
+            (*target_count)++;
+        }
     }
 
     int err = E_XL4BUS_OK;

@@ -173,8 +173,8 @@ static int MS_CALLBACK slg_write(BIO *b, const char *in, int inl)
     int priority, i;
     static const struct {
         int strl;
-        char str[10];
         int log_level;
+        char str[10];
     } mapping[] = {
         {
             6, "PANIC ", LOG_EMERG
@@ -374,28 +374,28 @@ static void xsyslog(BIO *bp, int priority, const char *string)
 
     switch (priority) {
     case LOG_EMERG:
-        priority_tag = "Emergency";
+        priority_tag = (const char *)"Emergency";
         break;
     case LOG_ALERT:
-        priority_tag = "Alert";
+        priority_tag = (const char *)"Alert";
         break;
     case LOG_CRIT:
-        priority_tag = "Critical";
+        priority_tag = (const char *)"Critical";
         break;
     case LOG_ERR:
-        priority_tag = "Error";
+        priority_tag = (const char *)"Error";
         break;
     case LOG_WARNING:
-        priority_tag = "Warning";
+        priority_tag = (const char *)"Warning";
         break;
     case LOG_NOTICE:
-        priority_tag = "Notice";
+        priority_tag = (const char *)"Notice";
         break;
     case LOG_INFO:
-        priority_tag = "Info";
+        priority_tag = (const char *)"Info";
         break;
     case LOG_DEBUG:
-        priority_tag = "DEBUG";
+        priority_tag = (const char *)"DEBUG";
         break;
     }
 

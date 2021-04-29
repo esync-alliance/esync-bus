@@ -394,6 +394,8 @@ void validate_rb_r(rb_node_t *node, int level, rb_node_t *comp, int leftis1) {
                 n_size += 10;
                 if (nav) {
                     nav = realloc(nav, n_size * sizeof(nav_t));
+                    if(nav == NULL)
+                     iERR("realloc failed");
                 } else {
                     nav = malloc(n_size * sizeof(nav_t));
                 }

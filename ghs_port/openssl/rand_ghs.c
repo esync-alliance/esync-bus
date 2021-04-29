@@ -177,7 +177,7 @@ int RAND_poll(void)
          * interference, etc.
          */
         for (k = 0; k < 99; k++)
-            ts.tv_nsec = rand();
+            ts.tv_nsec = random();
 
         /* get wall clock time.  */
         clock_gettime(CLOCK_REALTIME, &ts);

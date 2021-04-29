@@ -127,7 +127,7 @@ void pf_random(void * to, size_t where) {
          * interference, etc.
          */
         for (k = 0; k < 99; k++)
-            ts.tv_nsec = rand();
+            ts.tv_nsec = random();
 
         /* get wall clock time.  */
         clock_gettime(CLOCK_REALTIME, &ts);
@@ -230,7 +230,7 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
     int opt = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,  (void*)&opt, sizeof(int));
 
-    int rc;
+    int rc = -1;
 #if XL4_SUPPORT_IPV4
     if (family == AF_INET) {
         struct sockaddr_in sin = {0};

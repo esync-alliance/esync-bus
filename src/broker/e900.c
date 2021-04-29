@@ -17,7 +17,7 @@ void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
 
     char * from_str = addr_to_str(from);
     if (!from_str) {
-        from_str = "(FAIL)";
+        from_str = (const char *)"(FAIL)";
         alloc_src = 0;
     }
 
@@ -25,19 +25,19 @@ void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
 
     char * to_str;
     if (!to) {
-        to_str = "";
+        to_str = (const char *)"";
         alloc_dst = 0;
     } else {
         to_str = addr_to_str(to);
         if (!to_str) {
-            to_str = "(FAIL)";
+            to_str = (const char *)"(FAIL)";
             alloc_dst = 0;
         }
     }
 
     if (!msg) {
         alloc_msg = 0;
-        msg = "(NULL MSG!)";
+        msg = (const char *)"(NULL MSG!)";
     }
 
     MSG_OUT("E900 %s (%s)->(%s) : %s\n", my_time, from_str, to_str, msg);

@@ -38,7 +38,7 @@
 
 
 void print_out(const char *);
-char * f_asprintf(char * fmt, ...);
+char * f_asprintf(const char * fmt, ...);
 char * f_strdup(const char *);
 void * f_malloc(size_t);
 void * f_realloc(void *, size_t);
