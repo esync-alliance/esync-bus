@@ -10,6 +10,7 @@ static void help(void);
 int main(int argc, char ** argv) {
 
     int c;
+    char *end = 0;
 
     MSG("xl4-broker %s", xl4bus_version());
     MSG("Use -h to see help options");
@@ -62,7 +63,7 @@ int main(int argc, char ** argv) {
                 break;
             case 'T':
             {
-                int val = atoi(optarg);
+                int val = strtol(optarg, &end, BASE_TEN_CONVERSION);
                 if (val < 0) {
                     FATAL("timeout can not be negative");
                 }
@@ -75,7 +76,7 @@ int main(int argc, char ** argv) {
                 break;
 
             case 'P':
-                broker_context.port = atoi(optarg);
+                broker_context.port = strtol(optarg, &end, BASE_TEN_CONVERSION);
                 break;
 
             case 'I':

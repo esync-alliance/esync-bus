@@ -3,6 +3,7 @@
 #include "full-test.h"
 #include <libxl4bus/high_level.h>
 #include <lib/debug.h>
+#include <lib/common.h>
 #include "broker/broker.h"
 #include "utlist.h"
 #include "basics.h"
@@ -102,7 +103,7 @@ void version(FILE * to) {
 int main(int argc, char ** argv) {
 
     char * output_file_log = 0;
-
+   	char *end = 0;
     int ret = 0;
     int c;
     int t_count = 0;
@@ -163,7 +164,7 @@ int main(int argc, char ** argv) {
                 output_file_log = f_strdup(optarg);
                 break;
             case 'i':
-                default_timeout_ms = atoi(optarg);
+                default_timeout_ms = strtol(optarg, &end, BASE_TEN_CONVERSION);
                 break;
             default:
                 version(0);

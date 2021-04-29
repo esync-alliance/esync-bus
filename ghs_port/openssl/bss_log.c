@@ -173,8 +173,8 @@ static int MS_CALLBACK slg_write(BIO *b, const char *in, int inl)
     int priority, i;
     static const struct {
         int strl;
-        char str[10];
         int log_level;
+        char str[10];
     } mapping[] = {
         {
             6, "PANIC ", LOG_EMERG
@@ -370,7 +370,7 @@ static void xsyslog(BIO *bp, int priority, const char *string)
     unsigned int len;
     struct dsc$descriptor_s buf_dsc;
     $DESCRIPTOR(fao_cmd, "!AZ: !AZ");
-    char *priority_tag;
+    const char *priority_tag;
 
     switch (priority) {
     case LOG_EMERG:

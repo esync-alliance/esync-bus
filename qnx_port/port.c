@@ -218,7 +218,8 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
     int fd = socket(family, SOCK_STREAM, 0);
     if (fd < 0) { return -1; }
 
-    int rc;
+    // the initialization is not needed here, but static analyzer complains otherwise
+    int rc = -1;
 
 #if XL4_SUPPORT_IPV4
     if (family == AF_INET) {
