@@ -7,7 +7,7 @@
 
 int esync_4417() {
 
-    int err = E_XL4BUS_OK;
+    int err/* = E_XL4BUS_OK*/;
 
     test_client_t client1 = {0, .label = f_strdup("ua-and-group")};
     test_client_t client2 = {0, .label = f_strdup("client-grp1")};

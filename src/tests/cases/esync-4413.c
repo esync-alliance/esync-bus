@@ -10,7 +10,7 @@
 
 static int key_used_twice() {
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK */;
 
     test_client_t client1 = {0, .label = f_strdup("client-grp1")};
     test_client_t client2 = {0, .label = f_strdup("client-grp2")};
@@ -92,7 +92,7 @@ static int stream_reused_message_handler(xl4bus_client_t * clt, xl4bus_ll_messag
 
 static int stream_reused() {
 
-    int err = E_XL4BUS_OK ;
+    int err /*= E_XL4BUS_OK */;
 
     stream_reused_client1.label = f_strdup("client-grp1");
     test_client_t client2 = {0, .label = f_strdup("client-grp2")};
@@ -154,7 +154,7 @@ static int stream_reused() {
 
 int esync_4413() {
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK */;
 
     do {
 

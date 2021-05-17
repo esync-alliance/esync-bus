@@ -295,7 +295,7 @@ int main(int argc, char ** argv) {
 
 int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on_latch) {
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK*/;
     char * url = 0;
     test_event_t * event = 0;
 
@@ -379,7 +379,7 @@ void full_test_client_stop(test_client_t * clt, int release) {
 
 int full_test_broker_start(test_broker_t * brk) {
 
-    int err = E_XL4BUS_OK;
+    int err /*= E_XL4BUS_OK*/;
     int locked = 0;
 
     do {

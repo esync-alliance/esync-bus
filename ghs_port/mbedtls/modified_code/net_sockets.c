@@ -26,7 +26,6 @@
 
 #if !defined(MBEDTLS_CONFIG_FILE)
 #include "mbedtls/config.h"
-#include <limits.h>
 #else
 #include MBEDTLS_CONFIG_FILE
 #endif
@@ -625,11 +624,10 @@ int mbedtls_net_send( void *ctx, const unsigned char *buf, size_t len )
 {
     int ret;
     int fd = ((mbedtls_net_context *) ctx)->fd;
-    char buf_1 [PATH_MAX];
     if( fd < 0 )
         return( MBEDTLS_ERR_NET_INVALID_CONTEXT );
-    snprintf(buf_1,PATH_MAX -1,"%s",buf);
-    ret = (int) write( fd, buf_1, len );
+        
+    ret = (int) write( fd, buf, len );
 
     if( ret < 0 )
     {
