@@ -230,7 +230,7 @@ void handle_message(struct xl4bus_client * clt, xl4bus_message_t * msg) {
     } else {
         snprintf(raw_msg_data, sizeof(raw_msg_data), "%s\n", (const char *) msg->data);
     }
-    printf("%.03fmS:  From %s %s(%ld) %s", ms, src, msg->content_type, msg->data_len, raw_msg_data);
+    printf("%.03fmS:  From %s %s(%zd) %s", ms, src, msg->content_type, msg->data_len, raw_msg_data);
 
     free(src);
 
