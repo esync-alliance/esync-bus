@@ -63,7 +63,7 @@ int main(int argc, char ** argv) {
                 break;
             case 'T':
             {
-                int val = strtol(optarg, &end, 10);
+                int val = strtol(optarg, &end, BASE_TEN_CONVERSTION);
                 if (val < 0) {
                     FATAL("timeout can not be negative");
                 }
@@ -76,7 +76,7 @@ int main(int argc, char ** argv) {
                 break;
 
             case 'P':
-                broker_context.port = strtol(optarg, &end, 10);
+                broker_context.port = strtol(optarg, &end, BASE_TEN_CONVERSTION);
                 break;
 
             case 'I':

@@ -370,32 +370,32 @@ static void xsyslog(BIO *bp, int priority, const char *string)
     unsigned int len;
     struct dsc$descriptor_s buf_dsc;
     $DESCRIPTOR(fao_cmd, "!AZ: !AZ");
-    char *priority_tag;
+    const char *priority_tag;
 
     switch (priority) {
     case LOG_EMERG:
-        priority_tag = (const char *)"Emergency";
+        priority_tag = "Emergency";
         break;
     case LOG_ALERT:
-        priority_tag = (const char *)"Alert";
+        priority_tag = "Alert";
         break;
     case LOG_CRIT:
-        priority_tag = (const char *)"Critical";
+        priority_tag = "Critical";
         break;
     case LOG_ERR:
-        priority_tag = (const char *)"Error";
+        priority_tag ="Error";
         break;
     case LOG_WARNING:
-        priority_tag = (const char *)"Warning";
+        priority_tag = "Warning";
         break;
     case LOG_NOTICE:
-        priority_tag = (const char *)"Notice";
+        priority_tag = "Notice";
         break;
     case LOG_INFO:
-        priority_tag = (const char *)"Info";
+        priority_tag = "Info";
         break;
     case LOG_DEBUG:
-        priority_tag = (const char *)"DEBUG";
+        priority_tag = "DEBUG";
         break;
     }
 

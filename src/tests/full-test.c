@@ -3,6 +3,7 @@
 #include "full-test.h"
 #include <libxl4bus/high_level.h>
 #include <lib/debug.h>
+#include <lib/common.h>
 #include "broker/broker.h"
 #include "utlist.h"
 #include "basics.h"
@@ -163,7 +164,7 @@ int main(int argc, char ** argv) {
                 output_file_log = f_strdup(optarg);
                 break;
             case 'i':
-                default_timeout_ms = strtol(optarg, &end, 10);                
+                default_timeout_ms = strtol(optarg, &end, BASE_TEN_CONVERSTION);                
                 break;
             default:
                 version(0);
@@ -638,13 +639,8 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
         TEST_DBG("Considering event %d for %s", consider, in_success ? "SUCCESS":"FAILURE");
 
         *target = realloc(*target, (*target_count+1) * sizeof(test_event_type_t));
-        if(target == NULL){
-            TEST_ERR("realloc failed");
-        }
-        else{
             (*target)[*target_count] = consider;
             (*target_count)++;
-        }
     }
 
     int err = E_XL4BUS_OK;

@@ -10,7 +10,7 @@
 #include <stdlib.h>
 
 #include <include/libxl4bus/types.h>
-
+#define BASE_TEN_CONVERSTION 10
 #if WITH_UNIT_TEST
 #include "full-test.h"
 #define MSG_OUT(fmt, c...) do { \

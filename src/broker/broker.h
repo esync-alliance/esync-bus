@@ -159,7 +159,7 @@ typedef struct broker_context {
 
 // e900
 #define E900(ctx, a,b,c) do { if (!(ctx)->be_quiet) { e900(a, b, c); }} while(0)
-void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to);
+void e900(const char * msg, xl4bus_address_t * from, xl4bus_address_t * to);
 
 // hash_tree
 
