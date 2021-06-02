@@ -103,7 +103,7 @@ void version(FILE * to) {
 int main(int argc, char ** argv) {
 
     char * output_file_log = 0;
-   	char *end = NULL;
+   	char *end = 0;
     int ret = 0;
     int c;
     int t_count = 0;
@@ -164,7 +164,7 @@ int main(int argc, char ** argv) {
                 output_file_log = f_strdup(optarg);
                 break;
             case 'i':
-                default_timeout_ms = strtol(optarg, &end, BASE_TEN_CONVERSTION);                
+                default_timeout_ms = strtol(optarg, &end, BASE_TEN_CONVERSION);
                 break;
             default:
                 version(0);
@@ -639,8 +639,9 @@ static int test_expect(int timeout_ms, test_event_t ** queue, test_event_t ** ev
         TEST_DBG("Considering event %d for %s", consider, in_success ? "SUCCESS":"FAILURE");
 
         *target = realloc(*target, (*target_count+1) * sizeof(test_event_type_t));
-            (*target)[*target_count] = consider;
-            (*target_count)++;
+        (*target)[*target_count] = consider;
+        (*target_count)++;
+
     }
 
     int err = E_XL4BUS_OK;

@@ -624,8 +624,11 @@ int mbedtls_net_send( void *ctx, const unsigned char *buf, size_t len )
 {
     int ret;
     int fd = ((mbedtls_net_context *) ctx)->fd;
+
     if( fd < 0 )
-        return( MBEDTLS_ERR_NET_INVALID_CONTEXT );
+    {
+        return (MBEDTLS_ERR_NET_INVALID_CONTEXT);
+    }
         
     ret = (int) write( fd, buf, len );
 

@@ -383,7 +383,7 @@ static void xsyslog(BIO *bp, int priority, const char *string)
         priority_tag = "Critical";
         break;
     case LOG_ERR:
-        priority_tag ="Error";
+        priority_tag = "Error";
         break;
     case LOG_WARNING:
         priority_tag = "Warning";

@@ -25,12 +25,12 @@ void e900(const char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
 
     const char * to_str;
     if (!to) {
-        to_str ="";
+        to_str = "";
         alloc_dst = 0;
     } else {
         to_str = addr_to_str(to);
         if (!to_str) {
-            to_str ="(FAIL)";
+            to_str = "(FAIL)";
             alloc_dst = 0;
         }
     }

@@ -154,7 +154,7 @@ static int stream_reused() {
 
 int esync_4413() {
 
-    int err /*= E_XL4BUS_OK */;
+    int err /*= E_XL4BUS_OK*/;
 
     do {
 

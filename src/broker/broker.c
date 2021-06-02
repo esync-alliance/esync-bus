@@ -76,7 +76,7 @@ void add_to_str_array(char *** array, char const * str) {
     } else {
 
         int i = 0;
-        for (; (*array)[i]; i++){};
+        for (; (*array)[i]; i++) {};
         // i points to terminating 0 now
         *array = f_realloc(*array, sizeof(void*)*(i+2));
         (*array)[i] = f_strdup(str);
@@ -89,7 +89,7 @@ void add_to_str_array(char *** array, char const * str) {
 static size_t str_array_len(char ** array) {
 
     char ** i;
-    for (i = array; *i; i++){};
+    for (i = array; *i; i++) {};
     return (size_t)(i - array);
 
 }

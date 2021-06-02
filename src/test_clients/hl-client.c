@@ -45,7 +45,7 @@ void *make_j_msg(const char *say, size_t size) {
 int main(int argc, char ** argv) {
 
     int c;
-    char * end = NULL;
+    char * end = 0;
     char * cert_dir = 0;
     int flood = 0;
     int msg_count = 1;
@@ -68,10 +68,10 @@ int main(int argc, char ** argv) {
                 flood = 1;
                 break;
             case 'm':
-                msg_count =  strtol(optarg, &end, BASE_TEN_CONVERSTION);
+                msg_count = strtol(optarg, &end, BASE_TEN_CONVERSION);
                 break;
             case 's':
-                g_msg_size =strtol(optarg, &end, BASE_TEN_CONVERSTION);
+                g_msg_size = strtol(optarg, &end, BASE_TEN_CONVERSION);
                 break;
             case 't':
                 if(cl_type)
