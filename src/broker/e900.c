@@ -15,7 +15,7 @@ void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
     int alloc_dst = 1;
     int alloc_msg = 1;
 
-    const char * from_str = addr_to_str(from);
+    char * from_str = addr_to_str(from);
     if (!from_str) {
         from_str = "(FAIL)";
         alloc_src = 0;
@@ -23,7 +23,7 @@ void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
 
     // no (to) address from certain output, used for connection labelling
 
-    const char * to_str;
+    char * to_str;
     if (!to) {
         to_str = "";
         alloc_dst = 0;
