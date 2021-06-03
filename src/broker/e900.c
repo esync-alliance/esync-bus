@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void e900(const char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
+void e900(char * msg, xl4bus_address_t * from, xl4bus_address_t * to) {
 
     char my_time[20];
 
