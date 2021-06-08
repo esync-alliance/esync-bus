@@ -17,6 +17,7 @@
 #include <mbedtls/x509_crt.h>
 
 #include "utlist.h"
+
 static void * run_conn(void *);
 static void signal_f(int);
 static void process_bcc(broker_context_t * broker_context, int);
