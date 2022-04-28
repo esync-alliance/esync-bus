@@ -63,6 +63,7 @@ typedef struct test_client {
     char * label;
     char * name;
     pthread_t client_thread;
+    char * query;
 
 } test_client_t;
 
@@ -76,6 +77,7 @@ typedef struct test_broker {
     broker_context_t context;
     pthread_t thread;
     char * host;
+    char * net_if;
 
 } test_broker_t;
 

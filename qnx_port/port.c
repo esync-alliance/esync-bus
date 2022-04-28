@@ -195,7 +195,7 @@ int pf_get_socket_error(int fd) {
 
 }
 
-int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
+int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, char const * net_if, int * async) {
 
     int family = AF_UNSPEC;
 #if XL4_SUPPORT_IPV4
@@ -388,4 +388,8 @@ uint64_t pf_sec_time(void) {
     gettimeofday(&tv, 0);
     return (uint64_t)tv.tv_sec;
 
+}
+
+int pf_is_feature_supported(int f) {
+    return 0;
 }

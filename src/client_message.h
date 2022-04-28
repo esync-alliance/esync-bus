@@ -1,5 +1,5 @@
-#ifndef _XL4BUS_CLENT_MESSAGE_H
-#define _XL4BUS_CLENT_MESSAGE_H
+#ifndef _XL4BUS_CLIENT_MESSAGE_H
+#define _XL4BUS_CLIENT_MESSAGE_H
 
 #if ESYNC_ALLIANCE
 #define FCT_BUS_MESSAGE_PREFIX "esync"
@@ -21,4 +21,5 @@
 #define MSG_TYPE_DESTINATION_INFO 						FCT_BUS_MESSAGE_PREFIX "bus.destination-info"
 #define  FCT_BUS_MESSAGE								"application/vnd."FCT_BUS_MESSAGE_PREFIX".busmessage+json"
 #define FCT_TRUST_MESSAGE 								"application/vnd."FCT_BUS_MESSAGE_PREFIX".busmessage-trust+json"
+
 #endif

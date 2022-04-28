@@ -6,15 +6,16 @@
 #include "misc.h"
 #include "basics.h"
 #include "lib/hash_list.h"
+#include "lib/url_decode.h"
 #include "bus-test-support.h"
 #include "client_message.h"
 #include "itc.h"
 
 #if WITH_UNIT_TEST
-
 xl4bus_pause_callback test_pause_callback = 0;
 xl4bus_handle_ll_message test_message_interceptor = 0;
 control_message_interceptor test_control_message_interceptor = 0;
+connect_interceptor test_connect_interceptor = 0;
 #endif
 
 #if XL4_PROVIDE_THREADS
@@ -156,6 +157,11 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
 
     do {
 
+        BOLT_MALLOC(clt->_private, sizeof(client_internal_t));
+        i_clt = clt->_private;
+
+        DBG("Connecting to %s", SAFE_STR(url));
+
         BOLT_IF(!url || strncmp("tcp://", url, 6), E_XL4BUS_ARG, "invalid url schema");
         size_t l = strlen(url+6);
         BOLT_MALLOC(url_copy, l+1);
@@ -165,14 +171,46 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
         BOLT_IF(colon == url_copy, E_XL4BUS_ARG, "no host name");
         *(colon++) = 0;
 
+        char * qm = strchr(colon+1, '?');
+        if (qm) {
+            *qm = 0;
+            qm++;
+        }
+
+        while (qm) {
+            char * qp = qm;
+            qm = strchr(qm, '&');
+            if (qm) {
+                *qm = 0;
+                qm++;
+            }
+
+            char * val = strchr(qp, '=');
+            if (val) {
+                *val = 0;
+                val++;
+            }
+
+            decode_url(qp);
+            decode_url(val);
+
+            if (!val) { val = ""; }
+
+            if (!z_strcmp("if", qp) && *val) {
+                i_clt->net_if = val;
+                if (!pf_is_feature_supported(PF_FEATURE_IF_ADDR)) {
+                    DBG("Your implementation doesn't support setting source interface");
+                }
+            } else {
+                DBG("Unrecognized URL parameter: name: %s, value: %s", qp, val);
+            }
+
+        }
+
         int port = atoi(colon);
         BOLT_IF(port <= 0 || port > 65535, E_XL4BUS_ARG, "invalid port value");
-
-        BOLT_MALLOC(clt->_private, sizeof(client_internal_t));
-
-        i_clt = clt->_private;
-        i_clt->host = url_copy;
         i_clt->port = port;
+        i_clt->host = url_copy;
         i_clt->state = CS_DOWN;
         i_clt->tcp_fd = -1;
 
@@ -219,7 +257,8 @@ int xl4bus_init_client(xl4bus_client_t * clt, char * url) {
         }
 #endif
         cfg.free(i_clt);
-        free(url_copy);
+        cfg.free(url_copy);
+        clt->_private = 0;
     }
 
     return err;
@@ -631,7 +670,7 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                 }
 
                 void * ip_addr = 0;
-                int ip_len = 0;
+                size_t ip_len = 0;
 #if XL4_SUPPORT_IPV6
                 if (addr->family == AF_INET6) {
                     ip_addr = addr->ipv6;
@@ -647,14 +686,20 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
 
                 DBG("Address family: %d", addr->family);
 
+#if WITH_UNIT_TEST
+                if (test_connect_interceptor) {
+                    test_connect_interceptor(clt, ip_addr, ip_len, i_clt->port, i_clt->net_if);
+                }
+#endif
+
                 int async;
-                i_clt->tcp_fd = pf_connect_tcp(ip_addr, ip_len, (uint16_t) i_clt->port, &async);
+                i_clt->tcp_fd = pf_connect_tcp(ip_addr, ip_len, (uint16_t) i_clt->port, i_clt->net_if, &async);
 
                 if (i_clt->tcp_fd < 0) {
                     // failed right away, ugh. Let's move on then.
                     i_clt->repeat_process = 1;
                 } else {
-                    // connected, or going to connected
+                    // connected, or going to connect
                     if (!async) {
                         BOLT_SUB(create_ll_connection(clt));
                     } else {
@@ -2040,6 +2085,7 @@ void stop_client_ts(xl4bus_client_t * clt, xl4bus_client_condition_t how) {
         xl4bus_release_cache(&i_clt->cache);
         Z(cfg.free, i_clt->pending);
         Z(cfg.free, i_clt->host);
+        // Z(cfg.free, i_clt->net_if);
 
         known_fd_t *fdi, *aux;
         HASH_ITER(hh, i_clt->known_fd, fdi, aux) {

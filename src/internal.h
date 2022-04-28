@@ -437,6 +437,7 @@ typedef struct client_internal {
     int tcp_fd;
 
     char * host;
+    char const * net_if;
     int port;
 
     /**

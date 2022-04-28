@@ -5,6 +5,10 @@
 
 #include <libxl4bus/low_level.h>
 
+#define DEFAULT_PORT 9133
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x)
+
 static void help(void);
 
 int main(int argc, char ** argv) {
@@ -20,9 +24,9 @@ int main(int argc, char ** argv) {
 
     broker_context.argv0 = argv[0];
 
-    broker_context.port = 9133;
+    broker_context.port = DEFAULT_PORT;
 
-    while ((c = getopt(argc, argv, "hk:K:c:t:D:dpqT:iI:P:")) != -1) {
+    while ((c = getopt(argc, argv, "hk:K:c:t:D:T:qdpiI:P:N:")) != -1) {
 
         switch (c) {
 
@@ -86,6 +90,13 @@ int main(int argc, char ** argv) {
                 broker_context.bcc_path = f_strdup(optarg);
                 break;
 
+            case 'N':
+                if (broker_context.net_if) {
+                    FATAL("multiple network interfaces are not supported");
+                }
+                broker_context.net_if = f_strdup(optarg);
+                break;
+
             default:
                 help();
                 break;
@@ -132,6 +143,15 @@ void help() {
             "   turn on debugging output\n"
             "-p\n"
             "   turn on performance output\n"
+            "-i\n"
+            "   turn on broker control channel (AF_UNIX socket)\n"
+            "-I <path>\n"
+            "   broker control channel path name\n"
+            "-P <port>\n"
+            "   TCP port to listen on. Otherwise, default " STR(DEFAULT_PORT) " is used \n"
+            "-N <interface>\n"
+            "   Bind to a specified network interface. Otherwise, interface is not\n"
+            "   explicitly specified\n"
     );
     _exit(1);
 

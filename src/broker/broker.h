@@ -38,13 +38,13 @@ typedef enum poll_info_type {
     PIT_BCC, // socket for BCC messages
 } poll_info_type_t;
 
-typedef struct poll_info {
+typedef struct brk_poll_info {
 
     poll_info_type_t type;
     int fd;
     struct conn_info * ci;
 
-} poll_info_t;
+} brk_poll_info_t;
 
 typedef struct conn_info {
 
@@ -63,7 +63,7 @@ typedef struct conn_info {
     struct conn_info * next;
     struct conn_info * prev;
 
-    poll_info_t pit;
+    brk_poll_info_t pit;
 
     int ll_poll_timeout;
 
@@ -74,7 +74,7 @@ typedef struct conn_info {
 
 } conn_info_t;
 
-typedef struct remote_info {
+typedef struct brk_remote_info {
 
     UT_hash_handle hh;
     char * x5t;
@@ -82,7 +82,7 @@ typedef struct remote_info {
     // parsed xl4 bus addresses declared in the cert.
     xl4bus_address_t * addresses;
 
-} remote_info_t;
+} brk_remote_info_t;
 
 typedef struct {
     UT_hash_handle hh;
@@ -112,7 +112,6 @@ typedef struct broker_context {
     char * key_password;
 
     char const * argv0;
-    struct sockaddr_in b_addr;
     int fd;
 
     int max_ev;
@@ -123,9 +122,10 @@ typedef struct broker_context {
     int use_bcc;
     char * bcc_path;
     int bcc_fd;
+    char * net_if;
 
-    poll_info_t main_pit;
-    poll_info_t bcc_pit;
+    brk_poll_info_t main_pit;
+    brk_poll_info_t bcc_pit;
 
     int quit;
 

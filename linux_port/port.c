@@ -5,6 +5,7 @@
 #include "debug.h"
 #include <libxl4bus/types.h>
 #include "internal.h"
+#include "fragments/linux_if_bind.h"
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -203,7 +204,7 @@ int pf_get_socket_error(int fd) {
 
 }
 
-int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
+int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, char const * net_if, int * async) {
 
     int family = AF_UNSPEC;
 #if XL4_SUPPORT_IPV4
@@ -235,26 +236,33 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
     // $TODO: ESYNC-5108 the connection must be non-blocking.
     // pf_set_nonblocking(fd);
 
-    int rc = -1;
+    int rc;
+
+    if (!(rc = if_bind(fd, net_if, family, 0))) {
+
+        rc = -1;
+        pf_set_errno(ENOTSUP);
 
 #if XL4_SUPPORT_IPV4
-    if (family == AF_INET) {
-        struct sockaddr_in sin = {0};
-        sin.sin_family = AF_INET;
-        sin.sin_port = htons(port);
-        memcpy(&sin.sin_addr, ip, ip_len);
-        rc = connect(fd, (struct sockaddr*)&sin, sizeof(struct sockaddr_in));
-    }
+        if (family == AF_INET) {
+            struct sockaddr_in sin = {0};
+            sin.sin_family = AF_INET;
+            sin.sin_port = htons(port);
+            memcpy(&sin.sin_addr, ip, ip_len);
+            rc = connect(fd, (struct sockaddr *) &sin, sizeof(struct sockaddr_in));
+        }
 #endif
 #if XL4_SUPPORT_IPV6
-    if (family == AF_INET6) {
-        struct sockaddr_in6 sin6 = {0};
-        sin6.sin6_family = AF_INET6;
-        sin6.sin6_port = htons(port);
-        memcpy(&sin6.sin6_addr, ip, ip_len);
-        rc = connect(fd, (struct sockaddr*)&sin6, sizeof(struct sockaddr_in6));
-    }
+        if (family == AF_INET6) {
+            struct sockaddr_in6 sin6 = {0};
+            sin6.sin6_family = AF_INET6;
+            sin6.sin6_port = htons(port);
+            memcpy(&sin6.sin6_addr, ip, ip_len);
+            rc = connect(fd, (struct sockaddr*)&sin6, sizeof(struct sockaddr_in6));
+        }
 #endif
+
+    }
 
     int err;
 
@@ -276,6 +284,14 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
     pf_set_errno(err);
 
     return -1;
+
+}
+
+
+int pf_is_feature_supported(int f) {
+
+    if (PF_FEATURE_IF_ADDR == f) { return 1; }
+    return 0;
 
 }
 
@@ -417,3 +433,4 @@ uint64_t pf_sec_time(void) {
     return (uint64_t)tv.tv_sec;
 
 }
+

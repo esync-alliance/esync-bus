@@ -86,7 +86,7 @@ int pf_get_errno(void) {
 uint64_t pf_ms_value() {
 
     struct timespec tp;
-	/* Integrity only support CLOCK_REALTIME */
+    /* Integrity only support CLOCK_REALTIME */
     clock_gettime(CLOCK_REALTIME, &tp);
 
     return ((unsigned long long) tp.tv_sec) * 1000L +
@@ -204,7 +204,7 @@ int pf_get_socket_error(int fd) {
 
 }
 
-int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async) {
+int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, char const * net_if, int * async) {
 
     int family = AF_UNSPEC;
 #if XL4_SUPPORT_IPV4
@@ -384,4 +384,8 @@ uint64_t pf_sec_time(void) {
     gettimeofday(&tv, 0);
     return (uint64_t)tv.tv_sec;
 
+}
+
+int pf_is_feature_supported(int f) {
+    return 0;
 }

@@ -239,6 +239,7 @@ int main(int argc, char ** argv) {
     CASE(esync_4843);
     CASE(esync_4880);
     CASE(esync_5093);
+    CASE(esync_6177);
 
     test_case_t * tc, * aux;
     HASH_ITER(hh, test_cases, tc, aux) {
@@ -308,7 +309,7 @@ int full_test_client_start(test_client_t * clt, test_broker_t * brk, int wait_on
 
         BOLT_IF(!brk->port, E_XL4BUS_ARG, "no port");
         BOLT_IF(!brk->host, E_XL4BUS_ARG, "no host");
-        url = f_asprintf("tcp://%s:%d", brk->host, brk->port);
+        url = f_asprintf("tcp://%s:%d%s", brk->host, brk->port, clt->query?clt->query:"");
 
         if (!clt->name) {
             clt->name = f_asprintf("%s:%s:%d", test_name, clt->label, through_count++);
@@ -375,6 +376,7 @@ void full_test_client_stop(test_client_t * clt, int release) {
     if (release) {
         Z(free, clt->label);
         Z(free, clt->name);
+        Z(free, clt->query);
     }
 }
 
@@ -392,6 +394,7 @@ int full_test_broker_start(test_broker_t * brk) {
         brk->context.init_ll = 0;
         brk->context.key_path = f_strdup("./testdata/pki/broker/private.pem");
         brk->context.port = brk->port; // preserve port
+        brk->context.net_if = f_strdup(brk->net_if);
         add_to_str_array(&brk->context.cert_path, "./testdata/pki/broker/cert.pem");
         add_to_str_array(&brk->context.ca_list, "./testdata/pki/ca/ca.pem");
 
@@ -458,6 +461,7 @@ int full_test_broker_stop(test_broker_t * brk, int release) {
         if (release) {
             Z(free, brk->name);
             Z(free, brk->host);
+            Z(free, brk->net_if);
         }
 
         return E_XL4BUS_OK;

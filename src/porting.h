@@ -26,6 +26,10 @@
 #define XL4_NEED_DGRAM 1
 #endif
 
+// whether the porting layer supports determining an IP address
+// of an interface (and therefore binding to that address)
+#define PF_FEATURE_IF_ADDR  1
+
 #define pf_add_and_get XI(pf_add_and_get)
 #define pf_send XI(pf_send)
 #define pf_recv XI(pf_recv)
@@ -78,8 +82,14 @@ ssize_t pf_recv(int sockfd, void *buf, size_t len);
 // however, if the allocation succeeded, and later attempt to receive
 // data failed, the buffer shall remain allocated, and the caller
 // must free it.
-ssize_t pf_recv_dgram(int sockfd, void ** addr, pf_malloc_fun);
+ssize_t pf_recv_dgram(int sock_fd, void ** addr, pf_malloc_fun);
 #endif
+
+// invoked to determine if a particular feature is supported.
+// The implementation of this feature is therefore optional.
+// invoked with any of PF_FEATURE_* constants. Should return !0
+// if feature is supported, 0 otherwise.
+int pf_is_feature_supported(int);
 
 // sets descriptor to non-blocking mode, return 0 if OK,
 // !0 if not OK (errno must be set)
@@ -132,15 +142,17 @@ void pf_release_lock(void *);
 // the operation must be asynchronous if possible.
 // The *async should be set to 1, if the operation
 // must finish the connection later. Polling for
-// writeability will be requested, and when indicated,
+// write-ability will be requested, and when indicated,
 // the connection will be considered connected or
 // failed, if pf_get_socket_error() returns !0.
 // ip will always be an IP address (never host name),
 // and may be IPV6. Return -1 and set errno, if unable
 // to connect. The IP address is raw, encoded in host order,
 // as if in hostent structure, the ip_len contains its
-// length.
-int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, int * async);
+// length. net_if can be NULL, or will point to the string
+// containing the name of the interface that the connection
+// should be forced from.
+int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, char const * net_if, int * async);
 
 // return 0 if the socket is OK, otherwise return !0
 // and set errno.

@@ -43,6 +43,7 @@ void str_output_time(char *);
 #define BOLT_SAY(__err, msg, x...) err = (__err); DBG(msg ", setting err %d", ## x, err); break; do{}while(0)
 #define BOLT_IF(cond, __err, msg, x...) if ((cond)) { err = (__err); DBG(msg ", setting err %d", ## x, err); break; } do{}while(0)
 #define BOLT_M1(a, m, x...) if ((a)==-1) { DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
+#define BOLT_NULL(a, m, x...) if (!(a)) { DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
 #define BOLT_SYS(a, m, x...) if ((a)) { DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
 #define BOLT_DIR(a, m, x...) if ((err = a)) { errno = err; DBG_SYS(m, ## x); err = E_XL4BUS_SYS; break; } do{}while(0)
 #define BOLT_SUB(a) { err = (a); if (err != E_XL4BUS_OK) { BOLT_SAY(err, #a); }} do{}while(0)

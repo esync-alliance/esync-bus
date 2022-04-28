@@ -16,6 +16,8 @@
 
 #include <mbedtls/x509_crt.h>
 
+#include "fragments/linux_if_bind.h"
+
 #include "utlist.h"
 
 static void * run_conn(void *);
@@ -78,7 +80,7 @@ void add_to_str_array(char *** array, char const * str) {
 
         int i = 0;
         for (; (*array)[i]; i++) {};
-        // i points to terminating 0 now
+        // "i" points to terminating 0 now
         *array = f_realloc(*array, sizeof(void*)*(i+2));
         (*array)[i] = f_strdup(str);
         (*array)[i+1] = 0;
@@ -142,6 +144,7 @@ void release_broker_context(broker_context_t * c) {
     }
 
     Z(free, c->bcc_path);
+    Z(free, c->net_if);
 
     xl4bus_release_cache(c->g_cache);
     Z(free, c->g_cache);
@@ -270,11 +273,6 @@ int start_broker(broker_context_t * bc) {
     int port = bc->port;
     MSG("Will bind to port %d", port);
 
-    memset(&bc->b_addr, 0, sizeof(bc->b_addr));
-    bc->b_addr.sin_family = AF_INET;
-    bc->b_addr.sin_port = htons(port);
-    bc->b_addr.sin_addr.s_addr = INADDR_ANY;
-
     memset(&bc->broker_identity, 0, sizeof(bc->broker_identity));
 
     if (bc->demo_pki) {
@@ -327,7 +325,7 @@ int start_broker(broker_context_t * bc) {
 
     utarray_init(&bc->dm_clients, &ut_ptr_icd);
 
-    if (bind(bc->fd, (struct sockaddr*)&bc->b_addr, sizeof(bc->b_addr))) {
+    if (if_bind(bc->fd, bc->net_if, AF_INET, htons(bc->port))) {
         FATAL_SYS("Can't bind listening socket");
     } else {
         struct sockaddr_in sin;
@@ -456,7 +454,7 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
 
     for (int i=0; i<ec; i++) {
 
-        poll_info_t * pit = rev[i].data.ptr;
+        brk_poll_info_t * pit = rev[i].data.ptr;
         if (pit->type == PIT_INCOMING) {
 
             if (rev[i].events & POLLERR) {
@@ -466,8 +464,7 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
 
             if (rev[i].events & POLLIN) {
 
-                socklen_t b_addr_len = sizeof(bc->b_addr);
-                int fd2 = accept(bc->fd, (struct sockaddr*)&bc->b_addr, &b_addr_len);
+                int fd2 = accept(bc->fd, 0, 0);
                 if (fd2 < 0) {
                     FATAL_SYS("accept() failed");
                 }

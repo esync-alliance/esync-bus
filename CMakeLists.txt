@@ -234,10 +234,13 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/include/libxl4bus/types.h
     src/lib/rb_tree.h
     src/lib/rb_tree.c
+    src/lib/url_decode.c
+    src/lib/url_decode.h
     src/basics.h
     src/basics.c
     src/lib/hash_list.h
     src/renamed_json.h
+    src/fragments/linux_if_bind.h
 )
 
 set(DEPS_CFG ${PORT}/deps.cmk)
@@ -297,6 +300,8 @@ if (BUILD_BINS)
         src/lib/rb_tree.h
         src/lib/rb_tree.c
         src/lib/poll_help.h
+        src/lib/url_decode.c
+        src/lib/url_decode.h
         src/basics.h
         src/basics.c
         ${PORT_SOURCE}
@@ -316,6 +321,7 @@ if (BUILD_BINS)
             src/lib/hash_list.h
             src/broker/hash_tree.c
             src/broker/broker.c
+            src/fragments/linux_if_bind.h
             src/uthash.h
             src/utarray.h
             ${BIN_LIB_SRC}
