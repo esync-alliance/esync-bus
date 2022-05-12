@@ -154,7 +154,10 @@ static int bind_to_if() {
 
             if (i>=2) {
                 spec = get_if_and_addr(family);
-                BOLT_NULL(spec, "if/addr");
+                if (!spec) {
+                    iDBG("No interface/address could be found for %d, skipping test", family);
+                    continue;
+                }
             }
 
             int fd = socket(family, SOCK_STREAM, 0);
