@@ -4,6 +4,7 @@
 
 #include <libxl4bus/build_config.h>
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 #include <errno.h>
@@ -11,6 +12,8 @@
 #include <arpa/inet.h>
 #include <cjose/cjose.h>
 #include <sys/select.h>
+#include <netdb.h>
+#include <assert.h>
 
 #if XL4_SUPPORT_RESOLVER
 #include <ares.h>
@@ -19,7 +22,7 @@
 #include <stdio.h>
 #include <sys/time.h>
 
-#if XL4_HAVE_EPOLL
+#if !XL4_PROVIDE_EPOLL
 #include <sys/epoll.h>
 #endif
 

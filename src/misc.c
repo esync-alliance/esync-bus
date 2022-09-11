@@ -6,7 +6,6 @@
 #include <mbedtls/oid.h>
 #include <cjose/jwk.h>
 #include "internal.h"
-#include "porting.h"
 #include "misc.h"
 #include "debug.h"
 #include "basics.h"
@@ -124,38 +123,6 @@ uint32_t crcTable[] = {
 };
 
 static global_cache_t default_cache = {0};
-
-#ifdef __QNX__
-static int vasprintf(char **buf, const char *fmt, va_list ap)
-{
-    static char _T_emptybuffer = '\0';
-    int chars;
-    char *b;
-
-    if(!buf) { return -1; }
-
-#ifdef WIN32
-    chars = _vscprintf(fmt, ap)+1;
-#else /* !defined(WIN32) */
-    /* CAW: RAWR! We have to hope to god here that vsnprintf doesn't overwrite
-       our buffer like on some 64bit sun systems.... but hey, its time to move on */
-    chars = vsnprintf(&_T_emptybuffer, 0, fmt, ap)+1;
-    if(chars < 0) { chars *= -1; } /* CAW: old glibc versions have this problem */
-#endif /* defined(WIN32) */
-
-    b = (char*)malloc(sizeof(char)*chars);
-    if(!b) { return -1; }
-
-    if((chars = vsprintf(b, fmt, ap)) < 0)
-    {
-        free(b);
-    } else {
-        *buf = b;
-    }
-
-    return chars;
-}
-#endif
 
 int xl4bus_init_ll(xl4bus_ll_cfg_t * in_cfg) {
 
@@ -1181,4 +1148,50 @@ void xl4bus_release_cache(global_cache_t * cache) {
 
     Z(pf_release_lock, cache->cert_cache_lock);
 
+}
+
+bool is_ip_addr(const char *host, int family) {
+    int result = 0;
+    if (family == AF_INET6) {
+        struct sockaddr_in6 sa;
+        result = inet_pton(AF_INET6, host, &(sa.sin6_addr));
+    } else {
+        struct sockaddr_in sa;
+        result = inet_pton(AF_INET, host, &(sa.sin_addr));
+    }
+    return (result != 0);
+}
+
+int create_addrinfo(const char *ipaddr, int family, struct addrinfo **addr) {
+    int res;
+
+    struct sockaddr_inx {
+        union {
+            struct sockaddr_in6 sa6;
+            struct sockaddr_in sa;
+        }inx;
+    };
+    struct sockaddr_inx *sa = f_malloc(sizeof(*sa));
+
+    if (!sa) {
+        return -1;
+    }
+    if (family == AF_INET6) {
+        res = inet_pton(AF_INET6, ipaddr, &sa->inx.sa6.sin6_addr);
+    } else {
+        res = inet_pton(AF_INET, ipaddr, &sa->inx.sa.sin_addr);
+    }
+    if (!res) {
+        free(sa);
+        return -1;
+    }
+    *addr = f_malloc(sizeof(**addr));
+    if (!(*addr)) {
+        free(sa);
+        return -1;
+    }
+    (*addr)->ai_family = family;
+    (*addr)->ai_addr = (struct sockaddr*)sa;
+
+    return 0;
 }

@@ -1,5 +1,6 @@
 # include directory
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/qnx_port/epoll)
+include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/src/broker)
 
 # json-c
 set(JSON_C_LIB ${JSON_C}/.libs/libjson-c.a)

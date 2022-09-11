@@ -1,0 +1,10 @@
+#!gbuild
+[Library]
+	-object_dir=objs/libmbedtls
+	-c99
+	-I$__LIB_MBEDTLS_DIR/include
+	-DMBEDTLS_NO_PLATFORM_ENTROPY
+	-DMBEDTLS_PLATFORM_MEMORY
+	
+library.gpj
+programs.gpj

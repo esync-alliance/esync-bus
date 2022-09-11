@@ -347,9 +347,19 @@ void xl4bus_run_client(xl4bus_client_t * clt, int * timeout) {
                         family, ares_gethostbyname_cb, clt);
 #else
                 struct addrinfo * addrs = 0;
-                int ga_res = getaddrinfo(i_clt->host, 0, 0, &addrs);
-                if (ga_res) {
-                    DBG("getaddrinfo() failed: %s", gai_strerror(ga_res));
+                if (is_ip_addr(i_clt->host, family)) {
+                    if (create_addrinfo(i_clt->host, family, &addrs)) {
+                        DBG("Failed to create addrinfo");
+                    }
+                } else {
+                    int res;
+                    struct addrinfo hints = {.ai_family = family,
+                                             .ai_socktype = SOCK_STREAM };
+                    if ((res = getaddrinfo(i_clt->host, 0, &hints, &addrs))) {
+                        DBG("getaddrinfo() failed: %s", gai_strerror(res));
+                    }
+                }
+                if (!addrs) {
                     drop_client(clt, XL4BCC_RESOLUTION_FAILED);
                     continue;
                 }

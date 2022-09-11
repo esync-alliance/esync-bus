@@ -1,12 +1,16 @@
-# Define all dependent compilation flags for libua
-set(GHS_OS_DIR /home/tranduc/working/projects/ghs/int1178)
-set(GHS_BSP_NAME devtree-arm64)
-set(BUILD_TOOL_DIR /home/tranduc/working/projects/ghs/comp_201814)
-set(GHS_TGT_DIR /home/tranduc/working/projects/esync_demo/updateagent-c/ghs_port_new/tgt)
-set(RUN_TESTS FALSE)
-set(BUILD_SHARED FALSE)
-set(BUILD_STATIC FALSE)
-set(BUILD_BINS FALSE)
+
 set(WITH_EFENCE FALSE)
-set(THREADS_PREFER_PTHREAD_FLAG TRUE)
-set(XL4_SYMBOL_VISIBILITY_SUPPORTED 0)
+set(XL4_SUPPORT_RESOLVER 0)
+add_definitions(-D__ghs__)
+set(DEBUG 1)
+
+set(LIB_SOURCE ${LIB_SOURCE}
+    ${CMAKE_SOURCE_DIR}/ghs_port/port.c
+    ${CMAKE_SOURCE_DIR}/ghs_port/ghs_port.h
+)
+
+set(PORT_SOURCE ${LIB_SOURCE})
+
+set(XL4_PROVIDE_EPOLL 1)
+set(XL4_PROVIDE_VASPRINTF 1)
+

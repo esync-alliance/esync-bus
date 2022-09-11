@@ -1,0 +1,6 @@
+#!gbuild
+#component integrity_dynamic_download
+
+[INTEGRITY Application]
+        -dynamic
+xl4broker_as0.gpj		[Program]

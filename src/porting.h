@@ -6,7 +6,9 @@
 #ifdef HIDE_SYM
 #define XI(x) __xl4bus_internal_##x
 #else
+#ifndef XI
 #define XI(x) x
+#endif // XI
 #endif
 
 #include <libxl4bus/build_config.h>
@@ -194,3 +196,4 @@ ssize_t pf_fionread(int fd);
 void pf_abort(const char *);
 
 #endif
+

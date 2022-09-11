@@ -1,10 +1,11 @@
 
 #include "broker.h"
+#include "config.h"
 #include "lib/common.h"
 #include "lib/debug.h"
-#include "lib/poll_help.h"
 #include "basics.h"
 #include "client_message.h"
+#include "lib/xl4_epoll.h"
 
 #include <libxl4bus/low_level.h>
 
@@ -38,25 +39,6 @@ static struct {
 } perf = {
         .second = 0
 };
-
-#if !XL4_HAVE_EPOLL
-typedef struct pf_poll {
-    int fd;
-    void* data_ptr;
-    short events;
-    short revents;
-} pf_poll_t;
-
-typedef struct poll_list {
-    pf_poll_t * polls;
-    int polls_len;
-} poll_list_t;
-
-static poll_list_t polist = { .polls = 0, .polls_len = 0};
-
-static int pf_poll(pf_poll_t * polls, int polls_len, int timeout);
-
-#endif
 
 void free_str_array(char *** array) {
 
@@ -349,7 +331,6 @@ int start_broker(broker_context_t * bc) {
     bc->main_pit.type = PIT_INCOMING;
     bc->main_pit.fd = bc->fd;
 
-#if XL4_HAVE_EPOLL
     bc->poll_fd = epoll_create1(0);
     if (bc->poll_fd < 0) {
         FATAL_SYS("Can't create epoll socket");
@@ -362,13 +343,6 @@ int start_broker(broker_context_t * bc) {
     if (epoll_ctl(bc->poll_fd, EPOLL_CTL_ADD, bc->fd, &ev)) {
         FATAL_SYS("epoll_ctl() failed");
     }
-
-#else
-    if (set_poll(&broker_context.main_pit, fd, XL4BUS_POLL_READ)) {
-        perror("set_poll");
-        return 1;
-    }
-#endif
 
     if (bc->use_bcc) {
 
@@ -399,7 +373,6 @@ int start_broker(broker_context_t * bc) {
         bc->bcc_pit.type = PIT_BCC;
         bc->bcc_pit.fd = bc->bcc_fd;
 
-#if XL4_HAVE_EPOLL
 
         memset(&ev, 0, sizeof(struct epoll_event));
         ev.events = POLLIN;
@@ -408,14 +381,6 @@ int start_broker(broker_context_t * bc) {
         if (epoll_ctl(bc->poll_fd, EPOLL_CTL_ADD, bc->bcc_fd, &ev)) {
             FATAL_SYS("epoll_ctl() failed");
         }
-
-#else
-        if (set_poll(&broker_context.bcc_pit, fd, XL4BUS_POLL_READ)) {
-        perror("set_poll");
-        return 1;
-    }
-#endif
-
 
     }
 
@@ -427,8 +392,6 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
 
     bc->timeout = pick_timeout(bc->timeout, in_timeout);
     if (bc->max_ev < 1) { bc->max_ev = 1; }
-
-#if XL4_HAVE_EPOLL
 
     struct epoll_event rev[bc->max_ev];
     uint64_t before = 0;
@@ -577,139 +540,6 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
 
     }
 
-#else
-
-    uint64_t before = 0;
-
-    if (timeout >= 0) {
-        before = msvalue();
-    }
-    int res = pf_poll(polist.polls, polist.polls_len, timeout);
-
-    if (timeout >= 0) {
-        before = msvalue() - before;
-        if (timeout > before) {
-            timeout -= before;
-        } else {
-            timeout = 0;
-        }
-    }
-    if (res < 0) {
-        if (errno == EINTR) { continue; }
-        FATAL_SYS("pf_poll() failed");
-    }
-
-    for (int i=0; i<polist.polls_len; i++) {
-        pf_poll_t * pp = polist.polls + i;
-        if (pp->revents) {
-            poll_info_t * pit = pp->data_ptr;
-
-            if (pit->type == PIT_INCOMING) {
-
-                if (pp->events & POLLERR) {
-                    get_socket_error(pit->fd);
-                    FATAL_SYS("Connection socket error");
-                }
-
-                if (pp->events & POLLIN) {
-
-                    socklen_t b_addr_len = sizeof(b_addr);
-                    int fd2 = accept(fd, (struct sockaddr*)&b_addr, &b_addr_len);
-                    if (fd2 < 0) {
-                        FATAL_SYS("accept() failed");
-                    }
-
-                    xl4bus_connection_t * conn = f_malloc(sizeof(xl4bus_connection_t));
-                    conn_info_t * ci = f_malloc(sizeof(conn_info_t));
-
-                    conn->on_message = brk_on_message;
-                    conn->on_sent_message = on_sent_message;
-                    conn->fd = fd2;
-                    conn->set_poll = set_poll;
-                    conn->stream_timeout_ms = stream_timeout_ms;
-                    conn->on_stream_closure = on_stream_close;
-
-                    memcpy(&conn->identity, &broker_identity, sizeof(broker_identity));
-
-                    conn->custom = ci;
-                    ci->conn = conn;
-                    ci->pit.ci = ci;
-                    ci->pit.type = PIT_XL4;
-                    ci->pit.fd = fd2;
-
-                    // DBG("Created connection %p/%p fd %d", ci, ci->conn, fd2);
-
-                    int err = xl4bus_init_connection(conn);
-
-                    if (err == E_XL4BUS_OK) {
-
-                        conn->on_shutdown = on_connection_shutdown;
-
-                        DL_APPEND(connections, ci);
-
-                        // send initial message - alg-supported
-                        // https://gitlab.excelfore.com/schema/json/xl4bus/alg-supported.json
-                        json_object *aux;
-                        json_object *body = json_object_new_object();
-
-                        json_object_object_add(body, "signature", aux = json_object_new_array());
-                        json_object_array_add(aux, json_object_new_string("RS256"));
-                        json_object_object_add(body, "encryption-key", aux = json_object_new_array());
-                        json_object_array_add(aux, json_object_new_string("RSA-OAEP"));
-                        json_object_object_add(body, "encryption-alg", aux = json_object_new_array());
-                        json_object_array_add(aux, json_object_new_string("A128CBC-HS256"));
-
-                        uint16_t stream_id;
-                        err = xl4bus_get_next_outgoing_stream(ci->conn, &stream_id) ||
-                              send_json_message(ci, MSG_TYPE_ALG_SUPPORTED, body, stream_id, 0, 0);
-                        timeout = pick_timeout(timeout, ci->ll_poll_timeout);
-                        // DBG("timeout adjusted to %d (new conn %p)", timeout, ci);
-
-                        if (err == E_XL4BUS_OK) {
-                            int s_err;
-                            if ((s_err = xl4bus_process_connection(conn, -1, 0)) == E_XL4BUS_OK) {
-                            } else {
-                                DBG("xl4bus process (initial) returned %d", s_err);
-                            }
-                        }
-
-                    } else {
-                        free(ci);
-                        free(conn);
-                    }
-
-                }
-
-            } else if (pit->type == PIT_XL4) {
-
-                conn_info_t * ci = pit->ci;
-                int flags = 0;
-                if (pp->events & POLLIN) {
-                    flags |= XL4BUS_POLL_READ;
-                }
-                if (pp->events & POLLOUT) {
-                    flags |= XL4BUS_POLL_WRITE;
-                }
-                if (pp->events & (POLLERR|POLLNVAL|POLLHUP)) {
-                    flags |= XL4BUS_POLL_ERR;
-                }
-
-                int s_err;
-                if ((s_err = xl4bus_process_connection(ci->conn, pit->fd, flags)) == E_XL4BUS_OK) {
-                    timeout = pick_timeout(timeout, ci->ll_poll_timeout);
-                    // DBG("timeout adjusted to %d (exist conn %p)", timeout, ci);
-                } else {
-                    DBG("xl4bus process (fd up route) returned %d", s_err);
-                }
-
-            } else {
-                DBG("PIT type %d?", pit->type);
-                return 1;
-            }
-        }
-    }
-#endif
-
     if (bc->quit) {
 
         // make sure we don't accept new connections.
@@ -747,151 +577,6 @@ int cycle_broker(broker_context_t * bc, int in_timeout) {
     return 0;
 
 }
-
-#if !XL4_HAVE_EPOLL
-int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
-
-    conn_info_t * ci = NULL;
-
-    if (conn) {
-        ci = conn->custom;
-    }
-
-    if (fd == XL4BUS_POLL_TIMEOUT_MS) {
-        if(ci) {
-            ci->ll_poll_timeout = pick_timeout(ci->ll_poll_timeout, flg);
-        }
-        return E_XL4BUS_OK;
-    }
-
-    uint32_t need_flg = 0;
-
-    if (flg & XL4BUS_POLL_WRITE) {
-        need_flg |= POLLOUT;
-    }
-    if (flg & XL4BUS_POLL_READ) {
-        need_flg |= POLLIN;
-    }
-
-    if ((!ci) || ((ci) && (ci->poll_modes != need_flg))) {
-
-        int rc = 0;
-
-        if (need_flg) {
-            pf_poll_t * found = 0;
-            for (int i=0; i<polist.polls_len; i++) {
-                pf_poll_t * poll = polist.polls + i;
-                if(ci) {
-                    if(poll->fd == conn->fd) {
-                        found = poll;
-                        break;
-                    }
-                } else {
-                    if(poll->fd == fd) {
-                        found = poll;
-                        break;
-                    }
-                }
-            }
-            if (!found) {
-                void * v = realloc(polist.polls, (polist.polls_len + 1) * sizeof(pf_poll_t));
-                if (!v) {
-                    return E_XL4BUS_MEMORY;
-                }
-                polist.polls = v;
-                found = polist.polls + polist.polls_len++;
-                if(ci) {
-                    found->fd = conn->fd;
-                    found->data_ptr = &ci->pit;
-                } else {
-                    found->fd = fd;
-                    found->data_ptr = &main_pit;
-                }
-            }
-            found->events = (short)need_flg;
-        } else {
-            if ((ci) && (ci->poll_modes)) {
-                for (int i=0; i<polist.polls_len; i++) {
-                    if (polist.polls[i].fd == conn->fd) {
-                        polist.polls[i].fd = -1;
-                        break;
-                    }
-                }
-            } else {
-                rc = 0;
-            }
-        }
-
-        if (rc) {
-            return E_XL4BUS_SYS;
-        }
-
-        if(ci) {
-            ci->poll_modes = need_flg;
-        }
-    }
-
-    return E_XL4BUS_OK;
-}
-
-int pf_poll(pf_poll_t * polls, int polls_len, int timeout) {
-
-    struct rlimit rlim;
-
-    getrlimit(RLIMIT_NOFILE, &rlim);
-
-    if (polls_len < 0 || polls_len > rlim.rlim_cur) {
-        errno = EINVAL;
-        return -1;
-    }
-
-    struct pollfd s_poll[polls_len];
-
-    for (int i=0; i<polls_len; i++) {
-
-        s_poll[i].events = 0;
-        polls[i].revents = 0;
-
-        if ((s_poll[i].fd = polls[i].fd) < 0) {
-            // DBG("pf_poll: skipping negative fd");
-            continue;
-        }
-
-        short ine = polls[i].events;
-        if (ine & XL4BUS_POLL_WRITE) {
-            s_poll[i].events |= POLLOUT;
-        }
-        if (ine & XL4BUS_POLL_READ) {
-            s_poll[i].events |= POLLIN;
-        }
-
-        // DBG("pf_poll : %d: %x->%x", s_poll[i].fd, polls[i].events, s_poll[i].events);
-
-    }
-
-    int ec = poll(s_poll, (nfds_t) polls_len, timeout);
-    if (ec <= 0) { return ec; }
-
-    // DBG("pf_poll: %d descriptors, %d timeout, returned %d", polls_len, timeout, ec);
-
-    for (int i=0; i<polls_len; i++) {
-        if (s_poll[i].fd < 0) { continue; }
-        short ine = s_poll[i].revents;
-        if (ine & POLLOUT) {
-            polls[i].revents |= XL4BUS_POLL_WRITE;
-        }
-        if (ine & POLLIN) {
-            polls[i].revents |= XL4BUS_POLL_READ;
-        }
-        if (ine & (POLLERR|POLLHUP|POLLNVAL)) {
-            polls[i].revents |= XL4BUS_POLL_ERR;
-        }
-        // DBG("pf_poll: %x->%x for %d", ine, polls[i].revents, s_poll[i].fd);
-    }
-
-    return ec;
-}
-#endif
 
 void process_bcc(broker_context_t * broker_context, int sock) {
 

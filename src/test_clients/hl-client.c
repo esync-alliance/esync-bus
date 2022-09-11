@@ -28,7 +28,7 @@ static void reconnect(xl4bus_client_t * clt) {
 static void help(void);
 
 void *make_j_msg(const char *say, size_t size) {
-    const char *fmt = "{\"say\":\"%s\",\"pad\":\".\"}";
+    const char fmt[] = "{\"say\":\"%s\",\"pad\":\".\"}";
     size_t min_len = strlen(say) + strlen(fmt) - 2 + 1;
     if (size < min_len) {
         size = min_len;

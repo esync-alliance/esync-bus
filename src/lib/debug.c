@@ -33,6 +33,9 @@ void str_output_time(char * now) {
 
 }
 
+#ifndef LOG_PREFIX
+#define LOG_PREFIX ""
+#endif//LOG_PREFIX
 
 static void v_debug_out(char const * func, char const * file, int line, int how, char const * str, va_list va) {
 
@@ -60,7 +63,7 @@ static void v_debug_out(char const * func, char const * file, int line, int how,
 #endif
 
     // time func:file:line how <orig>
-    char * final_fmt = f_asprintf("%s%s:%s:%d %s%s%s", now, func, file, line, how_str, str, eol);
+    char * final_fmt = f_asprintf(LOG_PREFIX"%s%s:%s:%d %s%s%s", now, func, file, line, how_str, str, eol);
 
 #if WITH_UNIT_TEST
 

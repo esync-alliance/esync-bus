@@ -1,7 +1,6 @@
 
 #include <config.h>
 #include "internal.h"
-#include "porting.h"
 #include "misc.h"
 #include "debug.h"
 #include "basics.h"

@@ -26,7 +26,7 @@ struct if_and_addr {
     union addr addr;
 };
 
-static connect_test;
+static int connect_test;
 static char const * expected_net_if;
 
 static void intercept_connect(struct xl4bus_client * clt, void * ip, size_t ip_len, in_port_t port, char const * net_if) {

@@ -1,5 +1,9 @@
-  include(${CMAKE_CURRENT_SOURCE_DIR}/ghs_port/integrity.cmake)
-  add_custom_target(build_xl4bus ALL
-    COMMAND ${BUILD_TOOL} -top default.gpj libxl4bus.gpj xl4broker.gpj
-    DEPENDS ${CMAKE_BINARY_DIR}/xl4bus_version.h
-    )
+include(FindPkgConfig)
+
+# openssl library is required by cjose
+pkg_check_modules(OPENSSL REQUIRED openssl)
+influence_pkg("OPENSSL")
+
+pkg_check_modules(JANSSON REQUIRED jansson)
+influence_pkg("JANSSON")
+

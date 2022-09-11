@@ -1,0 +1,10 @@
+#!gbuild
+
+[Library]
+	-object_dir=objs/libghs_misc
+	-DHAVE_STDLIB_H -DHAVE_STRING_H
+	-DNDEBUG
+	-c99
+
+$__LIB_GHS_MISC_DIR/strcasestr.c
+$__LIB_XL4BUS_DIR/src/xl4_vasprintf.c

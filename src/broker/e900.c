@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifndef LOG_PREFIX
+#define LOG_PREFIX ""
+#endif//LOG_PREFIX
+
 void e900(char * alloc_msg, xl4bus_address_t * from, xl4bus_address_t * to) {
 
     char my_time[20];
@@ -36,7 +40,7 @@ void e900(char * alloc_msg, xl4bus_address_t * from, xl4bus_address_t * to) {
         msg = "(NULL MSG!)";
     }
 
-    MSG_OUT("E900 %s (%s)->(%s) : %s\n", my_time, from_str, to_str, msg);
+    MSG_OUT(LOG_PREFIX"E900 %s (%s)->(%s) : %s\n", my_time, from_str, to_str, msg);
     fflush(stdout);
 
     free(alloc_msg);

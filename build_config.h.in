@@ -83,20 +83,21 @@
 #cmakedefine01 XL4_HAVE_STD_MALLOC
 
 /**
- * Epoll function support
+ * Use included epoll implementation (based on poll). Needed
+ * for platforms that don't provide epoll support.
  */
-#cmakedefine01 XL4_HAVE_EPOLL
+#cmakedefine01 XL4_PROVIDE_EPOLL
+
+/**
+ * The library uses vasprintf implemented by xl4
+ *
+ */
+#cmakedefine01 XL4_PROVIDE_VASPRINTF
 
 /**
  * Limit the amount of path element that the user agent may have.
  */
 #cmakedefine XL4_MAX_UA_PATHS @XL4_MAX_UA_PATHS@
-
-/**
- * Set to `1` if epoll_create1(2) is not available, and must
- * be implemented internally instead.
- */
-#cmakedefine01 XL4_PROVIDE_EPOLL_CREATE1
 
 /**
  * Specify time, in millisecond, of how long the key is considered valid

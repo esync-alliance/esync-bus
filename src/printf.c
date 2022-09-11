@@ -325,7 +325,7 @@ int tfp_vasprintf(char ** s, const char *fmt, va_list ap) {
     putcpn(&bc,0);
     va_end(va);
 
-    if (!(*s = bc.ptr = f_malloc(bc.used))) {
+    if (!(*s = bc.ptr = cfg.malloc(bc.used))) {
         return -1;
     }
 

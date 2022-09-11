@@ -18,7 +18,3 @@
 	path = jansson
     url = https://github.com/akheron/jansson.git
     branch = v2.11
-[submodule "ghs_port/openssl/openssl"]
-	path = ghs_port/openssl/openssl
-	url = https://github.com/openssl/openssl.git
-	branch = OpenSSL_1_0_2k

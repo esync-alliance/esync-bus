@@ -8,9 +8,10 @@
 #include "lib/hash_list.h"
 
 #include "broker.h"
+#include "config.h"
 #include "lib/common.h"
 #include "lib/debug.h"
-#include "lib/poll_help.h"
+#include "lib/xl4_epoll.h"
 
 #define MAGIC_CLIENT_MESSAGE 0xed989b71
 #define MAGIC_SYS_MESSAGE 0xd6588fb0
@@ -598,7 +599,6 @@ void on_connection_shutdown(xl4bus_connection_t * conn) {
 
 }
 
-#if XL4_HAVE_EPOLL
 int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
 
     conn_info_t * ci = conn->custom;
@@ -653,7 +653,6 @@ int set_poll(xl4bus_connection_t * conn, int fd, int flg) {
     return E_XL4BUS_OK;
 
 }
-#endif
 
 void on_sent_message(xl4bus_connection_t * conn, xl4bus_ll_message_t * msg, void * arg, int err) {
 
@@ -758,5 +757,6 @@ int send_json_message(conn_info_t * ci, const char * type, json_object * body,
 int on_stream_close(struct xl4bus_connection * conn, uint16_t stream, xl4bus_stream_close_reason_t scr) {
 
     DBG("Stream %p-%04x closed, reason: %d", conn, stream, (int)scr);
+    return 0;
 
 }

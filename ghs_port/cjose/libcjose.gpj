@@ -1,0 +1,25 @@
+#!gbuild
+[Library]
+	-object_dir=objs/cjose
+	-c99
+	-I$__LIB_CJOSE_DIR/include
+	-I$__LIB_CJOSE_DIR/build-ghs/include
+	-I$__LIB_XL4BUS_DIR/ghs_port/jansson
+	-I$__LIB_OPENSSL_DIR/include
+	-I$__LIB_JANSSON_DIR/src
+	-I$__LIB_JANSSON_DIR/build-ghs/include
+	-Dssize_t=long
+	-Djson_object_get=jansson_object_get
+	-Djson_object_iter_next=jansson_object_iter_next
+	-D_SSIZE_T_ALREADY
+	-Dalloca=cjose_get_alloc
+
+$__LIB_CJOSE_DIR/src/base64.c
+$__LIB_CJOSE_DIR/src/concatkdf.c
+$__LIB_CJOSE_DIR/src/error.c
+$__LIB_CJOSE_DIR/src/header.c
+$__LIB_CJOSE_DIR/src/jwe.c
+$__LIB_CJOSE_DIR/src/jwk.c
+$__LIB_CJOSE_DIR/src/jws.c
+$__LIB_CJOSE_DIR/src/util.c
+$__LIB_CJOSE_DIR/src/version.c

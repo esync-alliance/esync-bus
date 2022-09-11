@@ -10,6 +10,12 @@ set(PORT $ENV{LIBXL4BUS_PORT})
 
 add_custom_command(OUTPUT PHONY ${CMAKE_BINARY_DIR}/xl4bus_version.h COMMAND ${CMAKE_SOURCE_DIR}/make_version.sh ARGS ${CMAKE_SOURCE_DIR} WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
+
+if (DEBUG)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -ggdb")
+endif()
+
 # thanks to http://stackoverflow.com/questions/7172670
 function(join OUTPUT GLUE)
     set(_TMP_RESULT "")
@@ -150,6 +156,8 @@ if((NOT EXISTS ${LOAD_CFG}) OR (IS_DIRECTORY ${LOAD_CFG}))
     endif()
 endif()
 
+add_definitions(-DHAVE_JSONC_RENAME)
+
 if(ESYNC_ALLIANCE)
 	add_definitions(-DESYNC_ALLIANCE)
 endif()
@@ -162,6 +170,8 @@ set_empty(WITH_EFENCE FALSE)
 set_empty(XL4_PROVIDE_THREADS 1)
 set_empty(XL4_PROVIDE_DEBUG 1)
 set_empty(XL4_PROVIDE_PRINTF 0)
+set_empty(XL4_PROVIDE_VASPRINTF 0)
+set_empty(XL4_PROVIDE_EPOLL 0)
 set_empty(XL4_PROVIDE_PERF 0)
 set_empty(XL4_SUPPORT_IPV6 1)
 set_empty(XL4_SUPPORT_IPV4 1)
@@ -170,7 +180,6 @@ set_empty(XL4_SUPPORT_RESOLVER 1)
 set_empty(XL4_SUPPORT_UNIX_DGRAM_PAIR 1)
 set_empty(XL4_HAVE_GETTIMEOFDAY 1)
 set_empty(XL4_HAVE_STD_MALLOC 1)
-set_empty(XL4_HAVE_EPOLL 1)
 set_empty(XL4_SYMBOL_VISIBILITY_SUPPORTED 1)
 
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES build_config.h)
@@ -241,6 +250,8 @@ set(LIB_SOURCE ${LIB_SOURCE}
     src/lib/hash_list.h
     src/renamed_json.h
     src/fragments/linux_if_bind.h
+    src/xl4_vasprintf.h
+    src/xl4_vasprintf.c
 )
 
 set(DEPS_CFG ${PORT}/deps.cmk)
@@ -256,8 +267,8 @@ include(${DEPS_CFG})
 if (XL4_PROVIDE_THREADS)
     set_empty(NEED_PTHREADS TRUE)
     if (NEED_PTHREADS)
-        set_empty(THREADS_PREFER_PTHREAD_FLAG TRUE)
-        find_package(Threads MODULE REQUIRED)
+      set_empty(THREADS_PREFER_PTHREAD_FLAG TRUE)
+      find_package(Threads MODULE REQUIRED)
     endif()
 endif()
 
@@ -269,7 +280,7 @@ if (BUILD_SHARED)
     endif()
     set(USE_LIB xl4bus-shared)
     target_link_libraries(xl4bus-shared ${SHARED_LIBS})
-    target_compile_definitions(xl4bus-shared PUBLIC XL4BUS_BUILD)
+    target_compile_definitions(xl4bus-shared PRIVATE XL4BUS_BUILD)
     install(TARGETS xl4bus-shared LIBRARY DESTINATION lib)
 endif()
 
@@ -299,11 +310,17 @@ if (BUILD_BINS)
         src/lib/debug.c
         src/lib/rb_tree.h
         src/lib/rb_tree.c
-        src/lib/poll_help.h
         src/lib/url_decode.c
         src/lib/url_decode.h
         src/basics.h
         src/basics.c
+        src/porting.h
+        src/xl4_vasprintf.h
+        src/xl4_vasprintf.c
+        src/lib/xl4_epoll.h
+        src/lib/xl4_epoll.c
+        src/lib/xl4_tablefd.h
+        src/lib/xl4_tablefd.c
         ${PORT_SOURCE}
     )
 
@@ -344,13 +361,11 @@ if (BUILD_BINS)
 
     set(TEST_BINARIES "tree-test")
 
-    if (XL4_HAVE_EPOLL)
-        add_executable(timeout-test
+    add_executable(timeout-test
             src/tests/timeout.c
             ${BIN_LIB_SRC}
             )
-        set(TEST_BINARIES ${TEST_BINARIES} "timeout-test")
-    endif()
+    set(TEST_BINARIES ${TEST_BINARIES} "timeout-test")
 
     set(NORMAL_BINARIES "ll-client" "xl4bus-broker" "xl4bus-broker-untested")
 
@@ -377,7 +392,7 @@ if (BUILD_BINS)
             set_target_properties(xl4bus-shared-test PROPERTIES OUTPUT_NAME xl4bus-test CLEAN_DIRECT_OUTPUT 1)
             set(THREADED_BINARIES ${THREADED_BINARIES} xl4bus-shared-test)
             target_link_libraries(xl4bus-shared-test ${SHARED_LIBS})
-            target_compile_definitions(xl4bus-shared-test PUBLIC XL4BUS_BUILD)
+            target_compile_definitions(xl4bus-shared-test PRIVATE XL4BUS_BUILD)
             target_compile_definitions(xl4bus-shared-test PRIVATE WITH_UNIT_TEST)
             target_compile_definitions(xl4bus-shared-test PRIVATE XL4_CLIENT_RECONNECT_INTERVAL_MS=300)
             set(USE_TEST_LIB xl4bus-shared-test)

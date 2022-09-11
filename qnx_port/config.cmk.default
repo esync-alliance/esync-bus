@@ -8,9 +8,7 @@ set(LIB_SOURCE ${LIB_SOURCE}
     qnx_port/config.h
     qnx_port/port.c)
 
-set(PORT_SOURCE
-    qnx_port/epoll/qepoll.h
-    qnx_port/epoll/qepoll.c
-    qnx_port/epoll/qtablefd.h
-    qnx_port/epoll/qtablefd.c)
+set(PORT_SOURCE ${LIB_SOURCE})
 
+set(XL4_PROVIDE_EPOLL 1)
+set(XL4_PROVIDE_VASPRINTF 1)

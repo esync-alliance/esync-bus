@@ -1,30 +1,21 @@
+#ifndef __GNUC__
 #include <INTEGRITY.h>
+#endif
 #include <libxl4bus/build_config.h>
-#include "config.h"
-#include "porting.h"
-#include "debug.h"
 #include <libxl4bus/types.h>
 #include "internal.h"
-
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <time.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <stdio.h>
 #include <poll.h>
-#include <sys/time.h>
-#include <time.h>
-#include <termios.h> // FIONREAD
 #include <sys/ioctl.h>
 #include <netinet/tcp.h>
-
+#include <assert.h>
+#include <sys/un.h>
 #if XL4_PROVIDE_THREADS
 #include <pthread.h>
 #endif
-static LocalMutex ghs_mutex = NULL;
 
 #if XL4_PROVIDE_THREADS
 struct runner_info {
@@ -34,29 +25,39 @@ struct runner_info {
 static void * thread_runner(void *);
 #endif
 
+static pthread_mutex_t __lock = PTHREAD_MUTEX_INITIALIZER;
+
+#ifndef LOG_PREFIX
+#define LOG_PREFIX ""
+#endif//LOG_PREFIX
+
+#ifndef DBG
+#define DBG(fmt, ...)  do { printf(LOG_PREFIX fmt"\n", ##__VA_ARGS__); } while (0)
+#endif
+
 ssize_t pf_send(int sockfd, const void *buf, size_t len) {
-    return send(sockfd, buf, len, 0);
+    ssize_t sz =  send(sockfd, buf, len, 0);
+    if ((size_t)sz != len) {
+        DBG("send() error: error: %s", strerror(errno));
+    }
+    return sz;
 }
 
 ssize_t pf_recv(int sockfd, void *buf, size_t len) {
-    return recv(sockfd, buf, len, 0);
+    ssize_t sz = recv(sockfd, buf, len, 0);
+    if ((size_t)sz != len) {
+        DBG("recv() error: %s", strerror(errno));
+    }
+    return sz;
 }
 
 int pf_add_and_get(int *addr, int value) {
-#if 0
-    // AtomicModify is only used when the addr is changed from int* to uint64_t*.
-    // Otherwise, INTEGRITY throws errorflow error
-    Address oldval;
-    AtomicModify((Address *)addr, &oldval, 0, (Value)value);
-#else
-    if (!ghs_mutex)
-        CheckSuccess(CreateLocalMutex(&ghs_mutex));
-
-    CheckSuccess(WaitForLocalMutex(ghs_mutex));
+    int val;
+    assert(pthread_mutex_lock(&__lock) == 0);
     *addr += value;
-    CheckSuccess(ReleaseLocalMutex(ghs_mutex));
-#endif
-    return *addr;
+    val = *addr;
+    assert(pthread_mutex_unlock(&__lock) == 0);
+    return val;
 }
 
 // sets descriptor to non-blocking mode, return 0 if OK,
@@ -65,9 +66,11 @@ int pf_set_nonblocking(int fd) {
 
     int flags = fcntl(fd, F_GETFL);
     if (flags == -1) {
+        DBG("fcntl() error: %s", strerror(errno));
         return -1;
     }
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        DBG("fcntl() error: %s", strerror(errno));
         return -1;
     }
 
@@ -87,8 +90,8 @@ uint64_t pf_ms_value() {
 
     struct timespec tp;
     /* Integrity only support CLOCK_REALTIME */
-    clock_gettime(CLOCK_REALTIME, &tp);
-
+    int err = clock_gettime(CLOCK_REALTIME, &tp);
+    if (err) return 0;
     return ((unsigned long long) tp.tv_sec) * 1000L +
             tp.tv_nsec / 1000000L;
 }
@@ -97,7 +100,7 @@ void pf_random(void * to, size_t where) {
     gid_t curr_gid;
     pid_t curr_pid;
     uid_t curr_uid;
-    int i, k;
+    size_t i, k;
     struct timespec ts;
     unsigned char v;
     uint8_t *buf = (uint8_t *)to;
@@ -117,9 +120,9 @@ void pf_random(void * to, size_t where) {
     if (where == 0) return;
 
     curr_uid = getuid();
-	*buf++ = curr_uid;
+    *buf++ = curr_uid;
     where--;
-	if (where == 0) return;
+    if (where == 0) return;
 
     for (i = 0; i < where; i++) {
         /*
@@ -127,7 +130,7 @@ void pf_random(void * to, size_t where) {
          * interference, etc.
          */
         for (k = 0; k < 99; k++)
-            ts.tv_nsec = random();
+            ts.tv_nsec = rand_r((unsigned int*)&k);
 
         /* get wall clock time.  */
         clock_gettime(CLOCK_REALTIME, &ts);
@@ -219,7 +222,7 @@ int pf_connect_tcp(void * ip, size_t ip_len, uint16_t port, char const * net_if,
 #endif
 
     if (family == AF_UNSPEC) {
-        DBG("Unsupported address length %d", ip_len);
+        DBG("Unsupported address length %zu", ip_len);
         pf_set_errno(ENOTSUP);
         return -1;
     }
@@ -274,10 +277,11 @@ void pf_shutdown_rdwr(int fd) {
 }
 
 #if XL4_PROVIDE_THREADS
+#define DEFAULT_STACK_SIZE (512*1024)
 
 int pf_start_thread(pf_runnable_t code, void * arg) {
 
-    struct runner_info * info = cfg.malloc(sizeof(struct runner_info));
+    struct runner_info * info = malloc(sizeof(struct runner_info));
     if (!info) {
         pf_set_errno(ENOMEM);
         return 1;
@@ -285,11 +289,17 @@ int pf_start_thread(pf_runnable_t code, void * arg) {
 
     info->code = code;
     info->arg = arg;
-
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    int err = pthread_attr_setstacksize(&attr, DEFAULT_STACK_SIZE);
+    if (err) {
+        free(info);
+        return -1;
+    }
     pthread_t p;
 
-    if (pthread_create(&p, 0, thread_runner, info)) {
-        cfg.free(info);
+    if (pthread_create(&p, &attr, thread_runner, info)) {
+        free(info);
         return 1;
     }
 
@@ -300,14 +310,16 @@ int pf_start_thread(pf_runnable_t code, void * arg) {
 void * thread_runner(void * arg) {
     struct runner_info info;
     memcpy(&info, arg, sizeof(struct runner_info));
-    cfg.free(arg);
+    free(arg);
     info.code(info.arg);
+    pthread_detach(pthread_self());
+
     return 0;
 }
 
 int pf_init_lock(void ** lock) {
 
-    if (!(*lock = cfg.malloc(sizeof(pthread_mutex_t)))) {
+    if (!(*lock = malloc(sizeof(pthread_mutex_t)))) {
         pf_set_errno(ENOMEM);
         return -1;
     }
@@ -327,9 +339,8 @@ void pf_release_lock(void * lock) {
 
     if (lock) {
         pthread_mutex_destroy(lock);
-        cfg.free(lock);
+        free(lock);
     }
-
 }
 
 #endif /* XL4_PROVIDE_THREADS */
@@ -355,9 +366,46 @@ ssize_t pf_recv_dgram(int sockfd, void ** addr, pf_malloc_fun _malloc) {
 #endif
 
 #if XL4_SUPPORT_UNIX_DGRAM_PAIR
-int pf_dgram_pair(int sv[2]) {
-    /* INTEGRITY doesn't support SOCK_DGRAM for AF_UNIX like Linux come up with a solution using SOCK_STREAM */
-    return socketpair(PF_LOCAL, SOCK_STREAM, 0, sv);
+#define LOCAL_SOCK_PATH_PREFIX "sockpair"
+int pf_dgram_pair(int pair[2]) {
+    int rsd = -1, wsd = -1;
+    int err = -1;
+    rsd = socket(AF_LOCAL, SOCK_DGRAM, 0);
+    if (rsd == -1) {
+        DBG("failed to create rsd, error: %s", strerror(errno));
+        return -1;
+    }
+
+    struct sockaddr_un local;
+    local.sun_family = AF_LOCAL;
+    snprintf(local.sun_path, sizeof(local.sun_path), "%s-%zu",
+             LOCAL_SOCK_PATH_PREFIX, pthread_self());
+    unlink(local.sun_path);
+    DBG("Bind to %s", local.sun_path);
+    if (bind(rsd, (struct sockaddr *)&local, sizeof(local)) == -1) {
+        DBG("bind error: %s, sockaddr: %s", strerror(errno), local.sun_path);
+        goto _error;
+    }
+    wsd = socket(AF_LOCAL, SOCK_DGRAM, 0);
+    if (wsd == -1) {
+        DBG("Failed to create write socket, error: %s",
+                      strerror(errno));
+        goto _error;
+    }
+    err = connect(wsd, (struct sockaddr *)&local, sizeof(local));
+    if (err == -1) {
+        DBG("Failed to connect to local socket, error: %s",
+            strerror(errno));
+        goto _error;
+    }
+    pair[0] = rsd;
+    pair[1] = wsd;
+    return 0;
+ _error:
+    if (wsd != -1) close(wsd);
+    if (rsd != -1) close(rsd);
+    unlink(local.sun_path);
+    return -1;
 }
 #endif
 

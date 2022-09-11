@@ -1,6 +1,5 @@
 
 #include "internal.h"
-#include "porting.h"
 #include "misc.h"
 #include "debug.h"
 #include "basics.h"
@@ -520,7 +519,7 @@ static int send_message_ts(xl4bus_connection_t *conn, xl4bus_ll_message_t *msg, 
     stream_t * stream = 0;
     char * interim;
     void * allocated_send_data = 0;
-    void const * use_send_data;
+    uint8_t const * use_send_data;
     size_t send_data_len;
     uint8_t * frame_data = 0;
 

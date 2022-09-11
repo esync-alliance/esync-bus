@@ -7,9 +7,7 @@
 #include <libxl4bus/high_level.h>
 
 #include "lib/rb_tree.h"
-
 #include "renamed_json.h"
-
 #include <mbedtls/x509.h>
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/platform.h>
@@ -66,10 +64,8 @@
 #define cfg XI(cfg)
 #define hash_sha256 XI(hash_sha256)
 
-#if XL4_PROVIDE_PRINTF
-#define vasprintf tft_vasprintf
 #include "printf.h"
-#endif
+#include "xl4_vasprintf.h"
 
 #define HASH_NONFATAL_OOM 1
 #define uthash_malloc(c) cfg.malloc(c)
@@ -599,6 +595,8 @@ int build_address_list(json_object *, xl4bus_address_t **);
 #define str_content_type XI(str_content_type)
 #define free_s XI(free_s)
 #define zero_s XI(zero_s)
+#define is_ip_addr XI(is_ip_addr)
+#define create_addrinfo XI(create_addrinfo)
 
 int consume_dbuf(xl4bus_buf_t * , xl4bus_buf_t * , int);
 int add_to_dbuf(xl4bus_buf_t * , void * , size_t );
@@ -621,6 +619,9 @@ int asn1_to_json(xl4bus_asn1_t *, json_object **);
 char const * str_content_type(int ct);
 void free_s(void*, size_t);
 void zero_s(void*, size_t);
+bool is_ip_addr(const char *host, int family);
+int create_addrinfo(const char *ipaddr, int family, struct addrinfo **addr);
+
 
 /**
  * Helper method to create json object from a set of properties.

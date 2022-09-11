@@ -2,7 +2,6 @@
 #include "lib/debug.h"
 #include "lib/common.h"
 #include "broker.h"
-
 #include <libxl4bus/low_level.h>
 
 #define DEFAULT_PORT 9133
@@ -11,7 +10,15 @@
 
 static void help(void);
 
-int main(int argc, char ** argv) {
+#ifndef LIBRARY_STARTUP_GHS_INTEGRITY
+static int broker_main(int argc, char ** argv);
+int main(int argc, char **argv)
+{
+    return broker_main(argc, argv);
+}
+#endif
+
+int broker_main(int argc, char ** argv) {
 
     int c;
     char *end = 0;
@@ -114,7 +121,7 @@ int main(int argc, char ** argv) {
             return 0;
         }
     }
-
+    return 0;
 }
 
 void help() {

@@ -1,0 +1,46 @@
+#!gbuild
+
+[Library]
+	-object_dir=objs/libxl4broker
+	-c99
+	-DLOG_PREFIX="[BROKER    ]:: "
+	-DATTRIBUTE_CONSTRUCTOR=
+	-DATTRIBUTE_DESTRUCTOR=
+	-I$__LIB_XL4BUS_DIR/src/include
+	-I$__LIB_XL4BUS_DIR/src
+	-I$__LIB_XL4BUS_DIR/src/broker
+	-I$__LIB_XL4BUS_DIR/build-ghs
+	-I$__LIB_XL4BUS_DIR/ghs_port
+	-I$__LIB_XL4BUS_DIR/ghs_port/ghs_misc
+        -I$__LIB_XL4BUS_DIR/ghs_port/src
+	-I$__LIB_XL4BUS_DIR/build-ghs/include
+	-I$__LIB_MBEDTLS_DIR/include
+	-I$__LIB_CJOSE_DIR/include
+	-I$__LIB_CJOSE_DIR/build-ghs/include/cjose
+	-I$__LIB_JSONC_DIR
+	-I$__LIB_XL4BUS_DIR/ghs_port/json-c
+	-I$__LIB_OPENSSL_DIR/include
+	-DCLOCK_MONOTONIC=CLOCK_REALTIME
+	-DCLOCK_MONOTONIC_RAW=CLOCK_REALTIME
+	-DNO_DECLTYPE
+	-DLIBRARY_STARTUP_GHS_INTEGRITY
+	-DXL4_PROVIDE_DEBUG=1
+	-Dclean_keyspec=broker_clean_keyspec
+	-Dmake_private_key=broker_make_private_key
+	-Dasn1_to_json=broker_asn1_to_json
+	-Dmpi2jwk=broker_mpi2jwk
+	-Df_asprintf=broker_f_asprintf
+	-L${__BUILD_DIR}
+
+$__LIB_XL4BUS_DIR/src/broker/broker_main.c
+$__LIB_XL4BUS_DIR/src/lib/common.c
+$__LIB_XL4BUS_DIR/src/lib/debug.c
+$__LIB_XL4BUS_DIR/src/lib/rb_tree.c
+$__LIB_XL4BUS_DIR/src/broker/broker.c
+$__LIB_XL4BUS_DIR/src/broker/bus.c
+$__LIB_XL4BUS_DIR/src/broker/e900.c
+$__LIB_XL4BUS_DIR/src/broker/crypto.c
+$__LIB_XL4BUS_DIR/src/broker/gather.c
+$__LIB_XL4BUS_DIR/src/broker/hash_tree.c
+$__LIB_XL4BUS_DIR/src/broker/xl4_epoll.c
+$__LIB_XL4BUS_DIR/src/broker/xl4_tablefd.c

@@ -6,7 +6,8 @@
 #include <stddef.h>
 #include <signal.h>
 #include "uthash.h"
-#include "lib/poll_help.h" // for epoll_create
+#include "config.h"
+#include "lib/xl4_epoll.h"
 
 int debug = 1;
 
@@ -254,7 +255,7 @@ int stream_closed(struct xl4bus_connection * conn, uint16_t stream, xl4bus_strea
             test_phase = TP_QUIT;
         }
     }
-
+    return 0;
 }
 
 void alarm_reached(int sig) {

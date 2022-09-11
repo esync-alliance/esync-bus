@@ -12,48 +12,21 @@
 #include <errno.h>
 #include <unistd.h>
 #include <mbedtls/x509_crt.h>
-
 #include "libxl4bus/types.h"
 #include <termios.h>
 
-#ifdef __QNX__
-static int vasprintf(char **buf, const char *fmt, va_list ap)
-{
-    static char _T_emptybuffer = '\0';
-    int chars;
-    char *b;
+#include "xl4_vasprintf.h"
 
-    if(!buf) { return -1; }
-
-#ifdef WIN32
-    chars = _vscprintf(fmt, ap)+1;
-#else /* !defined(WIN32) */
-    /* CAW: RAWR! We have to hope to god here that vsnprintf doesn't overwrite
-       our buffer like on some 64bit sun systems.... but hey, its time to move on */
-    chars = vsnprintf(&_T_emptybuffer, 0, fmt, ap)+1;
-    if(chars < 0) { chars *= -1; } /* CAW: old glibc versions have this problem */
-#endif /* defined(WIN32) */
-
-    b = (char*)malloc(sizeof(char)*chars);
-    if(!b) { return -1; }
-
-    if((chars = vsprintf(b, fmt, ap)) < 0)
-    {
-        free(b);
-    } else {
-        *buf = b;
-    }
-
-    return chars;
-}
-#endif
+#ifndef LOG_PREFIX
+#define LOG_PREFIX ""
+#endif //LOG_PREFIX
 
 void print_out(const char * msg) {
 
 #if XL4BUS_ANDROID
     __android_log_write(ANDROID_LOG_DEBUG, XL4BUS_ANDROID_TAG, msg);
 #else
-    fprintf(stderr, "%s\n", msg);
+    fprintf(stderr, LOG_PREFIX"%s\n", msg);
 #endif
 
 }

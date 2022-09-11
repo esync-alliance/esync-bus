@@ -1,0 +1,14 @@
+#!gbuild
+
+[Subproject]
+	-I$__LIB_OPENSSL_DIR/crypto/rand
+$__LIB_OPENSSL_DIR/../ghs_port/openssl/rand_integrity.c
+$__LIB_CRYPTO_DIR/rand/md_rand.c
+$__LIB_CRYPTO_DIR/rand/rand.h
+$__LIB_CRYPTO_DIR/rand/rand_egd.c
+$__LIB_CRYPTO_DIR/rand/rand_err.c
+$__LIB_CRYPTO_DIR/rand/rand_lcl.h
+$__LIB_CRYPTO_DIR/rand/rand_lib.c
+$__LIB_CRYPTO_DIR/rand/rand_nw.c
+$__LIB_CRYPTO_DIR/rand/randfile.c
+$__LIB_CRYPTO_DIR/rand/randtest.c

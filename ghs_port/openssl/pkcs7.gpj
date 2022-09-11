@@ -1,0 +1,12 @@
+#!gbuild
+[Subproject]
+	-I$__LIB_OPENSSL_DIR/../
+
+$__LIB_CRYPTO_DIR/pkcs7/bio_pk7.c
+$__LIB_CRYPTO_DIR/pkcs7/pk7_asn1.c
+$__LIB_CRYPTO_DIR/pkcs7/pk7_attr.c
+$__LIB_CRYPTO_DIR/pkcs7/pk7_doit.c
+$__LIB_CRYPTO_DIR/pkcs7/pk7_lib.c
+$__LIB_CRYPTO_DIR/pkcs7/pk7_mime.c
+$__LIB_CRYPTO_DIR/pkcs7/pk7_smime.c
+$__LIB_CRYPTO_DIR/pkcs7/pkcs7err.c

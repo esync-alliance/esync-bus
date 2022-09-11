@@ -1,0 +1,20 @@
+#!gbuild
+#component integrity_virtual_address_space
+[Program]
+	-c99
+	-DLOG_PREFIX="[BROKER    ]:: "
+    -I$__LIB_XL4BUS_DIR
+	-L${__BUILD_DIR}
+	-lsocket -lnet -livfs -lposix -lposix_authclient
+	-ljsonc
+	-lcjose
+	-lmbedtls
+	-lcrypto
+	-ljansson
+	-lxl4bus
+	-lghs_misc
+	-lxl4bus
+	-lxl4broker
+
+$__LIB_XL4BUS_DIR/ghs_port/xl4broker.c
+

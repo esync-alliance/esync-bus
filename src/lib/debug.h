@@ -32,6 +32,7 @@ void str_output_time(char *);
 #define FATAL(a,b...) do { LINE_OUT(HOW_FATAL, a, ##b); } while(0)
 #define FATAL_SYS(a,b...) do { LINE_OUT_SYS(HOW_FATAL, a, ##b); } while(0)
 #define FATAL_DIR(rc, a,b...) do { errno = rc; LINE_OUT_SYS(HOW_FATAL, a, ##b); } while(0)
+#define FATAL_UNLESS(cond, a,b...) do { if (!(cond)) { LINE_OUT_SYS(HOW_FATAL, a, ##b); } } while(0)
 
 #define BOLT_MEM(a) if (!(a)) { \
     FATAL("out of memory"); \
