@@ -22,6 +22,8 @@
 #include <stdio.h>
 #include <sys/time.h>
 
+#include <poll.h>
+
 #if !XL4_PROVIDE_EPOLL
 #include <sys/epoll.h>
 #endif
