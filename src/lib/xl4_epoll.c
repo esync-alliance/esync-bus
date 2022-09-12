@@ -17,20 +17,10 @@ typedef struct iepoll_event {
 typedef struct iepoll_data {
     int epfd;
     int qrevents;
-    pthread_mutex_t lock;
+    void * lock;
     iepoll_event_t elems[MAX_WAIT_EVENT];
     epoll_event_t revents[MAX_WAIT_EVENT];
 } iepoll_data_t;
-
-static uint64_t ms_value() {
-
-    struct timespec tp;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &tp);
-    return ((unsigned long long) tp.tv_sec) * 1000L +
-           tp.tv_nsec / 1000000L;
-
-}
-
 
 int epoll_create1(int size) {
     int i;
@@ -51,7 +41,7 @@ int epoll_create1(int size) {
         iepoll->elems[i].fd = -1;
     }
 
-    if (pthread_mutex_init(&iepoll->lock, 0)) {
+    if (pf_init_lock(&iepoll->lock)) {
         free(iepoll);
         return -1;
     }
@@ -80,7 +70,7 @@ int epoll_ctl(int epfd, int op, int fd, epoll_event_t *event) {
         return -1;
     }
 
-    if(pthread_mutex_lock(&iepoll->lock)) {
+    if(pf_lock(&iepoll->lock)) {
         rc = -1;
         goto exit;
     }
@@ -134,7 +124,7 @@ int epoll_ctl(int epfd, int op, int fd, epoll_event_t *event) {
     }
 
 exit:
-    if(pthread_mutex_unlock(&iepoll->lock)) {
+    if(pf_unlock(&iepoll->lock)) {
         rc = -1;
     }
 
@@ -159,7 +149,7 @@ int epoll_wait(int epfd, epoll_event_t *events,
         return -1;
     }
     bool is_locked = false;
-    if(pthread_mutex_lock(&iepoll->lock)) {
+    if(pf_lock(&iepoll->lock)) {
         goto exit;
     }
     is_locked = true;
@@ -251,7 +241,7 @@ int epoll_wait(int epfd, epoll_event_t *events,
 
 void epoll_close(void* ptr) {
     iepoll_data_t* iepoll = (iepoll_data_t*)ptr;
-    pthread_mutex_destroy(&iepoll->lock);
+    pf_release_lock(&iepoll->lock);
     xl4_tablefd_unref_data(iepoll->epfd);
 }
 
