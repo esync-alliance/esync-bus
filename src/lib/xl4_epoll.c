@@ -22,15 +22,28 @@ typedef struct iepoll_data {
     epoll_event_t revents[MAX_WAIT_EVENT];
 } iepoll_data_t;
 
-int epoll_create1(int size) {
+#ifndef EPOLL_CLOSEXEC
+#define EPOLL_CLOSEXEC O_CLOEXEC
+#endif
+
+int epoll_create(int size) {
+    return epoll_create1(0);
+}
+
+int epoll_create1(int flags) {
     int i;
     iepoll_data_t* iepoll;
 
-    if(size < 0) {
+    if(flags & ~EPOLL_CLOSEXEC) {
         errno = EINVAL;
         return -1;
     }
 
+    if (flags & EPOLL_CLOSEXEC) {
+        // Don't support to close the socket descriptor across an execve calls.
+        errno = ENOTSUP;
+        return -1;
+    }
     if(!(iepoll = malloc(sizeof(iepoll_data_t)))) {
         return -1;
     }
@@ -195,6 +208,7 @@ int epoll_wait(int epfd, epoll_event_t *events,
         int consume = t2-t1;
         if(consume >= timeout) {
             errno = ETIMEDOUT;
+            count = 0;
             goto exit;
         }
         timeout -= consume;

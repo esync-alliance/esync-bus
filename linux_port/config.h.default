@@ -23,6 +23,8 @@
 #include <sys/time.h>
 
 #include <poll.h>
+// needed for O_CLOEXEC for our own epoll
+#include <fcntl.h>
 
 #if !XL4_PROVIDE_EPOLL
 #include <sys/epoll.h>

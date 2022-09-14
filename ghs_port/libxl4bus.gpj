@@ -10,7 +10,6 @@
     -I$__LIB_XL4BUS_DIR/ghs_port/src
     -I$__LIB_XL4BUS_DIR/src/include
     -I$__LIB_XL4BUS_DIR/src
-    -I$__LIB_XL4BUS_DIR/ghs_port
     -I$__LIB_XL4BUS_DIR/ghs_port/c-ares
     -I$__LIB_CJOSE_DIR/include
     -I$__LIB_CJOSE_DIR/build-ghs/include/cjose

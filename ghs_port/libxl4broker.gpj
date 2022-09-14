@@ -12,7 +12,7 @@
 	-I$__LIB_XL4BUS_DIR/build-ghs
 	-I$__LIB_XL4BUS_DIR/ghs_port
 	-I$__LIB_XL4BUS_DIR/ghs_port/ghs_misc
-        -I$__LIB_XL4BUS_DIR/ghs_port/src
+	-I$__LIB_XL4BUS_DIR/ghs_port/src
 	-I$__LIB_XL4BUS_DIR/build-ghs/include
 	-I$__LIB_MBEDTLS_DIR/include
 	-I$__LIB_CJOSE_DIR/include
@@ -23,6 +23,7 @@
 	-DCLOCK_MONOTONIC=CLOCK_REALTIME
 	-DCLOCK_MONOTONIC_RAW=CLOCK_REALTIME
 	-DNO_DECLTYPE
+	-DEPOLL_CLOSEXEC=02000000
 	-DLIBRARY_STARTUP_GHS_INTEGRITY
 	-DXL4_PROVIDE_DEBUG=1
 	-Dclean_keyspec=broker_clean_keyspec
@@ -42,5 +43,5 @@ $__LIB_XL4BUS_DIR/src/broker/e900.c
 $__LIB_XL4BUS_DIR/src/broker/crypto.c
 $__LIB_XL4BUS_DIR/src/broker/gather.c
 $__LIB_XL4BUS_DIR/src/broker/hash_tree.c
-$__LIB_XL4BUS_DIR/src/broker/xl4_epoll.c
-$__LIB_XL4BUS_DIR/src/broker/xl4_tablefd.c
+$__LIB_XL4BUS_DIR/src/lib/xl4_epoll.c
+$__LIB_XL4BUS_DIR/src/lib/xl4_tablefd.c

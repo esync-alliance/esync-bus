@@ -2,9 +2,8 @@
 #include <libxl4bus/build_config.h>
 #include "config.h"
 #include "porting.h"
-#include "debug.h"
 #include <libxl4bus/types.h>
-#include "internal.h"
+#include "porting_support.h"
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -271,7 +270,7 @@ void pf_shutdown_rdwr(int fd) {
 
 int pf_start_thread(pf_runnable_t code, void * arg) {
 
-    struct runner_info * info = cfg.malloc(sizeof(struct runner_info));
+    struct runner_info * info = ps_malloc(sizeof(struct runner_info));
     if (!info) {
         pf_set_errno(ENOMEM);
         return 1;
@@ -283,7 +282,7 @@ int pf_start_thread(pf_runnable_t code, void * arg) {
     pthread_t p;
 
     if (pthread_create(&p, 0, thread_runner, info)) {
-        cfg.free(info);
+        ps_free(info);
         return 1;
     }
 
@@ -294,14 +293,14 @@ int pf_start_thread(pf_runnable_t code, void * arg) {
 void * thread_runner(void * arg) {
     struct runner_info info;
     memcpy(&info, arg, sizeof(struct runner_info));
-    cfg.free(arg);
+    ps_free(arg);
     info.code(info.arg);
     return 0;
 }
 
 int pf_init_lock(void ** lock) {
 
-    if (!(*lock = cfg.malloc(sizeof(sem_t)))) {
+    if (!(*lock = ps_malloc(sizeof(sem_t)))) {
         pf_set_errno(ENOMEM);
         return -1;
     }
@@ -326,7 +325,7 @@ void pf_release_lock(void * lock) {
 
     if (lock) {
         sem_destroy(lock);
-        cfg.free(lock);
+        ps_free(lock);
     }
 
 }

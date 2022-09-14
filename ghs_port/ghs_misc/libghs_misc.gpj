@@ -3,8 +3,18 @@
 [Library]
 	-object_dir=objs/libghs_misc
 	-DHAVE_STDLIB_H -DHAVE_STRING_H
-	-DNDEBUG
 	-c99
+	-I$__LIB_XL4BUS_DIR/src
+	-I$__LIB_XL4BUS_DIR/ghs_port
+	-I$__LIB_XL4BUS_DIR/build-ghs/include
+	-I$__LIB_XL4BUS_DIR/src/include
+	-I$__LIB_CJOSE_DIR/include
+	-I$__LIB_CJOSE_DIR/build-ghs/include/cjose
+	-I$__LIB_OPENSSL_DIR/include
+	-I$__LIB_CJOSE_DIR/include
+	-I$__LIB_JSONC_DIR
+	-I$__LIB_JSONC_DIR/build-ghs
+	-I$__LIB_MBEDTLS_DIR/include
 
 $__LIB_GHS_MISC_DIR/strcasestr.c
 $__LIB_XL4BUS_DIR/src/xl4_vasprintf.c

@@ -10,14 +10,17 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <cjose/cjose.h>
+#include <netdb.h>
+#include <assert.h>
+
 #if XL4_SUPPORT_RESOLVER
 #include <ares.h>
 #endif
+
 #include <stdio.h>
 #include <sys/time.h>
 
-#if XL4_HAVE_EPOLL
-#include "qepoll.h"
-#endif
+#include <poll.h>
+#include <fcntl.h>
 
 #endif
