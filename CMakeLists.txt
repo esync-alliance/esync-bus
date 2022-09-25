@@ -1,7 +1,6 @@
 
 cmake_minimum_required(VERSION 3.5)
 project(xl4bus
-    DESCRIPTION "Excelfore eSync Bus"
     LANGUAGES "C"
     )
 
